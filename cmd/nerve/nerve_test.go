@@ -63,7 +63,7 @@ func (w *world) write(path, content string) {
 }
 
 func skillMD(name, extra string) string {
-	return "---\nname: " + name + "\ndescription: Does " + name + ".\n" + extra + "---\n\n# " + name + "\n\n" + overridesHeading + "\n\nRepo wins.\n"
+	return "---\nname: " + name + "\ndescription: Does " + name + ".\n" + extra + "---\n\n# " + name + "\n"
 }
 
 // commitUpstream writes skills/<name>/SKILL.md upstream and returns the commit.
@@ -231,7 +231,7 @@ func TestCheckFlagsOwnSkillsThatBreakTheRules(t *testing.T) {
 	sha := w.commitUpstream(map[string]string{"wizard": skillMD("wizard", "disable-model-invocation: true\n")})
 	w.manifest(sha, "wizard")
 	w.write(filepath.Join(w.root, "skills", "start-project", "SKILL.md"),
-		"---\nname: start-project\ndescription: Starts.\nargument-hint: x\n---\n\nNo overrides.\n")
+		"---\nname: start-project\ndescription: Starts.\nargument-hint: x\n---\n")
 
 	var out strings.Builder
 	err := runCheck(w.root, &out)
@@ -241,7 +241,6 @@ func TestCheckFlagsOwnSkillsThatBreakTheRules(t *testing.T) {
 	}
 	for _, want := range []string{
 		"start-project (own): frontmatter keys claude.ai rejects: argument-hint",
-		"start-project (own): no " + overridesHeading + " section",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())

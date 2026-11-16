@@ -21,8 +21,6 @@ type Skill struct {
 
 func (s Skill) own() bool { return s.Origin == "own" }
 
-const overridesHeading = "## Project overrides"
-
 // claudeAIKeys are the only frontmatter keys claude.ai accepts on upload.
 var claudeAIKeys = []string{"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
 
@@ -189,10 +187,6 @@ func (s Skill) problems() []string {
 	if s.own() {
 		if r := s.claudeAIRejection(); r != "" {
 			p = append(p, r)
-		}
-		b, err := os.ReadFile(filepath.Join(s.Dir, "SKILL.md"))
-		if err != nil || !strings.Contains(string(b), "\n"+overridesHeading+"\n") {
-			p = append(p, "no "+overridesHeading+" section")
 		}
 	}
 	return p
