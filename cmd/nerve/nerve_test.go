@@ -1032,3 +1032,22 @@ func TestSyncRefusesSecretsInTheBrain(t *testing.T) {
 		t.Errorf("settings.json was written from a Brain holding secrets")
 	}
 }
+
+func TestMachineFileRefusesARelativeBrain(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.home, ".config", "nerve", "config.toml"), "brain = \"repo\"\n[[config]]\ndir = \"~/.cfg\"\n")
+
+	if _, err := loadMachine(); err == nil || !strings.Contains(err.Error(), "must be absolute") {
+		t.Fatalf("got %v, want a relative brain refused", err)
+	}
+}
+
+func TestMachineFileRefusesAConfigListedTwice(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.home, ".config", "nerve", "config.toml"),
+		"brain = \"~/repo\"\n[[config]]\ndir = \"~/.cfg\"\n[[config]]\ndir = \""+w.config+"/\"\n")
+
+	if _, err := loadMachine(); err == nil || !strings.Contains(err.Error(), "listed twice") {
+		t.Fatalf("got %v, want the second listing refused", err)
+	}
+}

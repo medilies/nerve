@@ -66,12 +66,21 @@ func loadMachine() (Machine, error) {
 	if m.Brain, err = expandHome(m.Brain); err != nil {
 		return m, err
 	}
+	if !filepath.IsAbs(m.Brain) {
+		return m, fmt.Errorf("%s: brain %q must be absolute or start with ~/", path, m.Brain)
+	}
 	for i := range m.Configs {
 		if m.Configs[i].Dir, err = expandHome(m.Configs[i].Dir); err != nil {
 			return m, err
 		}
 		if !filepath.IsAbs(m.Configs[i].Dir) {
 			return m, fmt.Errorf("%s: config dir %q must be absolute or start with ~/", path, m.Configs[i].Dir)
+		}
+		m.Configs[i].Dir = filepath.Clean(m.Configs[i].Dir)
+		for _, c := range m.Configs[:i] {
+			if c.Dir == m.Configs[i].Dir {
+				return m, fmt.Errorf("%s: config dir %s is listed twice", path, c.Dir)
+			}
 		}
 	}
 	return m, nil
