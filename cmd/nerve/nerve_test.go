@@ -964,3 +964,15 @@ func TestCheckAcceptsAFrontmatterListAtColumnZero(t *testing.T) {
 		t.Fatalf("check failed on valid YAML: %v\n%s", err, out.String())
 	}
 }
+
+func TestCheckCountsDescriptionLengthInCharacters(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"),
+		"---\nname: grill\ndescription: "+strings.Repeat("é", 1000)+"\n---\n") // 2000 bytes
+
+	var out strings.Builder
+	if err := runCheck(w.root, newReport(&out, false)); err != nil {
+		t.Fatalf("check refused a 1000-character description: %v\n%s", err, out.String())
+	}
+}

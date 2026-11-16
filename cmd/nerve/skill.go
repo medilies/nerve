@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // Skill is one skill folder, own or third-party.
@@ -183,8 +184,8 @@ func (s Skill) problems() []string {
 	switch d := s.Meta["description"]; {
 	case d == "":
 		p = append(p, "no description")
-	case len(d) > 1024:
-		p = append(p, fmt.Sprintf("description is %d characters, over 1024", len(d)))
+	case utf8.RuneCountInString(d) > 1024:
+		p = append(p, fmt.Sprintf("description is %d characters, over 1024", utf8.RuneCountInString(d)))
 	}
 	if s.own() {
 		if r := s.claudeAIRejection(); r != "" {
