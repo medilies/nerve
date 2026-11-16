@@ -35,9 +35,11 @@ const (
 	evDiff         = "diff"          // Detail is the upstream diff of Skill
 	evPinned       = "pinned"        // Detail is the source moved to Target
 	evAlreadyThere = "already-pinned"
-	evVersion      = "version" // Detail is the running nerve's version
-	evBrain        = "brain"   // Path is the machine's Brain checkout
-	evConfig       = "config"  // Path is a Claude Code config; Detail its profile
+	evPulled       = "pulled"       // the Brain at Path fast-forwarded to Target
+	evPullSkipped  = "pull-skipped" // the Brain at Path was not pulled; Detail says why
+	evVersion      = "version"      // Detail is the running nerve's version
+	evBrain        = "brain"        // Path is the machine's Brain checkout
+	evConfig       = "config"       // Path is a Claude Code config; Detail its profile
 )
 
 func (e Event) String() string {
@@ -65,6 +67,10 @@ func (e Event) String() string {
 		return e.Detail
 	case evPinned:
 		return fmt.Sprintf("pinned   %s at %s: review the diff above, then commit %s and sync", e.Detail, e.Target, manifestFile)
+	case evPulled:
+		return fmt.Sprintf("pulled   %s to %s", e.Path, e.Target)
+	case evPullSkipped:
+		return fmt.Sprintf("no pull  %s: %s", e.Path, e.Detail)
 	case evVersion:
 		return "nerve    " + e.Detail
 	case evBrain:

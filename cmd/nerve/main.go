@@ -13,7 +13,7 @@ import (
 const usage = `usage: nerve <command>
 
   init <brain> <config>[=<profile>]...  write this machine's file: the Brain's checkout, and each config with its profile
-  sync [--discard]     carry the machine's Brain to each config, build dist/*.zip, report drift;
+  sync [--discard]     pull the machine's Brain, carry it to each config, build dist/*.zip, report drift;
                        --discard overwrites settings changed outside the Brain
   update <repo> [sha]  show the upstream diff of a source's skills, then move its pin
   check                validate the Brain (run by its CI)

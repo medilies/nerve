@@ -604,3 +604,54 @@ func TestStatusNamesTheBrainAndEachConfigsProfile(t *testing.T) {
 		}
 	}
 }
+
+// published makes the Brain a clone of a remote that already has one more
+// commit, and returns that commit.
+func (w *world) published() string {
+	w.t.Helper()
+	remote := filepath.Join(w.home, "brain.git")
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.gitIn(w.root, "init", "-q", "-b", "main")
+	w.gitIn(w.root, "add", "-A")
+	w.gitIn(w.root, "commit", "-q", "-m", "a")
+	w.gitIn(w.home, "clone", "-q", "--bare", w.root, remote)
+	w.gitIn(w.root, "remote", "add", "origin", remote)
+	w.gitIn(w.root, "fetch", "-q", "origin")
+	w.gitIn(w.root, "branch", "-q", "-u", "origin/main")
+	other := filepath.Join(w.home, "other")
+	w.gitIn(w.home, "clone", "-q", remote, other)
+	w.write(filepath.Join(other, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
+	w.gitIn(other, "add", "-A")
+	w.gitIn(other, "commit", "-q", "-m", "b")
+	w.gitIn(other, "push", "-q")
+	return w.gitIn(other, "rev-parse", "HEAD")
+}
+
+func TestSyncPullsTheBrainBeforeCarryingIt(t *testing.T) {
+	w := newWorld(t)
+	head := w.published()
+
+	w.run(syncCmd)
+
+	if got := w.gitIn(w.root, "rev-parse", "HEAD"); got != head {
+		t.Errorf("Brain is at %s, want the pushed %s", got, head)
+	}
+	if _, err := os.Lstat(filepath.Join(w.config, "skills", "grill")); err != nil {
+		t.Errorf("the pulled skill was not linked: %v", err)
+	}
+}
+
+func TestSyncSkipsThePullWhileTheBrainHasUncommittedChanges(t *testing.T) {
+	w := newWorld(t)
+	head := w.published()
+	w.write(filepath.Join(w.root, "instructions", "base.md"), "Draft.\n")
+
+	out := w.run(syncCmd)
+
+	if got := w.gitIn(w.root, "rev-parse", "HEAD"); got == head {
+		t.Errorf("a Brain with uncommitted changes was pulled")
+	}
+	if !strings.Contains(out, "no pull  "+w.root+": uncommitted changes") {
+		t.Errorf("output does not say the pull was skipped:\n%s", out)
+	}
+}

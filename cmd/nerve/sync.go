@@ -14,6 +14,9 @@ import (
 
 func runSync(machine Machine, discard bool, r *report) error {
 	root := machine.Brain
+	if err := pullBrain(root, r); err != nil {
+		return err
+	}
 	m, err := loadManifest(root)
 	if err != nil {
 		return err
