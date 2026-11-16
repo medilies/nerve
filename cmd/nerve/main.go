@@ -17,6 +17,7 @@ const usage = `usage: nerve <command>
                        --discard overwrites settings changed outside the Brain
   update <repo> [sha]  show the upstream diff of a source's skills, then move its pin
   check                validate the Brain (run by its CI)
+  status               say where the machine's Brain is, each config's profile, and nerve's version
 
 check and update work on the Brain around the working directory, else on the machine's.
 --json, with any command, prints one JSON document of its events and error instead of text.
@@ -39,6 +40,8 @@ func run(args []string, r *report) error {
 		return errors.New(usage)
 	}
 	switch {
+	case args[0] == "status" && len(args) == 1:
+		return runStatus(r)
 	case args[0] == "init":
 		return runInit(args[1:], r)
 	case args[0] == "sync" && (len(args) == 1 || len(args) == 2 && args[1] == "--discard"):

@@ -49,6 +49,7 @@ Settings that are sensitive or identifying never go in the Brain: put them in a 
 | To | Do |
 | --- | --- |
 | Install or refresh everything | `nerve sync` |
+| See where the Brain is, each config's profile, and nerve's version | `nerve status` |
 | Edit or add an own skill | Change `skills/<name>/`, then `sync`. Linked from the checkout, so edits are live at once. |
 | Add a third-party skill | Add it to a `[[source]]` in `brain.toml` (a new source needs a full commit SHA), then `sync` |
 | Move a pin | `nerve update <repo> [sha]`: shows the upstream diff, then rewrites the pin. Review it, commit, `sync`. |

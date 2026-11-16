@@ -591,3 +591,16 @@ func TestJSONReportCarriesEventsAndTheError(t *testing.T) {
 		t.Errorf("error is %q, want the drift error", doc.Error)
 	}
 }
+
+func TestStatusNamesTheBrainAndEachConfigsProfile(t *testing.T) {
+	w := newWorld(t)
+	w.profiled()
+
+	out := w.run(func(_ string, out *strings.Builder) error { return runStatus(newReport(out, false)) })
+
+	for _, want := range []string{"brain    " + w.root, "config   " + w.config + " (profile work)", "nerve    "} {
+		if !strings.Contains(out, want) {
+			t.Errorf("status lacks %q:\n%s", want, out)
+		}
+	}
+}
