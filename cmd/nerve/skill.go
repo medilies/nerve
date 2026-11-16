@@ -197,6 +197,9 @@ func (s Skill) problems() []string {
 
 // claudeAIRejection says why claude.ai would refuse the skill, or "".
 func (s Skill) claudeAIRejection() string {
+	if link := folderLink(s.Dir); link != "" {
+		return link + " links to a folder or to nothing, which a zip cannot hold"
+	}
 	var bad []string
 	for k := range s.Meta {
 		if !slices.Contains(claudeAIKeys, k) {
@@ -208,4 +211,27 @@ func (s Skill) claudeAIRejection() string {
 	}
 	slices.Sort(bad)
 	return "frontmatter keys claude.ai rejects: " + strings.Join(bad, ", ")
+}
+
+// folderLink returns the first link in dir, relative to it, that leads to a
+// folder or to nothing, or "". Links to files are fine: zips hold what they
+// point to.
+func folderLink(dir string) string {
+	found := ""
+	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || found != "" {
+			return filepath.SkipAll
+		}
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			if fi, err := os.Stat(path); err != nil || fi.IsDir() {
+				found, _ = filepath.Rel(dir, path)
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+	return found
 }

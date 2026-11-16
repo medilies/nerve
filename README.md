@@ -82,7 +82,7 @@ Settings that are sensitive or identifying never go in the Brain: put them in a 
 - Keeps a marked block at the top of `<config>/CLAUDE.md` that imports `instructions/base.md` and the config's profile instructions. The rest of that file is the machine's own and left alone.
 - Writes `<config>/settings.json` from `settings/base.json`, then the config's profile, then the local overlay. Objects merge key by key, arrays are joined without repeats, and anything else in a later layer wins. `{{brain}}` in any value becomes the Brain's checkout path, for hook and status line scripts kept in the Brain.
 - Leaves `settings.json` alone when a key was changed outside the Brain since nerve last wrote it (by `/model` or `/config`, say) and the Brain disagrees. It prints each such key as drift and fails: move the change into a layer, or `sync --discard`.
-- Builds `dist/<name>.zip` in the Brain for every skill claude.ai accepts. A skill whose frontmatter claude.ai rejects is listed as Claude Code only.
+- Builds `dist/<name>.zip` in the Brain for every skill claude.ai accepts. A skill whose frontmatter claude.ai rejects, or that holds a link to a folder, is listed as Claude Code only.
 - Reports drift on claude.ai. Each config downloads its account's claude.ai skills into `<config>/skills/synced/`, and sync checks that a copy there holds every file of the skill unchanged, printing `missing` or `stale` with the zip to upload.
 
 claude.ai only takes skills uploaded by hand (Customize > Skills > Upload a skill). After a `sync` reports drift, upload the named zips to that account.

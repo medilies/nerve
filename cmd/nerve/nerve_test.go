@@ -976,3 +976,22 @@ func TestCheckCountsDescriptionLengthInCharacters(t *testing.T) {
 		t.Fatalf("check refused a 1000-character description: %v\n%s", err, out.String())
 	}
 }
+
+func TestSyncKeepsASkillThatLinksToAFolderOffClaudeAI(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
+	w.write(filepath.Join(w.home, "shared", "notes.md"), "notes")
+	if err := os.Symlink(filepath.Join(w.home, "shared"), filepath.Join(w.root, "skills", "grill", "refs")); err != nil {
+		t.Fatal(err)
+	}
+
+	out := w.run(syncCmd)
+
+	if _, err := os.Stat(filepath.Join(w.root, "dist", "grill.zip")); !os.IsNotExist(err) {
+		t.Errorf("grill.zip was built without the folder its link leads to")
+	}
+	if !strings.Contains(out, "skipped  grill: Claude Code only (refs links to a folder or to nothing") {
+		t.Errorf("output does not say why grill is skipped:\n%s", out)
+	}
+}
