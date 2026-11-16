@@ -17,6 +17,8 @@ brain.toml               # profiles, and third-party skills pinned to a commit
 skills/<name>/           # own skills
 settings/base.json       # Claude Code settings for every config
 settings/<profile>.json  # settings for configs that follow that profile
+instructions/base.md     # standing instructions for every config
+instructions/<profile>.md
 ```
 
 ```toml
@@ -49,6 +51,7 @@ Settings that are sensitive or identifying never go in the Brain: put them in a 
 | Add a third-party skill | Add it to a `[[source]]` in `brain.toml` (a new source needs a full commit SHA), then `sync` |
 | Move a pin | `nerve update <repo> [sha]`: shows the upstream diff, then rewrites the pin. Review it, commit, `sync`. |
 | Remove a skill | Delete it from `brain.toml` or `skills/`, then `sync` |
+| Change standing instructions | Edit `instructions/base.md` or `instructions/<profile>.md`: imported, so live at the next session |
 | Change a setting | Edit `settings/base.json`, `settings/<profile>.json` or the local overlay, then `sync` |
 | Drop settings changed in Claude Code | `nerve sync --discard` |
 | Validate (in the Brain's CI) | `nerve check` |
@@ -57,6 +60,7 @@ Settings that are sensitive or identifying never go in the Brain: put them in a 
 
 - Links every skill into `<config>/skills/` for each config in the machine file: own skills from the checkout, third-party ones from a cache at their pin.
 - Removes only links it made itself (recorded in `<config>/.nerve.json`), and refuses to replace a real folder. A link with a skill's name is replaced, whoever made it.
+- Keeps a marked block at the top of `<config>/CLAUDE.md` that imports `instructions/base.md` and the config's profile instructions. The rest of that file is the machine's own and left alone.
 - Writes `<config>/settings.json` from `settings/base.json`, then the config's profile, then the local overlay. Objects merge key by key, arrays are joined without repeats, and anything else in a later layer wins. `{{brain}}` in any value becomes the Brain's checkout path, for hook and status line scripts kept in the Brain.
 - Leaves `settings.json` alone when a key was changed outside the Brain since nerve last wrote it (by `/model` or `/config`, say) and the Brain disagrees. It prints each such key as drift and fails: move the change into a layer, or `sync --discard`.
 - Builds `dist/<name>.zip` in the Brain for every skill claude.ai accepts. A skill whose frontmatter claude.ai rejects is listed as Claude Code only.

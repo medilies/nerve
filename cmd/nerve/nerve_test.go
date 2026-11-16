@@ -449,3 +449,39 @@ func TestSyncTakesOverLinksRecordedByTheOldStateFile(t *testing.T) {
 		t.Errorf("the old state file is still there")
 	}
 }
+
+func TestSyncKeepsCLAUDEmdImportingTheBrainsInstructions(t *testing.T) {
+	w := newWorld(t)
+	w.profiled()
+	w.write(filepath.Join(w.root, "instructions", "base.md"), "Be brief.\n")
+	w.write(filepath.Join(w.root, "instructions", "work.md"), "Use the VPN.\n")
+	claude := filepath.Join(w.config, "CLAUDE.md")
+	w.write(claude, "Written on this machine.\n")
+
+	w.run(syncCmd)
+	w.run(syncCmd)
+
+	b, _ := os.ReadFile(claude)
+	want := blockStart + "\n@" + w.root + "/instructions/base.md\n@" + w.root + "/instructions/work.md\n" + blockEnd + "\n\nWritten on this machine.\n"
+	if string(b) != want {
+		t.Errorf("CLAUDE.md is\n%s\nwant\n%s", b, want)
+	}
+
+	os.RemoveAll(filepath.Join(w.root, "instructions"))
+	w.run(syncCmd)
+
+	if b, _ := os.ReadFile(claude); string(b) != "Written on this machine.\n" {
+		t.Errorf("CLAUDE.md is %q once the Brain has no instructions, want only the machine's own text", b)
+	}
+}
+
+func TestSyncLeavesCLAUDEmdAloneWhenTheBrainHasNoInstructions(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+
+	w.run(syncCmd)
+
+	if _, err := os.Stat(filepath.Join(w.config, "CLAUDE.md")); !os.IsNotExist(err) {
+		t.Errorf("sync made a CLAUDE.md with nothing to import")
+	}
+}

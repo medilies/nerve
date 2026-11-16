@@ -27,7 +27,7 @@ func runCheck(root string, out io.Writer) error {
 			bad++
 		}
 	}
-	for _, p := range settingsProblems(root, m) {
+	for _, p := range append(settingsProblems(root, m), instructionsProblems(root, m)...) {
 		fmt.Fprintln(out, p)
 		bad++
 	}
