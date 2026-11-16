@@ -18,18 +18,22 @@ import (
 // removes only its own links.
 const stateFile = ".skills-sync.json"
 
-func runSync(root string, out io.Writer) error {
+func runSync(machine Machine, out io.Writer) error {
+	root := machine.Brain
 	m, err := loadManifest(root)
 	if err != nil {
+		return err
+	}
+	if err := machine.checkProfiles(m); err != nil {
 		return err
 	}
 	skills, err := loadSkills(root, m)
 	if err != nil {
 		return err
 	}
-	configs, err := m.configDirs()
-	if err != nil {
-		return err
+	var configs []string
+	for _, c := range machine.Configs {
+		configs = append(configs, c.Dir)
 	}
 	for _, cfg := range configs {
 		if err := link(filepath.Join(cfg, "skills"), skills, out); err != nil {

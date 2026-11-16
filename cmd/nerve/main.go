@@ -1,5 +1,5 @@
-// Command nerve installs a Brain's own skills and pinned third-party skills
-// into every Claude Code config, builds claude.ai zips, and checks them.
+// Command nerve carries a Brain to every Claude Code config on this machine
+// and to claude.ai, and checks it.
 package main
 
 import (
@@ -12,9 +12,12 @@ import (
 
 const usage = `usage: nerve <command>
 
-  sync              link every skill into each config, build dist/*.zip, report claude.ai drift
+  init <brain> <config>[=<profile>]...  write this machine's file: the Brain's checkout, and each config with its profile
+  sync                 carry the machine's Brain to each config, build dist/*.zip, report drift
   update <repo> [sha]  show the upstream diff of a source's skills, then move its pin
-  check             validate every skill and pin (run by the Brain's CI)
+  check                validate the Brain (run by its CI)
+
+check and update work on the Brain around the working directory, else on the machine's.
 `
 
 func main() {
@@ -28,13 +31,21 @@ func run(args []string, out io.Writer) error {
 	if len(args) == 0 {
 		return errors.New(usage)
 	}
+	switch {
+	case args[0] == "init":
+		return runInit(args[1:], out)
+	case args[0] == "sync" && len(args) == 1:
+		m, err := loadMachine()
+		if err != nil {
+			return err
+		}
+		return runSync(m, out)
+	}
 	root, err := findRoot()
 	if err != nil {
 		return err
 	}
 	switch {
-	case args[0] == "sync" && len(args) == 1:
-		return runSync(root, out)
 	case args[0] == "check" && len(args) == 1:
 		return runCheck(root, out)
 	case args[0] == "update" && len(args) == 2:
@@ -46,7 +57,7 @@ func run(args []string, out io.Writer) error {
 }
 
 // findRoot returns the nearest directory, from the working directory up,
-// that holds the manifest.
+// that holds the manifest, else the machine's Brain.
 func findRoot() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -58,8 +69,13 @@ func findRoot() (string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("no %s in this directory or above", manifestFile)
+			break
 		}
 		dir = parent
 	}
+	m, err := loadMachine()
+	if err != nil {
+		return "", fmt.Errorf("no %s in this directory or above, and %w", manifestFile, err)
+	}
+	return m.Brain, nil
 }

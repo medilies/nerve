@@ -5,18 +5,19 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 )
 
-const manifestFile = "skills.toml"
+const manifestFile = "brain.toml"
 
-// Manifest is the desired state: which configs get skills, and which
-// third-party skills are used at which commit.
+// Manifest is a Brain's brain.toml: its profiles, and which third-party
+// skills it uses at which commit.
 type Manifest struct {
-	Configs []string `toml:"configs"`
-	Sources []Source `toml:"source"`
+	Profiles []string `toml:"profiles"`
+	Sources  []Source `toml:"source"`
 }
 
 // Source is one third-party repo, pinned to a commit.
@@ -41,8 +42,13 @@ func loadManifest(root string) (Manifest, error) {
 	if keys := meta.Undecoded(); len(keys) > 0 {
 		return m, fmt.Errorf("%s: unknown keys %v", manifestFile, keys)
 	}
-	if len(m.Configs) == 0 {
-		return m, fmt.Errorf("%s: no configs", manifestFile)
+	for i, p := range m.Profiles {
+		if !namePattern.MatchString(p) {
+			return m, fmt.Errorf("%s: profile %q must be lowercase words joined by hyphens", manifestFile, p)
+		}
+		if slices.Contains(m.Profiles[:i], p) {
+			return m, fmt.Errorf("%s: profile %q is listed twice", manifestFile, p)
+		}
 	}
 	for _, s := range m.Sources {
 		if !repoPattern.MatchString(s.Repo) {
@@ -58,18 +64,14 @@ func loadManifest(root string) (Manifest, error) {
 	return m, nil
 }
 
-// configDirs expands a leading ~ in each config path.
-func (m Manifest) configDirs() ([]string, error) {
+// expandHome expands a leading ~ in path.
+func expandHome(path string) (string, error) {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	dirs := make([]string, len(m.Configs))
-	for i, c := range m.Configs {
-		if c == "~" || strings.HasPrefix(c, "~/") {
-			c = filepath.Join(home, strings.TrimPrefix(c, "~"))
-		}
-		dirs[i] = c
-	}
-	return dirs, nil
+	return filepath.Join(home, strings.TrimPrefix(path, "~")), nil
 }

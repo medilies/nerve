@@ -23,6 +23,7 @@ func newWorld(t *testing.T) *world {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	// Route https://github.com/ to local repos, and keep the user's git config out.
 	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
@@ -38,6 +39,7 @@ func newWorld(t *testing.T) *world {
 	}
 	w.gitIn(home, "init", "-q", w.upstream)
 	w.gitIn(w.upstream, "config", "uploadpack.allowAnySHA1InWant", "true")
+	w.write(filepath.Join(home, ".config", "nerve", "config.toml"), "brain = \"~/repo\"\n[[config]]\ndir = \"~/.cfg\"\n")
 	return w
 }
 
@@ -82,8 +84,7 @@ func (w *world) manifest(sha string, skills ...string) {
 	for i, s := range skills {
 		quoted[i] = `"` + s + `"`
 	}
-	w.write(filepath.Join(w.root, manifestFile), `configs = ["~/.cfg"]
-[[source]]
+	w.write(filepath.Join(w.root, manifestFile), `[[source]]
 repo = "acme/up"
 sha = "`+sha+`"
 skills = [`+strings.Join(quoted, ", ")+`]
@@ -99,7 +100,13 @@ func (w *world) run(cmd func(string, *strings.Builder) error) string {
 	return out.String()
 }
 
-func syncCmd(root string, out *strings.Builder) error { return runSync(root, out) }
+func syncCmd(_ string, out *strings.Builder) error {
+	m, err := loadMachine()
+	if err != nil {
+		return err
+	}
+	return runSync(m, out)
+}
 
 func linkTarget(t *testing.T, path string) string {
 	t.Helper()
@@ -146,7 +153,7 @@ func TestSyncRefusesToReplaceARealFolder(t *testing.T) {
 	w.write(filepath.Join(w.config, "skills", "grill", "SKILL.md"), "mine")
 
 	var out strings.Builder
-	err := runSync(w.root, &out)
+	err := syncCmd(w.root, &out)
 
 	if err == nil || !strings.Contains(err.Error(), "real folder") {
 		t.Fatalf("got %v, want a refusal to replace the real folder", err)
@@ -283,5 +290,36 @@ func TestSyncHandlesARepoThatIsOneSkillWithoutShippingGitHistory(t *testing.T) {
 		if strings.Contains(f.Name, ".git/") {
 			t.Fatalf("whole.zip ships git history: %s", f.Name)
 		}
+	}
+}
+
+func TestInitWritesTheMachineFileThatSyncFollows(t *testing.T) {
+	w := newWorld(t)
+	os.Remove(filepath.Join(w.home, ".config", "nerve", "config.toml"))
+	w.write(filepath.Join(w.root, manifestFile), "profiles = [\"work\"]\n")
+	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
+
+	w.run(func(_ string, out *strings.Builder) error { return runInit([]string{w.root, "~/.cfg=work"}, out) })
+	w.run(syncCmd)
+
+	if got, want := linkTarget(t, filepath.Join(w.config, "skills", "grill")), filepath.Join(w.root, "skills", "grill"); got != want {
+		t.Errorf("grill links to %s, want %s", got, want)
+	}
+	var out strings.Builder
+	if err := runInit([]string{w.root, "~/.cfg"}, &out); err == nil || !strings.Contains(err.Error(), "exists") {
+		t.Errorf("second init got %v, want a refusal to overwrite the machine file", err)
+	}
+}
+
+func TestSyncRefusesAProfileTheBrainLacks(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "profiles = [\"work\"]\n")
+	w.write(filepath.Join(w.home, ".config", "nerve", "config.toml"), "brain = \"~/repo\"\n[[config]]\ndir = \"~/.cfg\"\nprofile = \"play\"\n")
+
+	var out strings.Builder
+	err := syncCmd(w.root, &out)
+
+	if err == nil || !strings.Contains(err.Error(), `profile "play"`) {
+		t.Fatalf("got %v, want an unknown-profile error", err)
 	}
 }
