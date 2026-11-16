@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,7 +12,7 @@ import (
 	"strings"
 )
 
-func runSync(machine Machine, discard bool, out io.Writer) error {
+func runSync(machine Machine, discard bool, r *report) error {
 	root := machine.Brain
 	m, err := loadManifest(root)
 	if err != nil {
@@ -30,7 +29,7 @@ func runSync(machine Machine, discard bool, out io.Writer) error {
 	drifted := 0
 	for _, c := range machine.Configs {
 		configs = append(configs, c.Dir)
-		held, err := syncConfig(root, c, skills, discard, out)
+		held, err := syncConfig(root, c, skills, discard, r)
 		if err != nil {
 			return err
 		}
@@ -38,10 +37,10 @@ func runSync(machine Machine, discard bool, out io.Writer) error {
 			drifted++
 		}
 	}
-	if err := buildZips(filepath.Join(root, "dist"), skills, out); err != nil {
+	if err := buildZips(filepath.Join(root, "dist"), skills, r); err != nil {
 		return err
 	}
-	if err := reportDrift(configs, skills, out); err != nil {
+	if err := reportDrift(configs, skills, r); err != nil {
 		return err
 	}
 	if drifted > 0 {
@@ -52,7 +51,7 @@ func runSync(machine Machine, discard bool, out io.Writer) error {
 
 // syncConfig carries the Brain to one config and records what it did, even
 // when a step fails part way. It returns whether drift held settings back.
-func syncConfig(root string, c Config, skills []Skill, discard bool, out io.Writer) (held bool, err error) {
+func syncConfig(root string, c Config, skills []Skill, discard bool, r *report) (held bool, err error) {
 	st, err := loadState(c.Dir)
 	if err != nil {
 		return false, err
@@ -62,22 +61,22 @@ func syncConfig(root string, c Config, skills []Skill, discard bool, out io.Writ
 			err = serr
 		}
 	}()
-	if err := link(filepath.Join(c.Dir, "skills"), skills, &st.Links, out); err != nil {
+	if err := link(filepath.Join(c.Dir, "skills"), skills, &st.Links, r); err != nil {
 		return false, err
 	}
-	if err := syncKeybindings(root, c.Dir, &st, out); err != nil {
+	if err := syncKeybindings(root, c.Dir, &st, r); err != nil {
 		return false, err
 	}
-	if err := syncInstructions(root, c, out); err != nil {
+	if err := syncInstructions(root, c, r); err != nil {
 		return false, err
 	}
-	return syncSettings(root, c, &st, discard, out)
+	return syncSettings(root, c, &st, discard, r)
 }
 
 // link makes dir hold exactly one link per skill, plus whatever sync did not
 // make; made lists the links sync made before, and is updated. It never
 // touches a real folder.
-func link(dir string, skills []Skill, made *[]string, out io.Writer) error {
+func link(dir string, skills []Skill, made *[]string, r *report) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -99,7 +98,7 @@ func link(dir string, skills []Skill, made *[]string, out io.Writer) error {
 		if err := os.Symlink(s.Dir, path); err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "linked   %s -> %s\n", path, s.Dir)
+		r.add(Event{Kind: evLinked, Path: path, Target: s.Dir})
 	}
 	for _, name := range *made {
 		if slices.Contains(names, name) {
@@ -110,7 +109,7 @@ func link(dir string, skills []Skill, made *[]string, out io.Writer) error {
 			if err := os.Remove(path); err != nil {
 				return err
 			}
-			fmt.Fprintf(out, "removed  %s\n", path)
+			r.add(Event{Kind: evRemoved, Path: path})
 		}
 	}
 	slices.Sort(names)
@@ -120,7 +119,7 @@ func link(dir string, skills []Skill, made *[]string, out io.Writer) error {
 
 // buildZips writes dist/<name>.zip, ready to upload to claude.ai, for every
 // skill claude.ai accepts.
-func buildZips(dist string, skills []Skill, out io.Writer) error {
+func buildZips(dist string, skills []Skill, r *report) error {
 	if err := os.RemoveAll(dist); err != nil {
 		return err
 	}
@@ -128,8 +127,8 @@ func buildZips(dist string, skills []Skill, out io.Writer) error {
 		return err
 	}
 	for _, s := range skills {
-		if r := s.claudeAIRejection(); r != "" {
-			fmt.Fprintf(out, "skipped  %s: Claude Code only (%s)\n", s.Name, r)
+		if why := s.claudeAIRejection(); why != "" {
+			r.add(Event{Kind: evCodeOnly, Skill: s.Name, Detail: why})
 			continue
 		}
 		if err := zipDir(filepath.Join(dist, s.Name+".zip"), s.Dir, s.Name); err != nil {
@@ -170,34 +169,39 @@ func zipDir(dest, src, prefix string) error {
 
 // reportDrift compares each skill with the copy claude.ai syncs down into
 // each config, and says which zips to upload.
-func reportDrift(configs []string, skills []Skill, out io.Writer) error {
+func reportDrift(configs []string, skills []Skill, r *report) error {
 	for _, cfg := range configs {
 		synced, err := syncedSkills(filepath.Join(cfg, "skills", "synced"))
 		if err != nil {
 			return err
 		}
 		if synced == nil {
-			fmt.Fprintf(out, "claude.ai (account of %s): no synced skills, skipped\n", cfg)
+			r.add(Event{Kind: evAINotSynced, Config: cfg})
 			continue
 		}
-		var lines []string
+		var uploads []Event
 		for _, s := range skills {
 			if s.claudeAIRejection() != "" {
 				continue
 			}
+			e := Event{Kind: evUpload, Skill: s.Name, Config: cfg, Path: "dist/" + s.Name + ".zip"}
 			copies := synced[s.Name]
 			switch {
 			case len(copies) == 0:
-				lines = append(lines, "  missing  "+s.Name+": upload dist/"+s.Name+".zip")
+				e.Detail = "missing"
 			case !slices.ContainsFunc(copies, func(c string) bool { return holds(c, s.Dir) }):
-				lines = append(lines, "  stale    "+s.Name+": upload dist/"+s.Name+".zip")
+				e.Detail = "stale"
+			default:
+				continue
 			}
+			uploads = append(uploads, e)
 		}
-		if len(lines) == 0 {
-			fmt.Fprintf(out, "claude.ai (account of %s): up to date\n", cfg)
-			continue
+		if len(uploads) == 0 {
+			r.add(Event{Kind: evAIUpToDate, Config: cfg})
 		}
-		fmt.Fprintf(out, "claude.ai (account of %s):\n%s\n", cfg, strings.Join(lines, "\n"))
+		for _, e := range uploads {
+			r.add(e)
+		}
 	}
 	return nil
 }

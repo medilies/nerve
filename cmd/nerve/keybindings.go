@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,7 +10,7 @@ import (
 // syncKeybindings links the config's keybindings.json to the Brain's, or
 // removes the link it made once the Brain has none. It never replaces a real
 // file.
-func syncKeybindings(brain, cfg string, st *state, out io.Writer) error {
+func syncKeybindings(brain, cfg string, st *state, r *report) error {
 	src := filepath.Join(brain, "keybindings.json")
 	dst := filepath.Join(cfg, "keybindings.json")
 	_, err := os.Stat(src)
@@ -26,7 +25,7 @@ func syncKeybindings(brain, cfg string, st *state, out io.Writer) error {
 			if err := os.Remove(dst); err != nil {
 				return err
 			}
-			fmt.Fprintf(out, "removed  %s\n", dst)
+			r.add(Event{Kind: evRemoved, Path: dst})
 		}
 		st.Keybindings = false
 		return nil
@@ -46,6 +45,6 @@ func syncKeybindings(brain, cfg string, st *state, out io.Writer) error {
 	if err := os.Symlink(src, dst); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "linked   %s -> %s\n", dst, src)
+	r.add(Event{Kind: evLinked, Path: dst, Target: src})
 	return nil
 }

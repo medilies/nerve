@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -90,7 +89,7 @@ func (m Machine) checkProfiles(b Manifest) error {
 
 // runInit writes the machine file: args are the Brain's checkout, then one
 // <config dir>[=<profile>] per Claude Code config.
-func runInit(args []string, out io.Writer) error {
+func runInit(args []string, r *report) error {
 	if len(args) < 2 {
 		return errors.New(usage)
 	}
@@ -133,6 +132,6 @@ func runInit(args []string, out io.Writer) error {
 	if err := toml.NewEncoder(f).Encode(m); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "wrote %s: run nerve sync\n", path)
+	r.add(Event{Kind: evWrote, Path: path})
 	return f.Close()
 }

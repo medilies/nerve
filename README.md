@@ -57,6 +57,7 @@ Settings that are sensitive or identifying never go in the Brain: put them in a 
 | Change a setting | Edit `settings/base.json`, `settings/<profile>.json` or the local overlay, then `sync` |
 | Drop settings changed in Claude Code | `nerve sync --discard` |
 | Validate (in the Brain's CI) | `nerve check` |
+| Read results from a script or agent | Add `--json` to any command: one JSON document with its `events` and `error` |
 
 ## What sync does
 

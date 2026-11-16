@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,7 +17,7 @@ const (
 
 // syncInstructions keeps the config's CLAUDE.md importing the Brain's base
 // instructions and those of its profile.
-func syncInstructions(brain string, c Config, out io.Writer) error {
+func syncInstructions(brain string, c Config, r *report) error {
 	var imports []string
 	for _, name := range []string{"base", c.Profile} {
 		p := filepath.Join(brain, "instructions", name+".md")
@@ -57,18 +56,18 @@ func syncInstructions(brain string, c Config, out io.Writer) error {
 	if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "wrote    %s\n", path)
+	r.add(Event{Kind: evWrote, Path: path})
 	return nil
 }
 
 // instructionsProblems lists instruction files named after no profile.
-func instructionsProblems(root string, m Manifest) []string {
+func instructionsProblems(root string, m Manifest) []Event {
 	files, _ := filepath.Glob(filepath.Join(root, "instructions", "*.md"))
-	var p []string
+	var p []Event
 	for _, f := range files {
 		name := strings.TrimSuffix(filepath.Base(f), ".md")
 		if name != "base" && !slices.Contains(m.Profiles, name) {
-			p = append(p, fmt.Sprintf("%s: %q is neither base nor a profile in %s", filepath.Join("instructions", filepath.Base(f)), name, manifestFile))
+			p = append(p, Event{Kind: evProblem, Path: filepath.Join("instructions", filepath.Base(f)), Detail: fmt.Sprintf("%q is neither base nor a profile in %s", name, manifestFile)})
 		}
 	}
 	return p

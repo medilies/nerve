@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -147,7 +146,7 @@ func leaves(obj map[string]any, prefix string, out map[string]any) map[string]an
 // Claude Code changed a key since the last write and the Brain does not
 // agree: that drift is reported and the file left alone, or overwritten when
 // discard is set. It returns whether drift held the file back.
-func syncSettings(brain string, c Config, st *state, discard bool, out io.Writer) (bool, error) {
+func syncSettings(brain string, c Config, st *state, discard bool, r *report) (bool, error) {
 	want, err := wantSettings(brain, c)
 	if err != nil {
 		return false, err
@@ -164,15 +163,17 @@ func syncSettings(brain string, c Config, st *state, discard bool, out io.Writer
 		return false, err
 	}
 	have, last, goal := leaves(current, "", nil), leaves(st.Settings, "", nil), leaves(want, "", nil)
-	var drift []string
+	var drift []Event
 	for _, k := range unionKeys(have, last) {
 		if reflect.DeepEqual(have[k], last[k]) || reflect.DeepEqual(have[k], goal[k]) {
 			continue
 		}
-		drift = append(drift, fmt.Sprintf("  local    %s: %s (Brain: %s)", k, show(have, k), show(goal, k)))
+		drift = append(drift, Event{Kind: evDrift, Path: path, Key: k, Local: show(have, k), Brain: show(goal, k)})
 	}
 	if len(drift) > 0 && !discard {
-		fmt.Fprintf(out, "drift    %s: changed outside the Brain, not written (sync --discard overwrites):\n%s\n", path, strings.Join(drift, "\n"))
+		for _, e := range drift {
+			r.add(e)
+		}
 		return true, nil
 	}
 	if current == nil || !reflect.DeepEqual(have, goal) {
@@ -183,7 +184,7 @@ func syncSettings(brain string, c Config, st *state, discard bool, out io.Writer
 		if err := os.WriteFile(path, append(b, '\n'), 0o644); err != nil {
 			return false, err
 		}
-		fmt.Fprintf(out, "wrote    %s\n", path)
+		r.add(Event{Kind: evWrote, Path: path})
 	}
 	st.Settings = want
 	return false, nil
@@ -213,23 +214,23 @@ func show(m map[string]any, k string) string {
 }
 
 // settingsProblems lists what is wrong with a Brain's settings files.
-func settingsProblems(root string, m Manifest) []string {
+func settingsProblems(root string, m Manifest) []Event {
 	files, _ := filepath.Glob(filepath.Join(root, "settings", "*.json"))
-	var p []string
+	var p []Event
 	for _, f := range files {
 		name := strings.TrimSuffix(filepath.Base(f), ".json")
 		rel := filepath.Join("settings", filepath.Base(f))
 		if name != "base" && !slices.Contains(m.Profiles, name) {
-			p = append(p, fmt.Sprintf("%s: %q is neither base nor a profile in %s", rel, name, manifestFile))
+			p = append(p, Event{Kind: evProblem, Path: rel, Detail: fmt.Sprintf("%q is neither base nor a profile in %s", name, manifestFile)})
 		}
 		obj, err := readObject(f)
 		if err != nil {
-			p = append(p, err.Error())
+			p = append(p, Event{Kind: evProblem, Path: rel, Detail: err.Error()})
 			continue
 		}
 		for _, k := range secretKeys {
 			if _, ok := obj[k]; ok {
-				p = append(p, fmt.Sprintf("%s: %s may hold secrets: move it to a local overlay", rel, k))
+				p = append(p, Event{Kind: evProblem, Path: rel, Key: k, Detail: k + " may hold secrets: move it to a local overlay"})
 			}
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -106,7 +107,7 @@ func syncCmd(_ string, out *strings.Builder) error {
 	if err != nil {
 		return err
 	}
-	return runSync(m, false, out)
+	return runSync(m, false, newReport(out, false))
 }
 
 func linkTarget(t *testing.T, path string) string {
@@ -182,7 +183,7 @@ func TestSyncZipsOnlySkillsClaudeAIAccepts(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(w.root, "dist", "wizard.zip")); !os.IsNotExist(err) {
 		t.Errorf("wizard.zip was built, but claude.ai rejects disable-model-invocation")
 	}
-	if !strings.Contains(out, "wizard: Claude Code only (frontmatter keys claude.ai rejects: disable-model-invocation)") {
+	if !strings.Contains(out, "skipped  wizard: Claude Code only (frontmatter keys claude.ai rejects: disable-model-invocation)") {
 		t.Errorf("output does not say why wizard is skipped:\n%s", out)
 	}
 }
@@ -202,14 +203,14 @@ func TestSyncReportsStaleAndMissingClaudeAICopies(t *testing.T) {
 	out := w.run(syncCmd)
 
 	for _, want := range []string{
-		"stale    start-project: upload dist/start-project.zip",
-		"missing  plan: upload dist/plan.zip",
+		"stale    start-project on claude.ai of " + w.config + ": upload dist/start-project.zip",
+		"missing  plan on claude.ai of " + w.config + ": upload dist/plan.zip",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, " grill:") {
+	if strings.Contains(out, " grill ") {
 		t.Errorf("grill matches its claude.ai copy but is reported:\n%s", out)
 	}
 }
@@ -220,7 +221,9 @@ func TestUpdateShowsUpstreamDiffAndMovesThePin(t *testing.T) {
 	w.manifest(oldSHA, "grill")
 	newSHA := w.commitUpstream(map[string]string{"grill": skillMD("grill", "") + "Ask harder.\n"})
 
-	out := w.run(func(root string, out *strings.Builder) error { return runUpdate(root, "acme/up", "", out) })
+	out := w.run(func(root string, out *strings.Builder) error {
+		return runUpdate(root, "acme/up", "", newReport(out, false))
+	})
 
 	if !strings.Contains(out, "+Ask harder.") {
 		t.Errorf("output lacks the upstream change:\n%s", out)
@@ -242,13 +245,13 @@ func TestCheckFlagsOwnSkillsThatBreakTheRules(t *testing.T) {
 		"---\nname: start-project\ndescription: Starts.\nargument-hint: x\n---\n")
 
 	var out strings.Builder
-	err := runCheck(w.root, &out)
+	err := runCheck(w.root, newReport(&out, false))
 
 	if err == nil {
 		t.Fatalf("check passed, want problems:\n%s", out.String())
 	}
 	for _, want := range []string{
-		"start-project (own): frontmatter keys claude.ai rejects: argument-hint",
+		"problem  start-project: frontmatter keys claude.ai rejects: argument-hint (own)",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
@@ -266,7 +269,7 @@ func TestCheckRejectsTwoSkillsWithOneName(t *testing.T) {
 	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
 
 	var out strings.Builder
-	err := runCheck(w.root, &out)
+	err := runCheck(w.root, newReport(&out, false))
 
 	if err == nil || !strings.Contains(err.Error(), `skill "grill" comes from both own and acme/up`) {
 		t.Fatalf("got %v, want a duplicate-name error", err)
@@ -300,14 +303,16 @@ func TestInitWritesTheMachineFileThatSyncFollows(t *testing.T) {
 	w.write(filepath.Join(w.root, manifestFile), "profiles = [\"work\"]\n")
 	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
 
-	w.run(func(_ string, out *strings.Builder) error { return runInit([]string{w.root, "~/.cfg=work"}, out) })
+	w.run(func(_ string, out *strings.Builder) error {
+		return runInit([]string{w.root, "~/.cfg=work"}, newReport(out, false))
+	})
 	w.run(syncCmd)
 
 	if got, want := linkTarget(t, filepath.Join(w.config, "skills", "grill")), filepath.Join(w.root, "skills", "grill"); got != want {
 		t.Errorf("grill links to %s, want %s", got, want)
 	}
 	var out strings.Builder
-	if err := runInit([]string{w.root, "~/.cfg"}, &out); err == nil || !strings.Contains(err.Error(), "exists") {
+	if err := runInit([]string{w.root, "~/.cfg"}, newReport(&out, false)); err == nil || !strings.Contains(err.Error(), "exists") {
 		t.Errorf("second init got %v, want a refusal to overwrite the machine file", err)
 	}
 }
@@ -369,7 +374,7 @@ func TestSyncHoldsBackSettingsChangedOutsideTheBrain(t *testing.T) {
 	var out strings.Builder
 	err := syncCmd(w.root, &out)
 
-	if err == nil || !strings.Contains(out.String(), `local    model: "sonnet" (Brain: "opus")`) {
+	if err == nil || !strings.Contains(out.String(), `model is "sonnet" here, "opus" in the Brain`) {
 		t.Fatalf("got %v, want model reported as drift:\n%s", err, out.String())
 	}
 	if got := w.settings()["theme"]; got != "dark" {
@@ -397,7 +402,7 @@ func TestSyncDiscardOverwritesDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runSync(m, true, &out); err != nil {
+	if err := runSync(m, true, newReport(&out, false)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -413,14 +418,14 @@ func TestCheckRefusesSecretsAndUnknownProfilesInSettings(t *testing.T) {
 	w.write(filepath.Join(w.root, "settings", "play.json"), `{}`)
 
 	var out strings.Builder
-	err := runCheck(w.root, &out)
+	err := runCheck(w.root, newReport(&out, false))
 
 	if err == nil {
 		t.Fatalf("check passed:\n%s", out.String())
 	}
 	for _, want := range []string{
-		"settings/base.json: apiKeyHelper may hold secrets",
-		`settings/play.json: "play" is neither base nor a profile`,
+		"problem  settings/base.json: apiKeyHelper may hold secrets",
+		`problem  settings/play.json: "play" is neither base nor a profile`,
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
@@ -547,11 +552,42 @@ func TestInitStoresConfigDirsThatDoNotDependOnTheWorkingDirectory(t *testing.T) 
 	w.write(filepath.Join(w.root, manifestFile), "")
 	t.Chdir(w.home)
 
-	w.run(func(_ string, out *strings.Builder) error { return runInit([]string{"repo", ".cfg"}, out) })
+	w.run(func(_ string, out *strings.Builder) error {
+		return runInit([]string{"repo", ".cfg"}, newReport(out, false))
+	})
 	t.Chdir(w.root)
 	m, err := loadMachine()
 
 	if err != nil || m.Configs[0].Dir != w.config {
 		t.Errorf("config dir is %v (%v), want %s", m.Configs, err, w.config)
+	}
+}
+
+func TestJSONReportCarriesEventsAndTheError(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.root, "settings", "base.json"), `{"model": "opus"}`)
+	w.write(filepath.Join(w.config, "settings.json"), `{"model": "sonnet"}`)
+	m, err := loadMachine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	r := newReport(&out, true)
+
+	r.finish(runSync(m, false, r))
+
+	var doc struct {
+		Events []Event
+		Error  string
+	}
+	if err := json.Unmarshal([]byte(out.String()), &doc); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out.String())
+	}
+	if !slices.Contains(doc.Events, Event{Kind: evDrift, Path: filepath.Join(w.config, "settings.json"), Key: "model", Local: `"sonnet"`, Brain: `"opus"`}) {
+		t.Errorf("no drift event for model in %+v", doc.Events)
+	}
+	if !strings.Contains(doc.Error, "drifted") {
+		t.Errorf("error is %q, want the drift error", doc.Error)
 	}
 }

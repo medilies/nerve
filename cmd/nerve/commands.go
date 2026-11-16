@@ -4,14 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 )
 
 // runCheck validates the manifest, that every pin resolves, and every skill.
-func runCheck(root string, out io.Writer) error {
+func runCheck(root string, r *report) error {
 	m, err := loadManifest(root)
 	if err != nil {
 		return err
@@ -23,24 +22,24 @@ func runCheck(root string, out io.Writer) error {
 	bad := 0
 	for _, s := range skills {
 		for _, p := range s.problems() {
-			fmt.Fprintf(out, "%s (%s): %s\n", s.Name, s.Origin, p)
+			r.add(Event{Kind: evProblem, Skill: s.Name, Detail: p + " (" + s.Origin + ")"})
 			bad++
 		}
 	}
-	for _, p := range append(settingsProblems(root, m), instructionsProblems(root, m)...) {
-		fmt.Fprintln(out, p)
+	for _, e := range append(settingsProblems(root, m), instructionsProblems(root, m)...) {
+		r.add(e)
 		bad++
 	}
 	if bad > 0 {
 		return fmt.Errorf("%d problems", bad)
 	}
-	fmt.Fprintf(out, "%d skills ok\n", len(skills))
+	r.add(Event{Kind: evOK, Detail: fmt.Sprintf("%d skills ok", len(skills))})
 	return nil
 }
 
 // runUpdate prints how the source's pinned skills differ between the current
 // pin and sha (default: the upstream tip), then moves the pin.
-func runUpdate(root, repo, sha string, out io.Writer) error {
+func runUpdate(root, repo, sha string, r *report) error {
 	m, err := loadManifest(root)
 	if err != nil {
 		return err
@@ -63,7 +62,7 @@ func runUpdate(root, repo, sha string, out io.Writer) error {
 		return errors.New("sha must be a full 40-character lowercase commit")
 	}
 	if sha == src.SHA {
-		fmt.Fprintf(out, "%s is already pinned at %s\n", repo, sha)
+		r.add(Event{Kind: evAlreadyThere, Detail: repo, Target: sha})
 		return nil
 	}
 	oldTree, err := fetch(repo, src.SHA)
@@ -83,9 +82,11 @@ func runUpdate(root, repo, sha string, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("at %s: %w; drop it from %s first", sha[:7], err, manifestFile)
 		}
-		if err := diff(oldDir, newDir, out); err != nil {
+		d, err := diff(oldDir, newDir)
+		if err != nil {
 			return err
 		}
+		r.add(Event{Kind: evDiff, Skill: name, Detail: d})
 	}
 	path := filepath.Join(root, manifestFile)
 	b, err := os.ReadFile(path)
@@ -98,17 +99,18 @@ func runUpdate(root, repo, sha string, out io.Writer) error {
 	if err := os.WriteFile(path, bytes.Replace(b, []byte(src.SHA), []byte(sha), 1), 0o644); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "pinned %s at %s: review the diff above, then commit %s and sync\n", repo, sha, manifestFile)
+	r.add(Event{Kind: evPinned, Detail: repo, Target: sha})
 	return nil
 }
 
-// diff writes a unified diff of two folders; git exits 1 when they differ.
-func diff(a, b string, out io.Writer) error {
+// diff returns a unified diff of two folders; git exits 1 when they differ.
+func diff(a, b string) (string, error) {
+	var out bytes.Buffer
 	cmd := exec.Command("git", "diff", "--no-index", "--no-color", "--", a, b)
-	cmd.Stdout, cmd.Stderr = out, os.Stderr
+	cmd.Stdout, cmd.Stderr = &out, os.Stderr
 	var exit *exec.ExitError
 	if err := cmd.Run(); err != nil && !(errors.As(err, &exit) && exit.ExitCode() == 1) {
-		return err
+		return "", err
 	}
-	return nil
+	return out.String(), nil
 }
