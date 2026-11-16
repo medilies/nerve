@@ -28,6 +28,9 @@ func runSync(machine Machine, discard bool, r *report) error {
 	if err != nil {
 		return err
 	}
+	if skills, err = withSelf(skills); err != nil {
+		return err
+	}
 	var configs []string
 	drifted := 0
 	for _, c := range machine.Configs {
@@ -130,6 +133,9 @@ func buildZips(dist string, skills []Skill, r *report) error {
 		return err
 	}
 	for _, s := range skills {
+		if s.Origin == selfOrigin {
+			continue // it needs the CLI and a Brain checkout, which claude.ai lacks
+		}
 		if why := s.claudeAIRejection(); why != "" {
 			r.add(Event{Kind: evCodeOnly, Skill: s.Name, Detail: why})
 			continue
@@ -184,7 +190,7 @@ func reportDrift(configs []string, skills []Skill, r *report) error {
 		}
 		var uploads []Event
 		for _, s := range skills {
-			if s.claudeAIRejection() != "" {
+			if s.Origin == selfOrigin || s.claudeAIRejection() != "" {
 				continue
 			}
 			e := Event{Kind: evUpload, Skill: s.Name, Config: cfg, Path: "dist/" + s.Name + ".zip"}

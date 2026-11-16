@@ -10,6 +10,12 @@ Surfaces today: Claude Code configs, and claude.ai accounts by manual upload.
 go install github.com/medilies/nerve/cmd/nerve@latest
 ```
 
+Then, on each machine, write its machine file once with `nerve init` (see [This machine](#this-machine)) and run `nerve sync`. From then on, use nerve through its skill.
+
+## The nerve skill
+
+`sync` installs a `nerve` skill into every config, carried by the binary so the two always match. Through it you ask Claude to sync, check or move a pin, to sort out settings drift, or to remember something ("remember that I always…"): it picks the right place in the Brain, shows the diff, and commits, pushes and syncs once you agree. It is never zipped for claude.ai, which has neither the CLI nor the Brain.
+
 ## A Brain
 
 ```
@@ -63,7 +69,7 @@ Settings that are sensitive or identifying never go in the Brain: put them in a 
 ## What sync does
 
 - Pulls the Brain first, fast-forward only. It skips the pull while the checkout has uncommitted changes or no upstream, and fails if the checkout has diverged.
-- Links every skill into `<config>/skills/` for each config in the machine file: own skills from the checkout, third-party ones from a cache at their pin.
+- Links every skill into `<config>/skills/` for each config in the machine file: own skills from the checkout, third-party ones from a cache at their pin, and the nerve skill from the binary.
 - Removes only links it made itself (recorded in `<config>/.nerve.json`), and refuses to replace a real folder. A link with a skill's name is replaced, whoever made it.
 - Links `<config>/keybindings.json` to the Brain's, so edits made from Claude Code land in the Brain. It refuses to replace a real file.
 - Keeps a marked block at the top of `<config>/CLAUDE.md` that imports `instructions/base.md` and the config's profile instructions. The rest of that file is the machine's own and left alone.

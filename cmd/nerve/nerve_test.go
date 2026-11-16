@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -653,5 +654,48 @@ func TestSyncSkipsThePullWhileTheBrainHasUncommittedChanges(t *testing.T) {
 	}
 	if !strings.Contains(out, "no pull  "+w.root+": uncommitted changes") {
 		t.Errorf("output does not say the pull was skipped:\n%s", out)
+	}
+}
+
+func TestSyncInstallsNervesOwnSkillButNeverForClaudeAI(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.config, "skills", "synced", "bucket", "other", "SKILL.md"), skillMD("other", ""))
+
+	out := w.run(syncCmd)
+
+	b, err := os.ReadFile(filepath.Join(w.config, "skills", "nerve", "SKILL.md"))
+	if err != nil || !bytes.Equal(b, selfSkill) {
+		t.Fatalf("the nerve skill is not installed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(w.root, "dist", "nerve.zip")); !os.IsNotExist(err) {
+		t.Errorf("nerve.zip was built for claude.ai")
+	}
+	if strings.Contains(out, "nerve on claude.ai") {
+		t.Errorf("the nerve skill was reported for upload:\n%s", out)
+	}
+}
+
+func TestNervesOwnSkillMeetsTheSkillRules(t *testing.T) {
+	newWorld(t)
+	s, err := installSelf()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := s.problems(); len(p) > 0 {
+		t.Errorf("the nerve skill breaks the rules: %v", p)
+	}
+}
+
+func TestSyncRefusesABrainSkillNamedNerve(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.root, "skills", "nerve", "SKILL.md"), skillMD("nerve", ""))
+
+	var out strings.Builder
+	err := syncCmd(w.root, &out)
+
+	if err == nil || !strings.Contains(err.Error(), "takes the name of nerve's own skill") {
+		t.Fatalf("got %v, want a name clash error", err)
 	}
 }
