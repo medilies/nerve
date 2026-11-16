@@ -13,9 +13,10 @@ import (
 
 const manifestFile = "brain.toml"
 
-// Manifest is a Brain's brain.toml: its profiles, and which third-party
-// skills it uses at which commit.
+// Manifest is a Brain's brain.toml: the nerve release it is carried by, its
+// profiles, and which third-party skills it uses at which commit.
 type Manifest struct {
+	Nerve    string   `toml:"nerve"`
 	Profiles []string `toml:"profiles"`
 	Sources  []Source `toml:"source"`
 }
@@ -41,6 +42,9 @@ func loadManifest(root string) (Manifest, error) {
 	}
 	if keys := meta.Undecoded(); len(keys) > 0 {
 		return m, fmt.Errorf("%s: unknown keys %v", manifestFile, keys)
+	}
+	if m.Nerve != "" && !tagPattern.MatchString(m.Nerve) {
+		return m, fmt.Errorf("%s: nerve %q must be a release tag such as v1.2.3", manifestFile, m.Nerve)
 	}
 	for i, p := range m.Profiles {
 		if !namePattern.MatchString(p) {

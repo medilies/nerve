@@ -22,24 +22,26 @@ type Event struct {
 
 // Kinds of Event.
 const (
-	evLinked       = "linked"        // Path now links to Target
-	evRemoved      = "removed"       // a link at Path that nerve made
-	evWrote        = "wrote"         // Path
-	evCodeOnly     = "code-only"     // Skill is not zipped for claude.ai; Detail says why
-	evDrift        = "drift"         // settings Key at Path changed outside the Brain, from Brain to Local
-	evUpload       = "upload"        // Skill is missing (Detail "missing") or stale on the claude.ai account of Config; Path is the zip
-	evAIUpToDate   = "claude.ai-ok"  // the claude.ai account of Config holds every skill
-	evAINotSynced  = "claude.ai-off" // Config has no synced claude.ai skills to compare
-	evProblem      = "problem"       // Detail is wrong with Skill or Path
-	evOK           = "ok"            // Detail
-	evDiff         = "diff"          // Detail is the upstream diff of Skill
-	evPinned       = "pinned"        // Detail is the source moved to Target
-	evAlreadyThere = "already-pinned"
-	evPulled       = "pulled"       // the Brain at Path fast-forwarded to Target
-	evPullSkipped  = "pull-skipped" // the Brain at Path was not pulled; Detail says why
-	evVersion      = "version"      // Detail is the running nerve's version
-	evBrain        = "brain"        // Path is the machine's Brain checkout
-	evConfig       = "config"       // Path is a Claude Code config; Detail its profile
+	evLinked         = "linked"        // Path now links to Target
+	evRemoved        = "removed"       // a link at Path that nerve made
+	evWrote          = "wrote"         // Path
+	evCodeOnly       = "code-only"     // Skill is not zipped for claude.ai; Detail says why
+	evDrift          = "drift"         // settings Key at Path changed outside the Brain, from Brain to Local
+	evUpload         = "upload"        // Skill is missing (Detail "missing") or stale on the claude.ai account of Config; Path is the zip
+	evAIUpToDate     = "claude.ai-ok"  // the claude.ai account of Config holds every skill
+	evAINotSynced    = "claude.ai-off" // Config has no synced claude.ai skills to compare
+	evProblem        = "problem"       // Detail is wrong with Skill or Path
+	evOK             = "ok"            // Detail
+	evDiff           = "diff"          // Detail is the upstream diff of Skill
+	evPinned         = "pinned"        // Detail is the source moved to Target
+	evAlreadyThere   = "already-pinned"
+	evPulled         = "pulled"          // the Brain at Path fast-forwarded to Target
+	evPullSkipped    = "pull-skipped"    // the Brain at Path was not pulled; Detail says why
+	evVersion        = "version"         // Detail is the running nerve's version; Target the Brain's pin
+	evUpgraded       = "upgraded"        // nerve at Path went from Detail to the pinned Target
+	evUpgradeSkipped = "upgrade-skipped" // a development build (Detail) ran instead of the pinned Target
+	evBrain          = "brain"           // Path is the machine's Brain checkout
+	evConfig         = "config"          // Path is a Claude Code config; Detail its profile
 )
 
 func (e Event) String() string {
@@ -72,7 +74,14 @@ func (e Event) String() string {
 	case evPullSkipped:
 		return fmt.Sprintf("no pull  %s: %s", e.Path, e.Detail)
 	case evVersion:
+		if e.Target != "" && e.Target != e.Detail {
+			return fmt.Sprintf("nerve    %s (the Brain pins %s: sync to upgrade)", e.Detail, e.Target)
+		}
 		return "nerve    " + e.Detail
+	case evUpgraded:
+		return fmt.Sprintf("upgraded %s from %s to %s", e.Path, e.Detail, e.Target)
+	case evUpgradeSkipped:
+		return fmt.Sprintf("kept     nerve %s, a development build, though the Brain pins %s", e.Detail, e.Target)
 	case evBrain:
 		return "brain    " + e.Path
 	case evConfig:

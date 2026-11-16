@@ -6,6 +6,8 @@ Surfaces today: Claude Code configs, and claude.ai accounts by manual upload.
 
 ## Install
 
+Download the binary for your system from the [releases](https://github.com/medilies/nerve/releases) onto your `PATH` as `nerve`, or:
+
 ```sh
 go install github.com/medilies/nerve/cmd/nerve@latest
 ```
@@ -19,7 +21,7 @@ Then, on each machine, write its machine file once with `nerve init` (see [This 
 ## A Brain
 
 ```
-brain.toml               # profiles, and third-party skills pinned to a commit
+brain.toml               # the nerve release, profiles, and third-party skills pinned to a commit
 skills/<name>/           # own skills
 settings/base.json       # Claude Code settings for every config
 settings/<profile>.json  # settings for configs that follow that profile
@@ -30,6 +32,7 @@ hooks/                   # any scripts settings run, referenced as {{brain}}/hoo
 ```
 
 ```toml
+nerve = "v0.1.0"                 # the release that carries this Brain
 profiles = ["personal", "work"]
 
 [[source]]
@@ -63,12 +66,14 @@ Settings that are sensitive or identifying never go in the Brain: put them in a 
 | Change standing instructions | Edit `instructions/base.md` or `instructions/<profile>.md`: imported, so live at the next session |
 | Change a setting | Edit `settings/base.json`, `settings/<profile>.json` or the local overlay, then `sync` |
 | Drop settings changed in Claude Code | `nerve sync --discard` |
-| Validate (in the Brain's CI) | `nerve check` |
+| Move to a new nerve release | Change `nerve` in `brain.toml`, commit, `sync` |
+| Validate (in the Brain's CI) | `go run github.com/medilies/nerve/cmd/nerve@$(sed -n 's/^nerve = "\(.*\)"$/\1/p' brain.toml) check` |
 | Read results from a script or agent | Add `--json` to any command: one JSON document with its `events` and `error` |
 
 ## What sync does
 
 - Pulls the Brain first, fast-forward only. It skips the pull while the checkout has uncommitted changes or no upstream, and fails if the checkout has diverged.
+- Brings nerve itself to the Brain's `nerve` release: it downloads that release, checks it against the release's `checksums.txt`, replaces itself and runs the new binary in its place. A development build (built from source, not a release) is kept.
 - Links every skill into `<config>/skills/` for each config in the machine file: own skills from the checkout, third-party ones from a cache at their pin, and the nerve skill from the binary.
 - Removes only links it made itself (recorded in `<config>/.nerve.json`), and refuses to replace a real folder. A link with a skill's name is replaced, whoever made it.
 - Links `<config>/keybindings.json` to the Brain's, so edits made from Claude Code land in the Brain. It refuses to replace a real file.

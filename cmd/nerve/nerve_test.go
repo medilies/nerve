@@ -3,10 +3,16 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -697,5 +703,97 @@ func TestSyncRefusesABrainSkillNamedNerve(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "takes the name of nerve's own skill") {
 		t.Fatalf("got %v, want a name clash error", err)
+	}
+}
+
+// fakeRelease serves a release of nerve at tag holding bin, with its
+// checksum, and points the upgrade at it, at a stand-in binary path, and at a
+// recorded re-run. It returns that path and the recorded re-runs.
+func (w *world) fakeRelease(running, tag string, bin []byte, sum string) (string, *[]string) {
+	w.t.Helper()
+	asset := "nerve_" + runtime.GOOS + "_" + runtime.GOARCH
+	if sum == "" {
+		h := sha256.Sum256(bin)
+		sum = hex.EncodeToString(h[:])
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/" + tag + "/checksums.txt":
+			fmt.Fprintf(rw, "%s  %s\n", sum, asset)
+		case "/" + tag + "/" + asset:
+			rw.Write(bin)
+		default:
+			http.NotFound(rw, req)
+		}
+	}))
+	w.t.Cleanup(srv.Close)
+	self := filepath.Join(w.home, "bin", "nerve")
+	w.write(self, "old binary")
+	var reruns []string
+	oldURL, oldSelf, oldExec, oldVersion := releaseURL, selfPath, reexec, version
+	releaseURL, version = srv.URL, running
+	selfPath = func() (string, error) { return self, nil }
+	reexec = func(path string, env []string) error {
+		reruns = append(reruns, path+" "+env[len(env)-1])
+		return nil
+	}
+	w.t.Cleanup(func() { releaseURL, selfPath, reexec, version = oldURL, oldSelf, oldExec, oldVersion })
+	w.write(filepath.Join(w.root, manifestFile), "nerve = \""+tag+"\"\n")
+	return self, &reruns
+}
+
+func TestSyncUpgradesNerveToTheBrainsPinAndRunsItInstead(t *testing.T) {
+	w := newWorld(t)
+	self, reruns := w.fakeRelease("v0.1.0", "v0.2.0", []byte("new binary"), "")
+
+	w.run(syncCmd)
+
+	if b, _ := os.ReadFile(self); string(b) != "new binary" {
+		t.Errorf("binary is %q, want the pinned release", b)
+	}
+	if want := []string{self + " " + upgradedEnv + "=v0.2.0"}; !slices.Equal(*reruns, want) {
+		t.Errorf("re-runs are %v, want %v", *reruns, want)
+	}
+
+	// The re-run is the pinned release, and says what it upgraded from.
+	version = "v0.2.0"
+	t.Setenv(upgradedFromEnv, "v0.1.0")
+	t.Setenv(upgradedEnv, "v0.2.0")
+	out := w.run(syncCmd)
+
+	if !strings.Contains(out, "upgraded "+self+" from v0.1.0 to v0.2.0") {
+		t.Errorf("the re-run does not report the upgrade:\n%s", out)
+	}
+	if len(*reruns) != 1 {
+		t.Errorf("the re-run upgraded again: %v", *reruns)
+	}
+}
+
+func TestSyncRefusesAReleaseThatFailsItsChecksum(t *testing.T) {
+	w := newWorld(t)
+	self, reruns := w.fakeRelease("v0.1.0", "v0.2.0", []byte("tampered"), strings.Repeat("0", 64))
+
+	var out strings.Builder
+	err := syncCmd(w.root, &out)
+
+	if err == nil || !strings.Contains(err.Error(), "does not match checksums.txt") {
+		t.Fatalf("got %v, want a checksum error", err)
+	}
+	if b, _ := os.ReadFile(self); string(b) != "old binary" || len(*reruns) > 0 {
+		t.Errorf("binary %q replaced or re-run %v despite a bad checksum", b, *reruns)
+	}
+}
+
+func TestSyncLeavesADevelopmentBuildInPlace(t *testing.T) {
+	w := newWorld(t)
+	self, reruns := w.fakeRelease("(devel)", "v0.2.0", []byte("new binary"), "")
+
+	out := w.run(syncCmd)
+
+	if b, _ := os.ReadFile(self); string(b) != "old binary" || len(*reruns) > 0 {
+		t.Errorf("a development build was replaced")
+	}
+	if !strings.Contains(out, "kept     nerve (devel), a development build, though the Brain pins v0.2.0") {
+		t.Errorf("output does not say the upgrade was skipped:\n%s", out)
 	}
 }

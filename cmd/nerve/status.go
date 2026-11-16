@@ -19,8 +19,13 @@ func currentVersion() string {
 // runStatus says where this machine's Brain is, which profile each config
 // follows, and which nerve is running.
 func runStatus(r *report) error {
-	r.add(Event{Kind: evVersion, Detail: currentVersion()})
 	m, err := loadMachine()
+	if err != nil {
+		r.add(Event{Kind: evVersion, Detail: currentVersion()})
+		return err
+	}
+	b, err := loadManifest(m.Brain)
+	r.add(Event{Kind: evVersion, Detail: currentVersion(), Target: b.Nerve})
 	if err != nil {
 		return err
 	}
