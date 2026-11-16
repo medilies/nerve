@@ -1016,3 +1016,19 @@ func TestSyncWritesThroughALinkedCLAUDEmd(t *testing.T) {
 		t.Errorf("the linked file is %q, want the nerve block over its own text", b)
 	}
 }
+
+func TestSyncRefusesSecretsInTheBrain(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.root, "settings", "base.json"), `{"env": {"TOKEN": "x"}}`)
+
+	var out strings.Builder
+	err := syncCmd(w.root, &out)
+
+	if err == nil || !strings.Contains(err.Error(), "may hold secrets") {
+		t.Fatalf("got %v, want a refusal of secrets", err)
+	}
+	if _, err := os.Stat(filepath.Join(w.config, "settings.json")); !os.IsNotExist(err) {
+		t.Errorf("settings.json was written from a Brain holding secrets")
+	}
+}

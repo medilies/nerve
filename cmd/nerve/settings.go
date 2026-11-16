@@ -223,14 +223,26 @@ func settingsProblems(root string, m Manifest) []Event {
 		if name != "base" && !slices.Contains(m.Profiles, name) {
 			p = append(p, Event{Kind: evProblem, Path: rel, Detail: fmt.Sprintf("%q is neither base nor a profile in %s", name, manifestFile)})
 		}
+		if _, err := readObject(f); err != nil {
+			p = append(p, Event{Kind: evProblem, Path: rel, Detail: err.Error()})
+		}
+	}
+	return append(p, secretProblems(root)...)
+}
+
+// secretProblems lists settings in the Brain that may hold secrets. Both
+// check and sync refuse them, since a Brain may be public.
+func secretProblems(root string) []Event {
+	files, _ := filepath.Glob(filepath.Join(root, "settings", "*.json"))
+	var p []Event
+	for _, f := range files {
 		obj, err := readObject(f)
 		if err != nil {
-			p = append(p, Event{Kind: evProblem, Path: rel, Detail: err.Error()})
-			continue
+			continue // settingsProblems reports it; sync fails on it when it reads the layer
 		}
 		for _, k := range secretKeys {
 			if _, ok := obj[k]; ok {
-				p = append(p, Event{Kind: evProblem, Path: rel, Key: k, Detail: k + " may hold secrets: move it to a local overlay"})
+				p = append(p, Event{Kind: evProblem, Path: filepath.Join("settings", filepath.Base(f)), Key: k, Detail: k + " may hold secrets: move it to a local overlay"})
 			}
 		}
 	}

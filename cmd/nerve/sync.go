@@ -26,6 +26,12 @@ func runSync(machine Machine, discard bool, r *report) error {
 	if err := upgradeToPin(m, r); err != nil {
 		return err
 	}
+	if secrets := secretProblems(root); len(secrets) > 0 {
+		for _, e := range secrets {
+			r.add(e)
+		}
+		return fmt.Errorf("%d settings in the Brain may hold secrets: move them to a local overlay", len(secrets))
+	}
 	if err := machine.checkProfiles(m); err != nil {
 		return err
 	}
