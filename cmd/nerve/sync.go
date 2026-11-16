@@ -170,7 +170,6 @@ func zipDir(dest, src, prefix string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	zw := zip.NewWriter(f)
 	err = filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -188,10 +187,13 @@ func zipDir(dest, src, prefix string) error {
 		_, err = w.Write(b)
 		return err
 	})
-	if err != nil {
-		return err
+	if err == nil {
+		err = zw.Close()
 	}
-	return zw.Close()
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 // reportDrift compares each skill with the copy claude.ai syncs down into
