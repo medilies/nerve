@@ -19,7 +19,7 @@ Then read the Brain's own `README.md`, `GLOSSARY.md`, `CLAUDE.md` or `AGENTS.md`
 ## The Brain's layout
 
 ```
-brain.toml               # profiles = [...], and [[source]] third-party skills pinned to a full SHA
+brain.toml               # nerve = "vX.Y.Z" release, profiles = [...], and [[source]] third-party skills pinned to a full SHA
 .gitignore               # ignores /dist/, the zips sync builds for claude.ai
 skills/<name>/SKILL.md   # own skills
 settings/base.json       # Claude Code settings for every config
