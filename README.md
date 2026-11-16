@@ -91,6 +91,7 @@ claude.ai only takes skills uploaded by hand (Customize > Skills > Upload a skil
 
 - `check` and `sync` refuse settings that may hold secrets, such as `env` and `apiKeyHelper`, in the Brain.
 
+- Third-party skills and the nerve skill are linked from nerve's folder in the user cache. If the system clears that cache, those links break until the next `sync`.
 - `nerve-checksums` guards against a release replaced after you pinned it: `curl -sL https://github.com/medilies/nerve/releases/download/<tag>/checksums.txt | sha256sum`.
 - A personal skill always wins over a project's skill of the same name; nothing changes that. Own skills can defer to a project in their own text.
 - Decisions: [docs/adr/](docs/adr/).
