@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,6 +40,10 @@ const (
 	upgradedEnv     = "NERVE_UPGRADED_TO"
 	upgradedFromEnv = "NERVE_UPGRADED_FROM"
 )
+
+// earlierEventsEnv carries a --json run's events into the run that replaces
+// it, so its one document still holds them.
+const earlierEventsEnv = "NERVE_EARLIER_EVENTS"
 
 // upgradeToPin replaces the running binary with the Brain's pinned release
 // and runs it in its place. It does nothing when there is no pin or the pin
@@ -86,7 +91,13 @@ func upgradeToPin(m Manifest, r *report) error {
 	if err := os.Rename(tmp, path); err != nil {
 		return err
 	}
-	return reexec(path, append(os.Environ(), upgradedFromEnv+"="+running, upgradedEnv+"="+pin))
+	env := os.Environ()
+	if r.json {
+		// The re-run starts a new report: hand it the events so far.
+		b, _ := json.Marshal(r.events)
+		env = append(env, earlierEventsEnv+"="+string(b))
+	}
+	return reexec(path, append(env, upgradedFromEnv+"="+running, upgradedEnv+"="+pin))
 }
 
 // fetchRelease downloads this platform's binary of release tag and checks it

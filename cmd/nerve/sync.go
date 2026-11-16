@@ -14,8 +14,10 @@ import (
 
 func runSync(machine Machine, discard bool, r *report) error {
 	root := machine.Brain
-	if err := pullBrain(root, r); err != nil {
-		return err
+	if os.Getenv(upgradedEnv) == "" { // a re-run after an upgrade has pulled already
+		if err := pullBrain(root, r); err != nil {
+			return err
+		}
 	}
 	m, err := loadManifest(root)
 	if err != nil {

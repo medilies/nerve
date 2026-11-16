@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,6 +27,7 @@ type world struct {
 	root     string
 	upstream string // fake github.com/acme/up
 	config   string
+	rerunEnv []string // the environment of the last re-run after an upgrade
 }
 
 func newWorld(t *testing.T) *world {
@@ -736,6 +738,7 @@ func (w *world) fakeRelease(running, tag string, bin []byte, sum string) (string
 	selfPath = func() (string, error) { return self, nil }
 	reexec = func(path string, env []string) error {
 		reruns = append(reruns, path+" "+env[len(env)-1])
+		w.rerunEnv = env
 		return nil
 	}
 	w.t.Cleanup(func() {
@@ -892,5 +895,41 @@ func TestSyncRefusesAReleaseWhoseChecksumsTheBrainDoesNotPin(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(self); string(b) != "old binary" || len(*reruns) > 0 {
 		t.Errorf("binary %q replaced or re-run %v despite unpinned checksums", b, *reruns)
+	}
+}
+
+func TestJSONSyncKeepsWhatHappenedBeforeAnUpgrade(t *testing.T) {
+	w := newWorld(t)
+	w.published()
+	w.fakeRelease("v0.1.0", "v0.2.0", []byte("new binary"), "") // edits brain.toml, so the pull is skipped
+	m, err := loadMachine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runSync(m, false, newReport(io.Discard, true)); err != nil {
+		t.Fatal(err)
+	}
+
+	// The re-run is the pinned release, started with the environment the upgrade gave it.
+	version = "v0.2.0"
+	for _, kv := range w.rerunEnv {
+		if k, v, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "NERVE_") {
+			t.Setenv(k, v)
+		}
+	}
+	var out strings.Builder
+	r := newReport(&out, true)
+	r.finish(runSync(m, false, r))
+
+	var doc struct{ Events []Event }
+	if err := json.Unmarshal([]byte(out.String()), &doc); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out.String())
+	}
+	var kinds []string
+	for _, e := range doc.Events {
+		kinds = append(kinds, e.Kind)
+	}
+	if !slices.Contains(kinds, evUpgraded) || slices.Index(kinds, evPullSkipped) != 0 || slices.Contains(kinds[1:], evPullSkipped) {
+		t.Errorf("events are %v, want the first run's one pull-skipped, then the upgrade", kinds)
 	}
 }

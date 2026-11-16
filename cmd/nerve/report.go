@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 )
 
 // Event is one thing a command did or found. Kind says which; the other
@@ -103,7 +104,15 @@ type report struct {
 	events []Event
 }
 
-func newReport(w io.Writer, asJSON bool) *report { return &report{w: w, json: asJSON} }
+// newReport starts a report. A --json run that replaced an older nerve picks
+// up the events that one gathered before it handed over.
+func newReport(w io.Writer, asJSON bool) *report {
+	r := &report{w: w, json: asJSON}
+	if earlier := os.Getenv(earlierEventsEnv); asJSON && earlier != "" {
+		json.Unmarshal([]byte(earlier), &r.events)
+	}
+	return r
+}
 
 func (r *report) add(e Event) {
 	if r.json {
