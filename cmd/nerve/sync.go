@@ -30,28 +30,12 @@ func runSync(machine Machine, discard bool, out io.Writer) error {
 	drifted := 0
 	for _, c := range machine.Configs {
 		configs = append(configs, c.Dir)
-		st, err := loadState(c.Dir)
-		if err != nil {
-			return err
-		}
-		if err := link(filepath.Join(c.Dir, "skills"), skills, &st.Links, out); err != nil {
-			return err
-		}
-		if err := syncKeybindings(root, c.Dir, &st, out); err != nil {
-			return err
-		}
-		if err := syncInstructions(root, c, out); err != nil {
-			return err
-		}
-		held, err := syncSettings(root, c, &st, discard, out)
+		held, err := syncConfig(root, c, skills, discard, out)
 		if err != nil {
 			return err
 		}
 		if held {
 			drifted++
-		}
-		if err := saveState(c.Dir, st); err != nil {
-			return err
 		}
 	}
 	if err := buildZips(filepath.Join(root, "dist"), skills, out); err != nil {
@@ -61,9 +45,33 @@ func runSync(machine Machine, discard bool, out io.Writer) error {
 		return err
 	}
 	if drifted > 0 {
-		return fmt.Errorf("settings of %d configs drifted: move each change into the Brain, or sync --discard", drifted)
+		return fmt.Errorf("settings drifted in %d of %d configs: move each change into the Brain, or sync --discard", drifted, len(configs))
 	}
 	return nil
+}
+
+// syncConfig carries the Brain to one config and records what it did, even
+// when a step fails part way. It returns whether drift held settings back.
+func syncConfig(root string, c Config, skills []Skill, discard bool, out io.Writer) (held bool, err error) {
+	st, err := loadState(c.Dir)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if serr := saveState(c.Dir, st); err == nil {
+			err = serr
+		}
+	}()
+	if err := link(filepath.Join(c.Dir, "skills"), skills, &st.Links, out); err != nil {
+		return false, err
+	}
+	if err := syncKeybindings(root, c.Dir, &st, out); err != nil {
+		return false, err
+	}
+	if err := syncInstructions(root, c, out); err != nil {
+		return false, err
+	}
+	return syncSettings(root, c, &st, discard, out)
 }
 
 // link makes dir hold exactly one link per skill, plus whatever sync did not

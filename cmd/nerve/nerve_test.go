@@ -520,3 +520,38 @@ func TestSyncRefusesToReplaceRealKeybindings(t *testing.T) {
 		t.Fatalf("got %v, want a refusal to replace the real keybindings.json", err)
 	}
 }
+
+func TestSyncRecordsItsLinksEvenWhenALaterStepFails(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
+	w.write(filepath.Join(w.root, "keybindings.json"), `[]`)
+	w.write(filepath.Join(w.config, "keybindings.json"), `["mine"]`) // makes sync fail after linking
+
+	var out strings.Builder
+	if err := syncCmd(w.root, &out); err == nil {
+		t.Fatal("sync passed despite a real keybindings.json")
+	}
+	os.Remove(filepath.Join(w.config, "keybindings.json"))
+	os.RemoveAll(filepath.Join(w.root, "skills", "grill"))
+	w.run(syncCmd)
+
+	if _, err := os.Lstat(filepath.Join(w.config, "skills", "grill")); !os.IsNotExist(err) {
+		t.Errorf("grill was linked by a failed sync and never removed once the Brain dropped it")
+	}
+}
+
+func TestInitStoresConfigDirsThatDoNotDependOnTheWorkingDirectory(t *testing.T) {
+	w := newWorld(t)
+	os.Remove(filepath.Join(w.home, ".config", "nerve", "config.toml"))
+	w.write(filepath.Join(w.root, manifestFile), "")
+	t.Chdir(w.home)
+
+	w.run(func(_ string, out *strings.Builder) error { return runInit([]string{"repo", ".cfg"}, out) })
+	t.Chdir(w.root)
+	m, err := loadMachine()
+
+	if err != nil || m.Configs[0].Dir != w.config {
+		t.Errorf("config dir is %v (%v), want %s", m.Configs, err, w.config)
+	}
+}

@@ -71,6 +71,9 @@ func loadMachine() (Machine, error) {
 		if m.Configs[i].Dir, err = expandHome(m.Configs[i].Dir); err != nil {
 			return m, err
 		}
+		if !filepath.IsAbs(m.Configs[i].Dir) {
+			return m, fmt.Errorf("%s: config dir %q must be absolute or start with ~/", path, m.Configs[i].Dir)
+		}
 	}
 	return m, nil
 }
@@ -109,6 +112,11 @@ func runInit(args []string, out io.Writer) error {
 	m := Machine{Brain: brain}
 	for _, arg := range args[1:] {
 		dir, profile, _ := strings.Cut(arg, "=")
+		if dir != "~" && !strings.HasPrefix(dir, "~/") {
+			if dir, err = filepath.Abs(dir); err != nil {
+				return err
+			}
+		}
 		m.Configs = append(m.Configs, Config{Dir: dir, Profile: profile})
 	}
 	if err := m.checkProfiles(b); err != nil {
