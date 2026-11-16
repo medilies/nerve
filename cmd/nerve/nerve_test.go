@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -105,7 +106,7 @@ func syncCmd(_ string, out *strings.Builder) error {
 	if err != nil {
 		return err
 	}
-	return runSync(m, out)
+	return runSync(m, false, out)
 }
 
 func linkTarget(t *testing.T, path string) string {
@@ -321,5 +322,130 @@ func TestSyncRefusesAProfileTheBrainLacks(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), `profile "play"`) {
 		t.Fatalf("got %v, want an unknown-profile error", err)
+	}
+}
+
+// profiled points the machine's one config at profile work, and lists it in
+// the Brain.
+func (w *world) profiled() {
+	w.write(filepath.Join(w.root, manifestFile), "profiles = [\"work\"]\n")
+	w.write(filepath.Join(w.home, ".config", "nerve", "config.toml"), "brain = \"~/repo\"\n[[config]]\ndir = \"~/.cfg\"\nprofile = \"work\"\n")
+}
+
+func (w *world) settings() map[string]any {
+	w.t.Helper()
+	obj, err := readObject(filepath.Join(w.config, "settings.json"))
+	if err != nil || obj == nil {
+		w.t.Fatalf("settings.json: %v, %v", obj, err)
+	}
+	return obj
+}
+
+func TestSyncLaysBaseProfileAndLocalOverlayIntoSettings(t *testing.T) {
+	w := newWorld(t)
+	w.profiled()
+	w.write(filepath.Join(w.root, "settings", "base.json"), `{"theme": "dark", "model": "sonnet", "permissions": {"deny": ["NotebookEdit"]}}`)
+	w.write(filepath.Join(w.root, "settings", "work.json"), `{"model": "opus", "permissions": {"deny": ["CronCreate", "NotebookEdit"]}, "statusLine": {"command": "{{brain}}/hooks/status.sh"}}`)
+	w.write(filepath.Join(w.home, ".config", "nerve", "overlays", "work.json"), `{"env": {"TOKEN": "x"}}`)
+
+	w.run(syncCmd)
+
+	got, _ := json.Marshal(w.settings())
+	want := `{"env":{"TOKEN":"x"},"model":"opus","permissions":{"deny":["NotebookEdit","CronCreate"]},"statusLine":{"command":"` + w.root + `/hooks/status.sh"},"theme":"dark"}`
+	if string(got) != want {
+		t.Errorf("settings.json is\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestSyncHoldsBackSettingsChangedOutsideTheBrain(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	base := filepath.Join(w.root, "settings", "base.json")
+	w.write(base, `{"model": "opus", "theme": "dark"}`)
+	w.run(syncCmd)
+	w.write(filepath.Join(w.config, "settings.json"), `{"model": "sonnet", "theme": "dark"}`) // as /model would
+	w.write(base, `{"model": "opus", "theme": "light"}`)
+
+	var out strings.Builder
+	err := syncCmd(w.root, &out)
+
+	if err == nil || !strings.Contains(out.String(), `local    model: "sonnet" (Brain: "opus")`) {
+		t.Fatalf("got %v, want model reported as drift:\n%s", err, out.String())
+	}
+	if got := w.settings()["theme"]; got != "dark" {
+		t.Errorf("a drifted settings.json was rewritten: theme %v", got)
+	}
+
+	w.write(base, `{"model": "sonnet", "theme": "light"}`) // the change moved into the Brain
+	w.run(syncCmd)
+	if got := w.settings()["theme"]; got != "light" {
+		t.Errorf("theme is %v once the Brain agrees, want light", got)
+	}
+}
+
+func TestSyncDiscardOverwritesDrift(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.root, "settings", "base.json"), `{"model": "opus"}`)
+	w.write(filepath.Join(w.config, "settings.json"), `{"model": "sonnet", "hand": true}`) // never written by sync
+
+	var out strings.Builder
+	if err := syncCmd(w.root, &out); err == nil || !strings.Contains(err.Error(), "drifted") {
+		t.Fatalf("got %v, want drift: sync must not write over settings it never wrote:\n%s", err, out.String())
+	}
+	m, err := loadMachine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runSync(m, true, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, _ := json.Marshal(w.settings()); string(got) != `{"model":"opus"}` {
+		t.Errorf("settings.json after --discard is %s", got)
+	}
+}
+
+func TestCheckRefusesSecretsAndUnknownProfilesInSettings(t *testing.T) {
+	w := newWorld(t)
+	w.profiled()
+	w.write(filepath.Join(w.root, "settings", "base.json"), `{"apiKeyHelper": "pass show anthropic"}`)
+	w.write(filepath.Join(w.root, "settings", "play.json"), `{}`)
+
+	var out strings.Builder
+	err := runCheck(w.root, &out)
+
+	if err == nil {
+		t.Fatalf("check passed:\n%s", out.String())
+	}
+	for _, want := range []string{
+		"settings/base.json: apiKeyHelper may hold secrets",
+		`settings/play.json: "play" is neither base nor a profile`,
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestSyncTakesOverLinksRecordedByTheOldStateFile(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	old := filepath.Join(w.config, "skills", "gone")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(w.home, old); err != nil {
+		t.Fatal(err)
+	}
+	w.write(filepath.Join(w.config, legacyStateFile), `["gone"]`)
+
+	w.run(syncCmd)
+
+	if _, err := os.Lstat(old); !os.IsNotExist(err) {
+		t.Errorf("a link recorded in the old state file was left behind")
+	}
+	if _, err := os.Stat(filepath.Join(w.config, legacyStateFile)); !os.IsNotExist(err) {
+		t.Errorf("the old state file is still there")
 	}
 }

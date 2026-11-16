@@ -3,7 +3,6 @@ package main
 import (
 	"archive/zip"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,11 +13,7 @@ import (
 	"strings"
 )
 
-// stateFile records, in each config's skills dir, the links sync made, so it
-// removes only its own links.
-const stateFile = ".skills-sync.json"
-
-func runSync(machine Machine, out io.Writer) error {
+func runSync(machine Machine, discard bool, out io.Writer) error {
 	root := machine.Brain
 	m, err := loadManifest(root)
 	if err != nil {
@@ -32,31 +27,45 @@ func runSync(machine Machine, out io.Writer) error {
 		return err
 	}
 	var configs []string
+	drifted := 0
 	for _, c := range machine.Configs {
 		configs = append(configs, c.Dir)
-	}
-	for _, cfg := range configs {
-		if err := link(filepath.Join(cfg, "skills"), skills, out); err != nil {
+		st, err := loadState(c.Dir)
+		if err != nil {
+			return err
+		}
+		if err := link(filepath.Join(c.Dir, "skills"), skills, &st.Links, out); err != nil {
+			return err
+		}
+		held, err := syncSettings(root, c, &st, discard, out)
+		if err != nil {
+			return err
+		}
+		if held {
+			drifted++
+		}
+		if err := saveState(c.Dir, st); err != nil {
 			return err
 		}
 	}
 	if err := buildZips(filepath.Join(root, "dist"), skills, out); err != nil {
 		return err
 	}
-	return reportDrift(configs, skills, out)
+	if err := reportDrift(configs, skills, out); err != nil {
+		return err
+	}
+	if drifted > 0 {
+		return fmt.Errorf("settings of %d configs drifted: move each change into the Brain, or sync --discard", drifted)
+	}
+	return nil
 }
 
 // link makes dir hold exactly one link per skill, plus whatever sync did not
-// make. It never touches a real folder.
-func link(dir string, skills []Skill, out io.Writer) error {
+// make; made lists the links sync made before, and is updated. It never
+// touches a real folder.
+func link(dir string, skills []Skill, made *[]string, out io.Writer) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
-	}
-	var made []string
-	if b, err := os.ReadFile(filepath.Join(dir, stateFile)); err == nil {
-		if err := json.Unmarshal(b, &made); err != nil {
-			return fmt.Errorf("%s: %w", filepath.Join(dir, stateFile), err)
-		}
 	}
 	var names []string
 	for _, s := range skills {
@@ -78,7 +87,7 @@ func link(dir string, skills []Skill, out io.Writer) error {
 		}
 		fmt.Fprintf(out, "linked   %s -> %s\n", path, s.Dir)
 	}
-	for _, name := range made {
+	for _, name := range *made {
 		if slices.Contains(names, name) {
 			continue
 		}
@@ -91,8 +100,8 @@ func link(dir string, skills []Skill, out io.Writer) error {
 		}
 	}
 	slices.Sort(names)
-	b, _ := json.MarshalIndent(names, "", "  ")
-	return os.WriteFile(filepath.Join(dir, stateFile), append(b, '\n'), 0o644)
+	*made = names
+	return nil
 }
 
 // buildZips writes dist/<name>.zip, ready to upload to claude.ai, for every

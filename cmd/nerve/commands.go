@@ -27,6 +27,10 @@ func runCheck(root string, out io.Writer) error {
 			bad++
 		}
 	}
+	for _, p := range settingsProblems(root, m) {
+		fmt.Fprintln(out, p)
+		bad++
+	}
 	if bad > 0 {
 		return fmt.Errorf("%d problems", bad)
 	}

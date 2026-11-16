@@ -13,7 +13,8 @@ import (
 const usage = `usage: nerve <command>
 
   init <brain> <config>[=<profile>]...  write this machine's file: the Brain's checkout, and each config with its profile
-  sync                 carry the machine's Brain to each config, build dist/*.zip, report drift
+  sync [--discard]     carry the machine's Brain to each config, build dist/*.zip, report drift;
+                       --discard overwrites settings changed outside the Brain
   update <repo> [sha]  show the upstream diff of a source's skills, then move its pin
   check                validate the Brain (run by its CI)
 
@@ -34,12 +35,12 @@ func run(args []string, out io.Writer) error {
 	switch {
 	case args[0] == "init":
 		return runInit(args[1:], out)
-	case args[0] == "sync" && len(args) == 1:
+	case args[0] == "sync" && (len(args) == 1 || len(args) == 2 && args[1] == "--discard"):
 		m, err := loadMachine()
 		if err != nil {
 			return err
 		}
-		return runSync(m, out)
+		return runSync(m, len(args) == 2, out)
 	}
 	root, err := findRoot()
 	if err != nil {
