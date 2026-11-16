@@ -37,6 +37,9 @@ func runSync(machine Machine, discard bool, out io.Writer) error {
 		if err := link(filepath.Join(c.Dir, "skills"), skills, &st.Links, out); err != nil {
 			return err
 		}
+		if err := syncKeybindings(root, c.Dir, &st, out); err != nil {
+			return err
+		}
 		if err := syncInstructions(root, c, out); err != nil {
 			return err
 		}

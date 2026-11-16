@@ -10,8 +10,9 @@ import (
 // state is what sync last did to one config, kept in <config>/.nerve.json,
 // so it removes only its own links and can tell edits made outside the Brain.
 type state struct {
-	Links    []string       `json:"links"`              // skill links it made
-	Settings map[string]any `json:"settings,omitempty"` // settings.json as last written
+	Links       []string       `json:"links"`                 // skill links it made
+	Settings    map[string]any `json:"settings,omitempty"`    // settings.json as last written
+	Keybindings bool           `json:"keybindings,omitempty"` // whether it linked keybindings.json
 }
 
 const (

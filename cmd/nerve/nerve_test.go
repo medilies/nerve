@@ -485,3 +485,38 @@ func TestSyncLeavesCLAUDEmdAloneWhenTheBrainHasNoInstructions(t *testing.T) {
 		t.Errorf("sync made a CLAUDE.md with nothing to import")
 	}
 }
+
+func TestSyncLinksKeybindingsAndUnlinksThemWhenTheBrainDropsThem(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	src := filepath.Join(w.root, "keybindings.json")
+	w.write(src, `[]`)
+	dst := filepath.Join(w.config, "keybindings.json")
+
+	w.run(syncCmd)
+
+	if got := linkTarget(t, dst); got != src {
+		t.Errorf("keybindings.json links to %s, want %s", got, src)
+	}
+
+	os.Remove(src)
+	w.run(syncCmd)
+
+	if _, err := os.Lstat(dst); !os.IsNotExist(err) {
+		t.Errorf("keybindings.json is still linked after the Brain dropped it")
+	}
+}
+
+func TestSyncRefusesToReplaceRealKeybindings(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.root, "keybindings.json"), `[]`)
+	w.write(filepath.Join(w.config, "keybindings.json"), `["mine"]`)
+
+	var out strings.Builder
+	err := syncCmd(w.root, &out)
+
+	if err == nil || !strings.Contains(err.Error(), "real file") {
+		t.Fatalf("got %v, want a refusal to replace the real keybindings.json", err)
+	}
+}
