@@ -9,7 +9,9 @@ import (
 
 // pullBrain fast-forwards the Brain's checkout from its upstream. It skips a
 // checkout that is not a git repo, has no upstream, or has uncommitted
-// changes, and fails when the checkout has diverged.
+// changes to tracked files, and fails when the checkout has diverged.
+// Untracked files, such as dist/ in a Brain that does not ignore it, never
+// block a fast-forward; git refuses on its own if one would be overwritten.
 func pullBrain(brain string, r *report) error {
 	if _, err := os.Stat(filepath.Join(brain, ".git")); err != nil {
 		return nil
@@ -18,7 +20,7 @@ func pullBrain(brain string, r *report) error {
 		r.add(Event{Kind: evPullSkipped, Path: brain, Detail: "no upstream branch"})
 		return nil
 	}
-	if out, err := git(brain, "status", "--porcelain"); err != nil || strings.TrimSpace(out) != "" {
+	if out, err := git(brain, "status", "--porcelain", "--untracked-files=no"); err != nil || strings.TrimSpace(out) != "" {
 		r.add(Event{Kind: evPullSkipped, Path: brain, Detail: "uncommitted changes"})
 		return nil
 	}

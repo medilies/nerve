@@ -651,7 +651,7 @@ func TestSyncPullsTheBrainBeforeCarryingIt(t *testing.T) {
 func TestSyncSkipsThePullWhileTheBrainHasUncommittedChanges(t *testing.T) {
 	w := newWorld(t)
 	head := w.published()
-	w.write(filepath.Join(w.root, "instructions", "base.md"), "Draft.\n")
+	w.write(filepath.Join(w.root, manifestFile), "profiles = []\n") // a tracked file, edited
 
 	out := w.run(syncCmd)
 
@@ -795,5 +795,22 @@ func TestSyncLeavesADevelopmentBuildInPlace(t *testing.T) {
 	}
 	if !strings.Contains(out, "kept     nerve (devel), a development build, though the Brain pins v0.2.0") {
 		t.Errorf("output does not say the upgrade was skipped:\n%s", out)
+	}
+}
+
+func TestSyncKeepsPullingOnceItHasBuiltZipsIntoTheBrain(t *testing.T) {
+	w := newWorld(t)
+	w.published()
+	w.run(syncCmd) // builds dist/ in a Brain that does not ignore it
+	other := filepath.Join(w.home, "other")
+	w.write(filepath.Join(other, "skills", "plan", "SKILL.md"), skillMD("plan", ""))
+	w.gitIn(other, "add", "-A")
+	w.gitIn(other, "commit", "-q", "-m", "c")
+	w.gitIn(other, "push", "-q")
+
+	w.run(syncCmd)
+
+	if got, want := w.gitIn(w.root, "rev-parse", "HEAD"), w.gitIn(other, "rev-parse", "HEAD"); got != want {
+		t.Errorf("Brain is at %s, want the pushed %s: untracked dist/ blocked the pull", got, want)
 	}
 }
