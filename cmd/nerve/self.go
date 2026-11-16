@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	_ "embed"
-	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -14,10 +13,8 @@ import (
 //go:embed skill/SKILL.md
 var selfSkill []byte
 
-const selfOrigin = "nerve"
-
 // installSelf writes the binary's skill into the user cache, where sync links
-// it from like any other skill.
+// it from.
 func installSelf() (Skill, error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {
@@ -33,20 +30,5 @@ func installSelf() (Skill, error) {
 			return Skill{}, err
 		}
 	}
-	return newSkill("nerve", dir, selfOrigin)
-}
-
-// withSelf adds the nerve skill to the Brain's skills, which must not have
-// one of that name.
-func withSelf(skills []Skill) ([]Skill, error) {
-	self, err := installSelf()
-	if err != nil {
-		return nil, err
-	}
-	for _, s := range skills {
-		if s.Name == self.Name {
-			return nil, fmt.Errorf("skill %q from %s takes the name of nerve's own skill: rename it", s.Name, s.Origin)
-		}
-	}
-	return append(skills, self), nil
+	return newSkill("nerve", dir)
 }

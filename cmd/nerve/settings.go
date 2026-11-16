@@ -214,18 +214,29 @@ func show(m map[string]any, k string) string {
 }
 
 // settingsProblems lists what is wrong with a Brain's settings files.
-func settingsProblems(root string, m Manifest) []Event {
+func settingsProblems(root string, m Manifest, mk Marketplace) []Event {
 	files, _ := filepath.Glob(filepath.Join(root, "settings", "*.json"))
 	var p []Event
+	declared := mk.Name == "" // whether base declares the Brain's marketplace, if it has one
 	for _, f := range files {
 		name := strings.TrimSuffix(filepath.Base(f), ".json")
 		rel := filepath.Join("settings", filepath.Base(f))
 		if name != "base" && !slices.Contains(m.Profiles, name) {
 			p = append(p, Event{Kind: evProblem, Path: rel, Detail: fmt.Sprintf("%q is neither base nor a profile in %s", name, manifestFile)})
 		}
-		if _, err := readObject(f); err != nil {
+		layer, err := readObject(f)
+		if err != nil {
 			p = append(p, Event{Kind: evProblem, Path: rel, Detail: err.Error()})
+			continue
 		}
+		if markets, _ := layer["extraKnownMarketplaces"].(map[string]any); name == "base" && markets[mk.Name] != nil {
+			declared = true
+		}
+		p = append(p, mk.unlistedPlugins(rel, layer)...)
+	}
+	if !declared {
+		p = append(p, Event{Kind: evProblem, Path: filepath.Join("settings", "base.json"), Key: "extraKnownMarketplaces",
+			Detail: fmt.Sprintf("declares no %q, so configs never install the plugins in %s", mk.Name, marketplaceFile)})
 	}
 	return append(p, secretProblems(root)...)
 }

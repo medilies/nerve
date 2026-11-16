@@ -1,5 +1,5 @@
-// Command nerve carries a Brain to every Claude Code config on this machine
-// and to claude.ai, and checks it.
+// Command nerve carries a Brain to every Claude Code config on this machine,
+// and checks it.
 package main
 
 import (
@@ -16,9 +16,9 @@ const usage = `usage: nerve <command>
   help                 print this
 
   init <brain> <config>[=<profile>]...  write this machine's file: the Brain's checkout, and each config with its profile
-  sync [--discard]     pull the machine's Brain, carry it to each config, build dist/*.zip, report drift;
+  sync [--discard]     pull the machine's Brain, carry it to each config, report drift;
                        --discard overwrites settings changed outside the Brain
-  update <repo> [sha]  show the upstream diff of a source's skills, then move its pin
+  update <repo> [sha]  show the upstream diff of the plugins pinned in a repo, then move their pins
   check                validate the Brain (run by its CI)
   status               say where the machine's Brain is, each config's profile, and nerve's version
 

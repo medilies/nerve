@@ -6,51 +6,38 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
-func repoURL(repo string) string { return "https://github.com/" + repo + ".git" }
-
-// fetch returns a checkout of repo at sha, cached under the user cache dir.
-func fetch(repo, sha string) (string, error) {
-	cache, err := os.UserCacheDir()
+// fetchCommits returns a bare repo, in a new temp folder the caller removes,
+// that holds the given commits of the repo at url.
+func fetchCommits(url string, shas ...string) (string, error) {
+	dir, err := os.MkdirTemp("", "nerve-")
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(cache, "nerve", repo, sha)
-	if _, err := os.Stat(dir); err == nil {
-		return dir, nil
-	}
-	tmp := dir + ".tmp"
-	if err := os.RemoveAll(tmp); err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(tmp, 0o755); err != nil {
-		return "", err
-	}
 	for _, args := range [][]string{
-		{"init", "-q"},
-		{"fetch", "-q", "--depth", "1", repoURL(repo), sha},
-		{"-c", "advice.detachedHead=false", "checkout", "-q", "FETCH_HEAD"},
+		{"init", "-q", "--bare"},
+		append([]string{"fetch", "-q", "--depth", "1", "--", url}, shas...),
 	} {
-		if _, err := git(tmp, args...); err != nil {
-			os.RemoveAll(tmp)
-			return "", fmt.Errorf("fetch %s@%s: %w", repo, sha[:7], err)
+		if _, err := git(dir, args...); err != nil {
+			os.RemoveAll(dir)
+			return "", fmt.Errorf("fetch %s: %w", url, err)
 		}
 	}
-	return dir, os.Rename(tmp, dir)
+	return dir, nil
 }
 
-// remoteHead returns the commit at the tip of repo's default branch.
-func remoteHead(repo string) (string, error) {
-	out, err := git("", "ls-remote", repoURL(repo), "HEAD")
+// remoteHead returns the commit at the tip of the default branch of the repo
+// at url.
+func remoteHead(url string) (string, error) {
+	out, err := git("", "ls-remote", "--", url, "HEAD")
 	if err != nil {
 		return "", err
 	}
 	sha, _, _ := strings.Cut(out, "\t")
 	if !shaPattern.MatchString(sha) {
-		return "", fmt.Errorf("no HEAD for %s", repo)
+		return "", fmt.Errorf("no HEAD for %s", url)
 	}
 	return sha, nil
 }

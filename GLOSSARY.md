@@ -23,6 +23,10 @@ _Avoid_: my skill, custom skill, local skill
 A skill written in someone else's repo and used in a Brain at a pinned commit.
 _Avoid_: external skill, vendored skill
 
+**Plugin**:
+A named set of skills that Claude installs from a Brain and invokes under the plugin's name; a Brain's own skills form one plugin, and each third-party skill is a plugin of its own.
+_Avoid_: package, bundle
+
 **Pin**:
 The exact commit a third-party skill, or the Nervous system itself, is used at.
 _Avoid_: version, lock

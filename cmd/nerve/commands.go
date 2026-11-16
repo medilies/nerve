@@ -4,113 +4,116 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"slices"
 )
 
-// runCheck validates the manifest, that every pin resolves, and every skill.
+// runCheck validates the manifest, the settings, the instructions and the
+// plugins.
 func runCheck(root string, r *report) error {
 	m, err := loadManifest(root)
 	if err != nil {
 		return err
 	}
-	skills, err := loadSkills(root, m)
+	mk, err := loadMarketplace(root)
 	if err != nil {
 		return err
 	}
-	bad := 0
-	for _, s := range skills {
-		for _, p := range s.problems() {
-			r.add(Event{Kind: evProblem, Skill: s.Name, Detail: p + " (" + s.Origin + ")"})
-			bad++
-		}
+	problems, err := marketplaceProblems(root, mk)
+	if err != nil {
+		return err
 	}
-	for _, e := range append(settingsProblems(root, m), instructionsProblems(root, m)...) {
+	problems = append(problems, settingsProblems(root, m, mk)...)
+	problems = append(problems, instructionsProblems(root, m)...)
+	for _, e := range problems {
 		r.add(e)
-		bad++
 	}
-	if bad > 0 {
-		return fmt.Errorf("%d problems", bad)
+	if len(problems) > 0 {
+		return fmt.Errorf("%d problems", len(problems))
 	}
-	r.add(Event{Kind: evOK, Detail: fmt.Sprintf("%d skills ok", len(skills))})
+	r.add(Event{Kind: evOK, Detail: "no problems"})
 	return nil
 }
 
-// runUpdate prints how the source's pinned skills differ between the current
-// pin and sha (default: the upstream tip), then moves the pin.
+// runUpdate prints how each plugin pinned in repo differs between its pin and
+// sha (default: the upstream tip), then moves the pins.
 func runUpdate(root, repo, sha string, r *report) error {
-	m, err := loadManifest(root)
+	mk, err := loadMarketplace(root)
 	if err != nil {
 		return err
 	}
-	var src *Source
-	for i := range m.Sources {
-		if m.Sources[i].Repo == repo {
-			src = &m.Sources[i]
+	repo = repoName(repo)
+	var pinned []Plugin
+	for _, p := range mk.Plugins {
+		if p.Source.Path != "" || p.Source.repo() != repo {
+			continue
 		}
+		if !shaPattern.MatchString(p.Source.SHA) {
+			return fmt.Errorf("%s: %s pins no full commit sha", marketplaceFile, p.Name)
+		}
+		pinned = append(pinned, p)
 	}
-	if src == nil {
-		return fmt.Errorf("%s is not a source in %s", repo, manifestFile)
+	if len(pinned) == 0 {
+		return fmt.Errorf("no plugin in %s comes from %s", marketplaceFile, repo)
 	}
 	if sha == "" {
-		if sha, err = remoteHead(repo); err != nil {
+		if sha, err = remoteHead(repoURL(repo)); err != nil {
 			return err
 		}
 	}
 	if !shaPattern.MatchString(sha) {
 		return errors.New("sha must be a full 40-character lowercase commit")
 	}
-	if sha == src.SHA {
+	moved := map[string]int{} // old pin -> plugins at it
+	for _, p := range pinned {
+		if p.Source.SHA != sha {
+			moved[p.Source.SHA]++
+		}
+	}
+	if len(moved) == 0 {
 		r.add(Event{Kind: evAlreadyThere, Detail: repo, Target: sha})
 		return nil
 	}
-	oldTree, err := fetch(repo, src.SHA)
+	olds := slices.Sorted(maps.Keys(moved))
+	dir, err := fetchCommits(repoURL(repo), append(olds, sha)...)
 	if err != nil {
 		return err
 	}
-	newTree, err := fetch(repo, sha)
-	if err != nil {
-		return err
-	}
-	for _, name := range src.Skills {
-		oldDir, err := findSkill(oldTree, name)
+	defer os.RemoveAll(dir)
+	for _, p := range pinned {
+		if p.Source.SHA == sha {
+			continue
+		}
+		folder := p.Source.folder()
+		if !holds(dir, sha, folder) {
+			return fmt.Errorf("%s: no %s at %s; drop the plugin from %s first", p.Name, folder, sha[:7], marketplaceFile)
+		}
+		args := []string{"diff", "--no-color", p.Source.SHA, sha, "--"}
+		if folder != "" {
+			args = append(args, folder)
+		}
+		d, err := git(dir, args...)
 		if err != nil {
 			return err
 		}
-		newDir, err := findSkill(newTree, name)
-		if err != nil {
-			return fmt.Errorf("at %s: %w; drop it from %s first", sha[:7], err, manifestFile)
-		}
-		d, err := diff(oldDir, newDir)
-		if err != nil {
-			return err
-		}
-		r.add(Event{Kind: evDiff, Skill: name, Detail: d})
+		r.add(Event{Kind: evDiff, Plugin: p.Name, Detail: d})
 	}
-	path := filepath.Join(root, manifestFile)
+	path := filepath.Join(root, marketplaceFile)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	if bytes.Count(b, []byte(src.SHA)) != 1 {
-		return fmt.Errorf("%s: pin %s must appear exactly once", manifestFile, src.SHA)
+	for _, old := range olds {
+		if bytes.Count(b, []byte(old)) != moved[old] {
+			return fmt.Errorf("%s: pin %s must appear once per plugin pinned at it", marketplaceFile, old)
+		}
+		b = bytes.ReplaceAll(b, []byte(old), []byte(sha))
 	}
-	if err := writeFile(path, bytes.Replace(b, []byte(src.SHA), []byte(sha), 1)); err != nil {
+	if err := writeFile(path, b); err != nil {
 		return err
 	}
 	r.add(Event{Kind: evPinned, Detail: repo, Target: sha})
 	return nil
-}
-
-// diff returns a unified diff of two folders; git exits 1 when they differ.
-func diff(a, b string) (string, error) {
-	var out bytes.Buffer
-	cmd := exec.Command("git", "diff", "--no-index", "--no-color", "--", a, b)
-	cmd.Stdout, cmd.Stderr = &out, os.Stderr
-	var exit *exec.ExitError
-	if err := cmd.Run(); err != nil && !(errors.As(err, &exit) && exit.ExitCode() == 1) {
-		return "", err
-	}
-	return out.String(), nil
 }

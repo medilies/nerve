@@ -13,8 +13,7 @@ type Event struct {
 	Kind   string `json:"kind"`
 	Path   string `json:"path,omitempty"`
 	Target string `json:"target,omitempty"`
-	Skill  string `json:"skill,omitempty"`
-	Config string `json:"config,omitempty"`
+	Plugin string `json:"plugin,omitempty"`
 	Key    string `json:"key,omitempty"`
 	Local  string `json:"local,omitempty"` // a settings value as JSON, "unset" when absent
 	Brain  string `json:"brain,omitempty"` // likewise, as the Brain would write it
@@ -23,18 +22,14 @@ type Event struct {
 
 // Kinds of Event.
 const (
-	evLinked         = "linked"        // Path now links to Target
-	evRemoved        = "removed"       // a link at Path that nerve made
-	evWrote          = "wrote"         // Path
-	evCodeOnly       = "code-only"     // Skill is not zipped for claude.ai; Detail says why
-	evDrift          = "drift"         // settings Key at Path changed outside the Brain, from Brain to Local
-	evUpload         = "upload"        // Skill is missing (Detail "missing") or stale on the claude.ai account of Config; Path is the zip
-	evAIUpToDate     = "claude.ai-ok"  // the claude.ai account of Config holds every skill
-	evAINotSynced    = "claude.ai-off" // Config has no synced claude.ai skills to compare
-	evProblem        = "problem"       // Detail is wrong with Skill or Path
-	evOK             = "ok"            // Detail
-	evDiff           = "diff"          // Detail is the upstream diff of Skill
-	evPinned         = "pinned"        // Detail is the source moved to Target
+	evLinked         = "linked"  // Path now links to Target
+	evRemoved        = "removed" // a link at Path that nerve made
+	evWrote          = "wrote"   // Path
+	evDrift          = "drift"   // settings Key at Path changed outside the Brain, from Brain to Local
+	evProblem        = "problem" // Detail is wrong with Path
+	evOK             = "ok"      // Detail
+	evDiff           = "diff"    // Detail is the upstream diff of Plugin, "" when it did not change
+	evPinned         = "pinned"  // the plugins from repo Detail moved to Target
 	evAlreadyThere   = "already-pinned"
 	evPulled         = "pulled"          // the Brain at Path fast-forwarded to Target
 	evPullSkipped    = "pull-skipped"    // the Brain at Path was not pulled; Detail says why
@@ -52,25 +47,17 @@ func (e Event) String() string {
 		return fmt.Sprintf("linked   %s -> %s", e.Path, e.Target)
 	case evRemoved, evWrote:
 		return fmt.Sprintf("%-8s %s", e.Kind, e.Path)
-	case evCodeOnly:
-		return fmt.Sprintf("skipped  %s: Claude Code only (%s)", e.Skill, e.Detail)
 	case evDrift:
 		return fmt.Sprintf("drift    %s: %s is %s here, %s in the Brain", e.Path, e.Key, e.Local, e.Brain)
-	case evUpload:
-		return fmt.Sprintf("%-8s %s on claude.ai of %s: upload %s", e.Detail, e.Skill, e.Config, e.Path)
-	case evAIUpToDate:
-		return fmt.Sprintf("claude.ai of %s: up to date", e.Config)
-	case evAINotSynced:
-		return fmt.Sprintf("claude.ai of %s: no synced skills, skipped", e.Config)
 	case evProblem:
-		if e.Skill != "" {
-			return fmt.Sprintf("problem  %s: %s", e.Skill, e.Detail)
-		}
 		return fmt.Sprintf("problem  %s: %s", e.Path, e.Detail)
 	case evDiff:
+		if e.Detail == "" {
+			return "no diff  " + e.Plugin
+		}
 		return e.Detail
 	case evPinned:
-		return fmt.Sprintf("pinned   %s at %s: review the diff above, then commit %s and sync", e.Detail, e.Target, manifestFile)
+		return fmt.Sprintf("pinned   %s at %s: review the diff above, then commit %s and sync", e.Detail, e.Target, marketplaceFile)
 	case evPulled:
 		return fmt.Sprintf("pulled   %s to %s", e.Path, e.Target)
 	case evPullSkipped:

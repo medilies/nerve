@@ -1,15 +1,11 @@
 package main
 
 import (
-	"archive/zip"
-	"crypto/sha256"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 )
 
 func runSync(machine Machine, discard bool, r *report) error {
@@ -35,18 +31,13 @@ func runSync(machine Machine, discard bool, r *report) error {
 	if err := machine.checkProfiles(m); err != nil {
 		return err
 	}
-	skills, err := loadSkills(root, m)
+	self, err := installSelf()
 	if err != nil {
 		return err
 	}
-	if skills, err = withSelf(skills); err != nil {
-		return err
-	}
-	var configs []string
 	drifted := 0
 	for _, c := range machine.Configs {
-		configs = append(configs, c.Dir)
-		held, err := syncConfig(root, c, skills, discard, r)
+		held, err := syncConfig(root, c, self, discard, r)
 		if err != nil {
 			return err
 		}
@@ -54,21 +45,15 @@ func runSync(machine Machine, discard bool, r *report) error {
 			drifted++
 		}
 	}
-	if err := buildZips(filepath.Join(root, "dist"), skills, r); err != nil {
-		return err
-	}
-	if err := reportDrift(configs, skills, r); err != nil {
-		return err
-	}
 	if drifted > 0 {
-		return fmt.Errorf("settings drifted in %d of %d configs: move each change into the Brain, or sync --discard", drifted, len(configs))
+		return fmt.Errorf("settings drifted in %d of %d configs: move each change into the Brain, or sync --discard", drifted, len(machine.Configs))
 	}
 	return nil
 }
 
 // syncConfig carries the Brain to one config and records what it did, even
 // when a step fails part way. It returns whether drift held settings back.
-func syncConfig(root string, c Config, skills []Skill, discard bool, r *report) (held bool, err error) {
+func syncConfig(root string, c Config, self Skill, discard bool, r *report) (held bool, err error) {
 	st, err := loadState(c.Dir)
 	if err != nil {
 		return false, err
@@ -78,7 +63,7 @@ func syncConfig(root string, c Config, skills []Skill, discard bool, r *report) 
 			err = serr
 		}
 	}()
-	if err := link(filepath.Join(c.Dir, "skills"), skills, &st.Links, r); err != nil {
+	if err := link(filepath.Join(c.Dir, "skills"), []Skill{self}, &st.Links, r); err != nil {
 		return false, err
 	}
 	if err := syncKeybindings(root, c.Dir, &st, r); err != nil {
@@ -139,161 +124,4 @@ func link(dir string, skills []Skill, made *[]string, r *report) error {
 	slices.Sort(names)
 	*made = names
 	return nil
-}
-
-// buildZips writes dist/<name>.zip, ready to upload to claude.ai, for every
-// skill claude.ai accepts.
-func buildZips(dist string, skills []Skill, r *report) error {
-	if err := os.RemoveAll(dist); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dist, 0o755); err != nil {
-		return err
-	}
-	for _, s := range skills {
-		if s.Origin == selfOrigin {
-			continue // it needs the CLI and a Brain checkout, which claude.ai lacks
-		}
-		if why := s.claudeAIRejection(); why != "" {
-			r.add(Event{Kind: evCodeOnly, Skill: s.Name, Detail: why})
-			continue
-		}
-		if err := zipDir(filepath.Join(dist, s.Name+".zip"), s.Dir, s.Name); err != nil {
-			return fmt.Errorf("zip %s: %w", s.Name, err)
-		}
-	}
-	return nil
-}
-
-func zipDir(dest, src, prefix string) error {
-	f, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	zw := zip.NewWriter(f)
-	err = filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return skipGit(d, err)
-		}
-		rel, _ := filepath.Rel(src, path)
-		w, err := zw.Create(prefix + "/" + filepath.ToSlash(rel))
-		if err != nil {
-			return err
-		}
-		b, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		_, err = w.Write(b)
-		return err
-	})
-	if err == nil {
-		err = zw.Close()
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	return err
-}
-
-// reportDrift compares each skill with the copy claude.ai syncs down into
-// each config, and says which zips to upload.
-func reportDrift(configs []string, skills []Skill, r *report) error {
-	for _, cfg := range configs {
-		synced, err := syncedSkills(filepath.Join(cfg, "skills", "synced"))
-		if err != nil {
-			return err
-		}
-		if synced == nil {
-			r.add(Event{Kind: evAINotSynced, Config: cfg})
-			continue
-		}
-		var uploads []Event
-		for _, s := range skills {
-			if s.Origin == selfOrigin || s.claudeAIRejection() != "" {
-				continue
-			}
-			e := Event{Kind: evUpload, Skill: s.Name, Config: cfg, Path: "dist/" + s.Name + ".zip"}
-			copies := synced[s.Name]
-			switch {
-			case len(copies) == 0:
-				e.Detail = "missing"
-			case !slices.ContainsFunc(copies, func(c string) bool { return holds(c, s.Dir) }):
-				e.Detail = "stale"
-			default:
-				continue
-			}
-			uploads = append(uploads, e)
-		}
-		if len(uploads) == 0 {
-			r.add(Event{Kind: evAIUpToDate, Config: cfg})
-		}
-		for _, e := range uploads {
-			r.add(e)
-		}
-	}
-	return nil
-}
-
-// syncedSkills maps names to their folders in synced/<bucket>/<name>/ (one
-// per bucket that has the name), or returns nil when the config has no
-// synced skills.
-func syncedSkills(dir string) (map[string][]string, error) {
-	matches, err := filepath.Glob(filepath.Join(dir, "*", "*", "SKILL.md"))
-	if err != nil {
-		return nil, err
-	}
-	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	found := map[string][]string{}
-	for _, m := range matches {
-		skillDir := filepath.Dir(m)
-		if name := filepath.Base(skillDir); !strings.HasPrefix(name, ".") {
-			found[name] = append(found[name], skillDir)
-		}
-	}
-	return found, nil
-}
-
-// holds reports whether the claude.ai copy has every file of the skill,
-// unchanged. Files claude.ai adds to its copy are ignored.
-func holds(copyDir, skillDir string) bool {
-	want, errW := treeHashes(skillDir)
-	got, errG := treeHashes(copyDir)
-	if errW != nil || errG != nil {
-		return false
-	}
-	for k, v := range want {
-		if h, ok := got[k]; !ok || h != v {
-			return false
-		}
-	}
-	return true
-}
-
-func treeHashes(dir string) (map[string][32]byte, error) {
-	hashes := map[string][32]byte{}
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return skipGit(d, err)
-		}
-		b, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(dir, path)
-		hashes[rel] = sha256.Sum256(b)
-		return nil
-	})
-	return hashes, err
-}
-
-// skipGit keeps a walk out of .git folders: a skill that is a whole repo
-// checkout ships without its history.
-func skipGit(d fs.DirEntry, err error) error {
-	if err == nil && d.Name() == ".git" {
-		return filepath.SkipDir
-	}
-	return err
 }

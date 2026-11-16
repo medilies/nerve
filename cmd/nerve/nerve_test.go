@@ -1,7 +1,6 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
@@ -91,16 +90,34 @@ func (w *world) commitUpstream(files map[string]string) string {
 	return w.gitIn(w.upstream, "rev-parse", "HEAD")
 }
 
-func (w *world) manifest(sha string, skills ...string) {
-	quoted := make([]string, len(skills))
-	for i, s := range skills {
-		quoted[i] = `"` + s + `"`
+// brainPlugins makes the Brain a marketplace named brain that lists plugins,
+// a JSON array, and declares it in the base settings.
+func (w *world) brainPlugins(plugins string) {
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.root, marketplaceFile), `{"name": "brain", "owner": {"name": "t"}, "plugins": `+plugins+`}`)
+	w.write(filepath.Join(w.root, "settings", "base.json"), `{"extraKnownMarketplaces": {"brain": {"source": {"source": "directory", "path": "{{brain}}"}}}}`)
+}
+
+// ownSkill writes an own skill into the Brain's own plugin.
+func (w *world) ownSkill(name, content string) {
+	w.brainPlugins(`[{"name": "brain", "source": "./plugins/brain"}]`)
+	w.write(filepath.Join(w.root, "plugins", "brain", "skills", name, "SKILL.md"), content)
+}
+
+func pinnedPlugin(name, sha string) string {
+	return `{"name": "` + name + `", "source": {"source": "git-subdir", "url": "acme/up", "path": "skills/` + name + `", "sha": "` + sha + `"}}`
+}
+
+func checkCmd(root string, out *strings.Builder) error { return runCheck(root, newReport(out, false)) }
+
+// problems runs check, which must fail, and returns its output.
+func (w *world) problems() string {
+	w.t.Helper()
+	var out strings.Builder
+	if err := checkCmd(w.root, &out); err == nil {
+		w.t.Fatalf("check passed:\n%s", out.String())
 	}
-	w.write(filepath.Join(w.root, manifestFile), `[[source]]
-repo = "acme/up"
-sha = "`+sha+`"
-skills = [`+strings.Join(quoted, ", ")+`]
-`)
+	return out.String()
 }
 
 func (w *world) run(cmd func(string, *strings.Builder) error) string {
@@ -129,40 +146,10 @@ func linkTarget(t *testing.T, path string) string {
 	return target
 }
 
-func TestSyncLinksOwnAndPinnedSkillsAndRemovesOnlyItsOwnLinks(t *testing.T) {
+func TestSyncRefusesToReplaceARealFolderWithNervesSkill(t *testing.T) {
 	w := newWorld(t)
-	sha := w.commitUpstream(map[string]string{"grill": skillMD("grill", ""), "plan": skillMD("plan", "")})
-	w.write(filepath.Join(w.root, "skills", "start-project", "SKILL.md"), skillMD("start-project", ""))
-	w.manifest(sha, "grill", "plan")
-	handMade := filepath.Join(w.config, "skills", "hand-made")
-	w.write(filepath.Join(handMade, "SKILL.md"), skillMD("hand-made", ""))
-
-	w.run(syncCmd)
-
-	skills := filepath.Join(w.config, "skills")
-	if got, want := linkTarget(t, filepath.Join(skills, "start-project")), filepath.Join(w.root, "skills", "start-project"); got != want {
-		t.Errorf("own skill links to %s, want the checkout %s", got, want)
-	}
-	if got := linkTarget(t, filepath.Join(skills, "grill")); !strings.Contains(got, sha) {
-		t.Errorf("pinned skill links to %s, want a checkout at %s", got, sha)
-	}
-
-	w.manifest(sha, "grill")
-	w.run(syncCmd)
-
-	if _, err := os.Lstat(filepath.Join(skills, "plan")); !os.IsNotExist(err) {
-		t.Errorf("plan was dropped from the manifest but is still installed")
-	}
-	if _, err := os.Stat(filepath.Join(handMade, "SKILL.md")); err != nil {
-		t.Errorf("sync touched a skill it did not install: %v", err)
-	}
-}
-
-func TestSyncRefusesToReplaceARealFolder(t *testing.T) {
-	w := newWorld(t)
-	sha := w.commitUpstream(map[string]string{"grill": skillMD("grill", "")})
-	w.manifest(sha, "grill")
-	w.write(filepath.Join(w.config, "skills", "grill", "SKILL.md"), "mine")
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.config, "skills", "nerve", "SKILL.md"), "mine")
 
 	var out strings.Builder
 	err := syncCmd(w.root, &out)
@@ -172,64 +159,75 @@ func TestSyncRefusesToReplaceARealFolder(t *testing.T) {
 	}
 }
 
-func TestSyncZipsOnlySkillsClaudeAIAccepts(t *testing.T) {
+func TestSyncRemovesTheSkillLinksAnOlderNerveMade(t *testing.T) {
 	w := newWorld(t)
-	sha := w.commitUpstream(map[string]string{
-		"grill":  skillMD("grill", ""),
-		"wizard": skillMD("wizard", "disable-model-invocation: true\n"),
-	})
-	w.manifest(sha, "grill", "wizard")
-
-	out := w.run(syncCmd)
-
-	zr, err := zip.OpenReader(filepath.Join(w.root, "dist", "grill.zip"))
-	if err != nil {
+	w.write(filepath.Join(w.root, manifestFile), "")
+	skills := filepath.Join(w.config, "skills")
+	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
+	if err := os.MkdirAll(skills, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	defer zr.Close()
-	if len(zr.File) != 1 || zr.File[0].Name != "grill/SKILL.md" {
-		t.Errorf("grill.zip holds %v, want grill/SKILL.md", zr.File)
+	if err := os.Symlink(filepath.Join(w.root, "skills", "grill"), filepath.Join(skills, "grill")); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(w.root, "dist", "wizard.zip")); !os.IsNotExist(err) {
-		t.Errorf("wizard.zip was built, but claude.ai rejects disable-model-invocation")
+	w.write(filepath.Join(w.config, stateFile), `{"links": ["grill", "nerve"]}`)
+	handMade := filepath.Join(skills, "hand-made", "SKILL.md")
+	w.write(handMade, skillMD("hand-made", ""))
+
+	w.run(syncCmd)
+
+	if _, err := os.Lstat(filepath.Join(skills, "grill")); !os.IsNotExist(err) {
+		t.Errorf("grill is still linked, though plugins carry the Brain's skills now")
 	}
-	if !strings.Contains(out, "skipped  wizard: Claude Code only (frontmatter keys claude.ai rejects: disable-model-invocation)") {
-		t.Errorf("output does not say why wizard is skipped:\n%s", out)
+	if _, err := os.Stat(handMade); err != nil {
+		t.Errorf("sync touched a skill it did not link: %v", err)
 	}
 }
 
-func TestSyncReportsStaleAndMissingClaudeAICopies(t *testing.T) {
+func TestUpdateShowsUpstreamDiffAndMovesThePinsOfARepo(t *testing.T) {
 	w := newWorld(t)
-	sha := w.commitUpstream(map[string]string{"grill": skillMD("grill", ""), "plan": skillMD("plan", "")})
-	w.manifest(sha, "grill", "plan")
-	w.write(filepath.Join(w.root, "skills", "start-project", "SKILL.md"), skillMD("start-project", ""))
-	synced := filepath.Join(w.config, "skills", "synced", "bucket")
-	w.write(filepath.Join(synced, "grill", "SKILL.md"), skillMD("grill", ""))
-	w.write(filepath.Join(synced, "grill", "added-by-claude-ai.json"), "{}")
-	w.write(filepath.Join(synced, "start-project", "SKILL.md"), "old")
-	// An older bucket holding an outdated grill must not make it stale.
-	w.write(filepath.Join(w.config, "skills", "synced", "old-bucket", "grill", "SKILL.md"), "old")
+	grillSHA := w.commitUpstream(map[string]string{"grill": skillMD("grill", ""), "plan": skillMD("plan", "")})
+	planSHA := w.commitUpstream(map[string]string{"other": skillMD("other", "")})
+	w.brainPlugins(`[` + pinnedPlugin("grill", grillSHA) + `, ` + pinnedPlugin("plan", planSHA) + `]`)
+	before, _ := os.ReadFile(filepath.Join(w.root, marketplaceFile))
+	newSHA := w.commitUpstream(map[string]string{"grill": skillMD("grill", "") + "Ask harder.\n"})
 
-	out := w.run(syncCmd)
+	out := w.run(func(root string, out *strings.Builder) error {
+		return runUpdate(root, "https://github.com/acme/up.git", "", newReport(out, false))
+	})
 
-	for _, want := range []string{
-		"stale    start-project on claude.ai of " + w.config + ": upload dist/start-project.zip",
-		"missing  plan on claude.ai of " + w.config + ": upload dist/plan.zip",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("output lacks %q:\n%s", want, out)
-		}
+	if !strings.Contains(out, "+Ask harder.") || !strings.Contains(out, "no diff  plan") {
+		t.Errorf("output lacks the upstream change, or that plan is unchanged:\n%s", out)
 	}
-	if strings.Contains(out, " grill ") {
-		t.Errorf("grill matches its claude.ai copy but is reported:\n%s", out)
+	after, _ := os.ReadFile(filepath.Join(w.root, marketplaceFile))
+	if want := strings.NewReplacer(grillSHA, newSHA, planSHA, newSHA).Replace(string(before)); string(after) != want {
+		t.Errorf("marketplace.json is\n%s\nwant only the pins moved:\n%s", after, want)
 	}
 }
 
-func TestUpdateShowsUpstreamDiffAndMovesThePin(t *testing.T) {
+func TestUpdateRefusesToPinAPluginUpstreamDropped(t *testing.T) {
+	w := newWorld(t)
+	oldSHA := w.commitUpstream(map[string]string{"grill": skillMD("grill", ""), "plan": skillMD("plan", "")})
+	w.brainPlugins(`[` + pinnedPlugin("plan", oldSHA) + `]`)
+	w.gitIn(w.upstream, "rm", "-q", "-r", "skills/plan")
+	w.gitIn(w.upstream, "commit", "-q", "-m", "drop plan")
+
+	var out strings.Builder
+	err := runUpdate(w.root, "acme/up", "", newReport(&out, false))
+
+	if err == nil || !strings.Contains(err.Error(), "drop the plugin") {
+		t.Fatalf("got %v, want a refusal to pin a plugin that is gone upstream", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(w.root, marketplaceFile)); !strings.Contains(string(b), oldSHA) {
+		t.Errorf("the pin moved despite the refusal")
+	}
+}
+
+func TestUpdateDiffsAPluginWhoseFolderStartsWithDotSlash(t *testing.T) {
 	w := newWorld(t)
 	oldSHA := w.commitUpstream(map[string]string{"grill": skillMD("grill", "")})
-	w.manifest(oldSHA, "grill")
-	newSHA := w.commitUpstream(map[string]string{"grill": skillMD("grill", "") + "Ask harder.\n"})
+	w.brainPlugins(`[{"name": "grill", "source": {"source": "git-subdir", "url": "acme/up", "path": "./skills/grill/", "sha": "` + oldSHA + `"}}]`)
+	w.commitUpstream(map[string]string{"grill": skillMD("grill", "") + "Ask harder.\n"})
 
 	out := w.run(func(root string, out *strings.Builder) error {
 		return runUpdate(root, "acme/up", "", newReport(out, false))
@@ -238,72 +236,124 @@ func TestUpdateShowsUpstreamDiffAndMovesThePin(t *testing.T) {
 	if !strings.Contains(out, "+Ask harder.") {
 		t.Errorf("output lacks the upstream change:\n%s", out)
 	}
-	m, err := loadManifest(w.root)
-	if err != nil {
-		t.Fatal(err)
+}
+
+func TestUpdateDiffsAPluginThatIsAWholeRepo(t *testing.T) {
+	w := newWorld(t)
+	oldSHA := w.commitUpstream(map[string]string{"grill": skillMD("grill", "")})
+	w.brainPlugins(`[{"name": "up", "source": {"source": "github", "repo": "acme/up", "sha": "` + oldSHA + `"}}]`)
+	w.commitUpstream(map[string]string{"plan": skillMD("plan", "")})
+
+	out := w.run(func(root string, out *strings.Builder) error {
+		return runUpdate(root, "acme/up", "", newReport(out, false))
+	})
+
+	if !strings.Contains(out, "+++ b/skills/plan/SKILL.md") {
+		t.Errorf("output lacks the skill added to the repo:\n%s", out)
 	}
-	if m.Sources[0].SHA != newSHA {
-		t.Errorf("pin is %s, want %s", m.Sources[0].SHA, newSHA)
+}
+
+func TestUpdateRefusesAPinThatAppearsOutsideItsPlugins(t *testing.T) {
+	w := newWorld(t)
+	oldSHA := w.commitUpstream(map[string]string{"grill": skillMD("grill", "")})
+	w.brainPlugins(`[` + pinnedPlugin("grill", oldSHA) + `], "metadata": {"reviewed": "` + oldSHA + `"}`)
+	before, _ := os.ReadFile(filepath.Join(w.root, marketplaceFile))
+	w.commitUpstream(map[string]string{"grill": skillMD("grill", "") + "Ask harder.\n"})
+
+	var out strings.Builder
+	err := runUpdate(w.root, "acme/up", "", newReport(&out, false))
+
+	if err == nil || !strings.Contains(err.Error(), "must appear once per plugin pinned at it") {
+		t.Fatalf("got %v, want a refusal to rewrite a pin found elsewhere", err)
+	}
+	if after, _ := os.ReadFile(filepath.Join(w.root, marketplaceFile)); !bytes.Equal(after, before) {
+		t.Errorf("marketplace.json changed despite the refusal")
+	}
+}
+
+func TestCheckRefusesAPinThatLacksThePluginsFolder(t *testing.T) {
+	w := newWorld(t)
+	sha := w.commitUpstream(map[string]string{"grill": skillMD("grill", "")})
+	w.brainPlugins(`[` + pinnedPlugin("grill", sha) + `, ` + pinnedPlugin("plan", sha) + `]`)
+
+	out := w.problems()
+
+	if !strings.Contains(out, "plan: no skills/plan at "+sha[:7]) || strings.Contains(out, "grill:") {
+		t.Errorf("output does not refuse plan alone:\n%s", out)
+	}
+}
+
+func TestCheckRefusesAPinUpstreamDoesNotHave(t *testing.T) {
+	w := newWorld(t)
+	w.commitUpstream(map[string]string{"grill": skillMD("grill", "")})
+	w.brainPlugins(`[` + pinnedPlugin("grill", strings.Repeat("0", 40)) + `]`)
+
+	if out := w.problems(); !strings.Contains(out, "fetch https://github.com/acme/up.git") {
+		t.Errorf("output does not say the pin cannot be fetched:\n%s", out)
+	}
+}
+
+func TestCheckRefusesOwnSkillsOutsideAPlugin(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
+
+	if out := w.problems(); !strings.Contains(out, "problem  skills: no config gets skills from here") {
+		t.Errorf("output does not flag the skills folder:\n%s", out)
 	}
 }
 
 func TestCheckFlagsOwnSkillsThatBreakTheRules(t *testing.T) {
 	w := newWorld(t)
-	sha := w.commitUpstream(map[string]string{"wizard": skillMD("wizard", "disable-model-invocation: true\n")})
-	w.manifest(sha, "wizard")
-	w.write(filepath.Join(w.root, "skills", "start-project", "SKILL.md"),
-		"---\nname: start-project\ndescription: Starts.\nargument-hint: x\n---\n")
+	w.ownSkill("start-project", "---\nname: start\ndescription: Starts.\n---\n")
 
-	var out strings.Builder
-	err := runCheck(w.root, newReport(&out, false))
-
-	if err == nil {
-		t.Fatalf("check passed, want problems:\n%s", out.String())
-	}
-	for _, want := range []string{
-		"problem  start-project: frontmatter keys claude.ai rejects: argument-hint (own)",
-	} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("output lacks %q:\n%s", want, out.String())
-		}
-	}
-	if strings.Contains(out.String(), "wizard") {
-		t.Errorf("a third-party skill was held to own-skill rules:\n%s", out.String())
+	if out, want := w.problems(), `problem  plugins/brain/skills/start-project: frontmatter name "start" differs from folder name`; !strings.Contains(out, want) {
+		t.Errorf("output lacks %q:\n%s", want, out)
 	}
 }
 
-func TestCheckRejectsTwoSkillsWithOneName(t *testing.T) {
+func TestCheckRefusesAThirdPartyPluginWithoutAFullCommit(t *testing.T) {
 	w := newWorld(t)
-	sha := w.commitUpstream(map[string]string{"grill": skillMD("grill", "")})
-	w.manifest(sha, "grill")
-	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
+	w.brainPlugins(`[` + pinnedPlugin("grill", "5863806") + `]`)
 
-	var out strings.Builder
-	err := runCheck(w.root, newReport(&out, false))
-
-	if err == nil || !strings.Contains(err.Error(), `skill "grill" comes from both own and acme/up`) {
-		t.Fatalf("got %v, want a duplicate-name error", err)
+	if out := w.problems(); !strings.Contains(out, "grill: a plugin from outside the Brain must be a git source pinned to a full 40-character lowercase commit sha") {
+		t.Errorf("output does not refuse the short pin:\n%s", out)
 	}
 }
 
-func TestSyncHandlesARepoThatIsOneSkillWithoutShippingGitHistory(t *testing.T) {
+func TestCheckRefusesAnOwnPluginWithoutItsFolder(t *testing.T) {
 	w := newWorld(t)
-	w.write(filepath.Join(w.upstream, "SKILL.md"), skillMD("whole", ""))
-	w.gitIn(w.upstream, "add", "-A")
-	w.gitIn(w.upstream, "commit", "-q", "-m", "c")
-	w.manifest(w.gitIn(w.upstream, "rev-parse", "HEAD"), "whole")
+	w.brainPlugins(`[{"name": "brain", "source": "./plugins/brain"}]`)
 
-	w.run(syncCmd)
-
-	zr, err := zip.OpenReader(filepath.Join(w.root, "dist", "whole.zip"))
-	if err != nil {
-		t.Fatal(err)
+	if out := w.problems(); !strings.Contains(out, "brain: no folder ./plugins/brain") {
+		t.Errorf("output does not name the missing folder:\n%s", out)
 	}
-	defer zr.Close()
-	for _, f := range zr.File {
-		if strings.Contains(f.Name, ".git/") {
-			t.Fatalf("whole.zip ships git history: %s", f.Name)
-		}
+}
+
+func TestCheckRefusesEnablingAPluginTheMarketplaceDoesNotList(t *testing.T) {
+	w := newWorld(t)
+	w.ownSkill("grill", skillMD("grill", ""))
+	w.profiled()
+	w.write(filepath.Join(w.root, "settings", "work.json"),
+		`{"enabledPlugins": {"brain@brain": true, "ghost@brain": false, "gopls-lsp@claude-plugins-official": true}}`)
+
+	out := w.problems()
+
+	if !strings.Contains(out, "problem  settings/work.json: enables ghost@brain, which "+marketplaceFile+" does not list") {
+		t.Errorf("output does not refuse ghost@brain:\n%s", out)
+	}
+	if strings.Contains(out, "brain@brain,") || strings.Contains(out, "gopls-lsp") {
+		t.Errorf("a listed plugin, or one from another marketplace, was refused:\n%s", out)
+	}
+}
+
+func TestCheckRefusesAMarketplaceTheSettingsDoNotDeclare(t *testing.T) {
+	w := newWorld(t)
+	w.ownSkill("grill", skillMD("grill", ""))
+	w.write(filepath.Join(w.root, "settings", "base.json"), `{"enabledPlugins": {"brain@brain": true}}`)
+
+	if out := w.problems(); !strings.Contains(out, `problem  settings/base.json: declares no "brain"`) {
+		t.Errorf("output does not say the marketplace is undeclared:\n%s", out)
 	}
 }
 
@@ -311,15 +361,15 @@ func TestInitWritesTheMachineFileThatSyncFollows(t *testing.T) {
 	w := newWorld(t)
 	os.Remove(filepath.Join(w.home, ".config", "nerve", "config.toml"))
 	w.write(filepath.Join(w.root, manifestFile), "profiles = [\"work\"]\n")
-	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
+	w.write(filepath.Join(w.root, "settings", "work.json"), `{"model": "opus"}`)
 
 	w.run(func(_ string, out *strings.Builder) error {
 		return runInit([]string{w.root, "~/.cfg=work"}, newReport(out, false))
 	})
 	w.run(syncCmd)
 
-	if got, want := linkTarget(t, filepath.Join(w.config, "skills", "grill")), filepath.Join(w.root, "skills", "grill"); got != want {
-		t.Errorf("grill links to %s, want %s", got, want)
+	if got := w.settings()["model"]; got != "opus" {
+		t.Errorf("model is %v, want opus from the work profile", got)
 	}
 	var out strings.Builder
 	if err := runInit([]string{w.root, "~/.cfg"}, newReport(&out, false)); err == nil || !strings.Contains(err.Error(), "exists") {
@@ -536,26 +586,6 @@ func TestSyncRefusesToReplaceRealKeybindings(t *testing.T) {
 	}
 }
 
-func TestSyncRecordsItsLinksEvenWhenALaterStepFails(t *testing.T) {
-	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
-	w.write(filepath.Join(w.root, "keybindings.json"), `[]`)
-	w.write(filepath.Join(w.config, "keybindings.json"), `["mine"]`) // makes sync fail after linking
-
-	var out strings.Builder
-	if err := syncCmd(w.root, &out); err == nil {
-		t.Fatal("sync passed despite a real keybindings.json")
-	}
-	os.Remove(filepath.Join(w.config, "keybindings.json"))
-	os.RemoveAll(filepath.Join(w.root, "skills", "grill"))
-	w.run(syncCmd)
-
-	if _, err := os.Lstat(filepath.Join(w.config, "skills", "grill")); !os.IsNotExist(err) {
-		t.Errorf("grill was linked by a failed sync and never removed once the Brain dropped it")
-	}
-}
-
 func TestInitStoresConfigDirsThatDoNotDependOnTheWorkingDirectory(t *testing.T) {
 	w := newWorld(t)
 	os.Remove(filepath.Join(w.home, ".config", "nerve", "config.toml"))
@@ -630,7 +660,7 @@ func (w *world) published() string {
 	w.gitIn(w.root, "branch", "-q", "-u", "origin/main")
 	other := filepath.Join(w.home, "other")
 	w.gitIn(w.home, "clone", "-q", remote, other)
-	w.write(filepath.Join(other, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
+	w.write(filepath.Join(other, "settings", "base.json"), `{"model": "opus"}`)
 	w.gitIn(other, "add", "-A")
 	w.gitIn(other, "commit", "-q", "-m", "b")
 	w.gitIn(other, "push", "-q")
@@ -646,8 +676,8 @@ func TestSyncPullsTheBrainBeforeCarryingIt(t *testing.T) {
 	if got := w.gitIn(w.root, "rev-parse", "HEAD"); got != head {
 		t.Errorf("Brain is at %s, want the pushed %s", got, head)
 	}
-	if _, err := os.Lstat(filepath.Join(w.config, "skills", "grill")); err != nil {
-		t.Errorf("the pulled skill was not linked: %v", err)
+	if got := w.settings()["model"]; got != "opus" {
+		t.Errorf("model is %v, want opus from the pulled settings", got)
 	}
 }
 
@@ -666,22 +696,14 @@ func TestSyncSkipsThePullWhileTheBrainHasUncommittedChanges(t *testing.T) {
 	}
 }
 
-func TestSyncInstallsNervesOwnSkillButNeverForClaudeAI(t *testing.T) {
+func TestSyncInstallsNervesOwnSkill(t *testing.T) {
 	w := newWorld(t)
 	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.config, "skills", "synced", "bucket", "other", "SKILL.md"), skillMD("other", ""))
 
-	out := w.run(syncCmd)
+	w.run(syncCmd)
 
-	b, err := os.ReadFile(filepath.Join(w.config, "skills", "nerve", "SKILL.md"))
-	if err != nil || !bytes.Equal(b, selfSkill) {
+	if b, err := os.ReadFile(filepath.Join(w.config, "skills", "nerve", "SKILL.md")); err != nil || !bytes.Equal(b, selfSkill) {
 		t.Fatalf("the nerve skill is not installed: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(w.root, "dist", "nerve.zip")); !os.IsNotExist(err) {
-		t.Errorf("nerve.zip was built for claude.ai")
-	}
-	if strings.Contains(out, "nerve on claude.ai") {
-		t.Errorf("the nerve skill was reported for upload:\n%s", out)
 	}
 }
 
@@ -693,19 +715,6 @@ func TestNervesOwnSkillMeetsTheSkillRules(t *testing.T) {
 	}
 	if p := s.problems(); len(p) > 0 {
 		t.Errorf("the nerve skill breaks the rules: %v", p)
-	}
-}
-
-func TestSyncRefusesABrainSkillNamedNerve(t *testing.T) {
-	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.root, "skills", "nerve", "SKILL.md"), skillMD("nerve", ""))
-
-	var out strings.Builder
-	err := syncCmd(w.root, &out)
-
-	if err == nil || !strings.Contains(err.Error(), "takes the name of nerve's own skill") {
-		t.Fatalf("got %v, want a name clash error", err)
 	}
 }
 
@@ -801,23 +810,6 @@ func TestSyncLeavesADevelopmentBuildInPlace(t *testing.T) {
 	}
 	if !strings.Contains(out, "kept     nerve (devel), a development build, though the Brain pins v0.2.0") {
 		t.Errorf("output does not say the upgrade was skipped:\n%s", out)
-	}
-}
-
-func TestSyncKeepsPullingOnceItHasBuiltZipsIntoTheBrain(t *testing.T) {
-	w := newWorld(t)
-	w.published()
-	w.run(syncCmd) // builds dist/ in a Brain that does not ignore it
-	other := filepath.Join(w.home, "other")
-	w.write(filepath.Join(other, "skills", "plan", "SKILL.md"), skillMD("plan", ""))
-	w.gitIn(other, "add", "-A")
-	w.gitIn(other, "commit", "-q", "-m", "c")
-	w.gitIn(other, "push", "-q")
-
-	w.run(syncCmd)
-
-	if got, want := w.gitIn(w.root, "rev-parse", "HEAD"), w.gitIn(other, "rev-parse", "HEAD"); got != want {
-		t.Errorf("Brain is at %s, want the pushed %s: untracked dist/ blocked the pull", got, want)
 	}
 }
 
@@ -934,65 +926,23 @@ func TestJSONSyncKeepsWhatHappenedBeforeAnUpgrade(t *testing.T) {
 	}
 }
 
-func TestSyncRecordsLinksMadeBeforeARealFolderStoppedIt(t *testing.T) {
-	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.root, "skills", "a-one", "SKILL.md"), skillMD("a-one", ""))
-	w.write(filepath.Join(w.root, "skills", "b-two", "SKILL.md"), skillMD("b-two", ""))
-	w.write(filepath.Join(w.config, "skills", "b-two", "SKILL.md"), "mine") // stops sync after a-one is linked
-
-	var out strings.Builder
-	if err := syncCmd(w.root, &out); err == nil {
-		t.Fatal("sync passed despite a real folder")
-	}
-	os.RemoveAll(filepath.Join(w.config, "skills", "b-two"))
-	os.RemoveAll(filepath.Join(w.root, "skills", "a-one"))
-	w.run(syncCmd)
-
-	if _, err := os.Lstat(filepath.Join(w.config, "skills", "a-one")); !os.IsNotExist(err) {
-		t.Errorf("a-one was linked by a failed sync and never removed once the Brain dropped it")
-	}
-}
-
 func TestCheckAcceptsAFrontmatterListAtColumnZero(t *testing.T) {
 	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", "allowed-tools:\n- Read\n- Bash\n"))
+	w.ownSkill("grill", skillMD("grill", "allowed-tools:\n- Read\n- Bash\n"))
 
 	var out strings.Builder
-	if err := runCheck(w.root, newReport(&out, false)); err != nil {
+	if err := checkCmd(w.root, &out); err != nil {
 		t.Fatalf("check failed on valid YAML: %v\n%s", err, out.String())
 	}
 }
 
 func TestCheckCountsDescriptionLengthInCharacters(t *testing.T) {
 	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"),
-		"---\nname: grill\ndescription: "+strings.Repeat("é", 1000)+"\n---\n") // 2000 bytes
+	w.ownSkill("grill", "---\nname: grill\ndescription: "+strings.Repeat("é", 1000)+"\n---\n") // 2000 bytes
 
 	var out strings.Builder
-	if err := runCheck(w.root, newReport(&out, false)); err != nil {
+	if err := checkCmd(w.root, &out); err != nil {
 		t.Fatalf("check refused a 1000-character description: %v\n%s", err, out.String())
-	}
-}
-
-func TestSyncKeepsASkillThatLinksToAFolderOffClaudeAI(t *testing.T) {
-	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
-	w.write(filepath.Join(w.home, "shared", "notes.md"), "notes")
-	if err := os.Symlink(filepath.Join(w.home, "shared"), filepath.Join(w.root, "skills", "grill", "refs")); err != nil {
-		t.Fatal(err)
-	}
-
-	out := w.run(syncCmd)
-
-	if _, err := os.Stat(filepath.Join(w.root, "dist", "grill.zip")); !os.IsNotExist(err) {
-		t.Errorf("grill.zip was built without the folder its link leads to")
-	}
-	if !strings.Contains(out, "skipped  grill: Claude Code only (refs links to a folder or to nothing") {
-		t.Errorf("output does not say why grill is skipped:\n%s", out)
 	}
 }
 

@@ -7,62 +7,22 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"unicode/utf8"
 )
 
-// Skill is one skill folder, own or third-party.
+// Skill is one skill folder.
 type Skill struct {
-	Name   string            // folder name, which is also the invoked name
-	Dir    string            // absolute path of the folder
-	Origin string            // "own", or the source repo
-	Meta   map[string]string // frontmatter, flattened to strings
+	Name string            // folder name, which is also the invoked name
+	Dir  string            // absolute path of the folder
+	Meta map[string]string // frontmatter, flattened to strings
 }
-
-func (s Skill) own() bool { return s.Origin == "own" }
-
-// claudeAIKeys are the only frontmatter keys claude.ai accepts on upload.
-var claudeAIKeys = []string{"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
 
 var namePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
-// loadSkills returns own skills, then each source's pinned skills, fetching
-// sources that are not cached yet. Two skills with one name is an error.
-func loadSkills(root string, m Manifest) ([]Skill, error) {
-	skills, err := ownSkills(root)
-	if err != nil {
-		return nil, err
-	}
-	for _, src := range m.Sources {
-		tree, err := fetch(src.Repo, src.SHA)
-		if err != nil {
-			return nil, err
-		}
-		for _, name := range src.Skills {
-			dir, err := findSkill(tree, name)
-			if err != nil {
-				return nil, fmt.Errorf("%s@%s: %w", src.Repo, src.SHA[:7], err)
-			}
-			s, err := newSkill(name, dir, src.Repo)
-			if err != nil {
-				return nil, err
-			}
-			skills = append(skills, s)
-		}
-	}
-	seen := map[string]string{}
-	for _, s := range skills {
-		if other, ok := seen[s.Name]; ok {
-			return nil, fmt.Errorf("skill %q comes from both %s and %s", s.Name, other, s.Origin)
-		}
-		seen[s.Name] = s.Origin
-	}
-	return skills, nil
-}
-
-func ownSkills(root string) ([]Skill, error) {
-	entries, err := os.ReadDir(filepath.Join(root, "skills"))
+// ownSkills returns the skills in dir, one per folder.
+func ownSkills(dir string) ([]Skill, error) {
+	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -74,7 +34,7 @@ func ownSkills(root string) ([]Skill, error) {
 		if !e.IsDir() {
 			continue
 		}
-		s, err := newSkill(e.Name(), filepath.Join(root, "skills", e.Name()), "own")
+		s, err := newSkill(e.Name(), filepath.Join(dir, e.Name()))
 		if err != nil {
 			return nil, err
 		}
@@ -83,45 +43,12 @@ func ownSkills(root string) ([]Skill, error) {
 	return skills, nil
 }
 
-func newSkill(name, dir, origin string) (Skill, error) {
+func newSkill(name, dir string) (Skill, error) {
 	meta, err := readFrontmatter(filepath.Join(dir, "SKILL.md"))
 	if err != nil {
 		return Skill{}, fmt.Errorf("skill %s: %w", name, err)
 	}
-	return Skill{Name: name, Dir: dir, Origin: origin, Meta: meta}, nil
-}
-
-// findSkill returns the one folder named name that holds a SKILL.md, or the
-// tree itself when the whole repo is that skill.
-func findSkill(tree, name string) (string, error) {
-	if meta, err := readFrontmatter(filepath.Join(tree, "SKILL.md")); err == nil && meta["name"] == name {
-		return tree, nil
-	}
-	var found []string
-	err := filepath.WalkDir(tree, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() && d.Name() == ".git" {
-			return filepath.SkipDir
-		}
-		if d.IsDir() && d.Name() == name {
-			if _, err := os.Stat(filepath.Join(path, "SKILL.md")); err == nil {
-				found = append(found, path)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	switch len(found) {
-	case 0:
-		return "", fmt.Errorf("no skill %q", name)
-	case 1:
-		return found[0], nil
-	}
-	return "", fmt.Errorf("skill %q is ambiguous: %v", name, found)
+	return Skill{Name: name, Dir: dir, Meta: meta}, nil
 }
 
 // readFrontmatter reads the top-level keys of a SKILL.md's YAML frontmatter.
@@ -172,7 +99,7 @@ func unquote(v string) string {
 	return v
 }
 
-// problems lists what makes a skill invalid on any surface.
+// problems lists what makes a skill invalid.
 func (s Skill) problems() []string {
 	var p []string
 	if s.Meta["name"] != s.Name {
@@ -187,51 +114,5 @@ func (s Skill) problems() []string {
 	case utf8.RuneCountInString(d) > 1024:
 		p = append(p, fmt.Sprintf("description is %d characters, over 1024", utf8.RuneCountInString(d)))
 	}
-	if s.own() {
-		if r := s.claudeAIRejection(); r != "" {
-			p = append(p, r)
-		}
-	}
 	return p
-}
-
-// claudeAIRejection says why claude.ai would refuse the skill, or "".
-func (s Skill) claudeAIRejection() string {
-	if link := folderLink(s.Dir); link != "" {
-		return link + " links to a folder or to nothing, which a zip cannot hold"
-	}
-	var bad []string
-	for k := range s.Meta {
-		if !slices.Contains(claudeAIKeys, k) {
-			bad = append(bad, k)
-		}
-	}
-	if len(bad) == 0 {
-		return ""
-	}
-	slices.Sort(bad)
-	return "frontmatter keys claude.ai rejects: " + strings.Join(bad, ", ")
-}
-
-// folderLink returns the first link in dir, relative to it, that leads to a
-// folder or to nothing, or "". Links to files are fine: zips hold what they
-// point to.
-func folderLink(dir string) string {
-	found := ""
-	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || found != "" {
-			return filepath.SkipAll
-		}
-		if d.IsDir() && d.Name() == ".git" {
-			return filepath.SkipDir
-		}
-		if d.Type()&fs.ModeSymlink != 0 {
-			if fi, err := os.Stat(path); err != nil || fi.IsDir() {
-				found, _ = filepath.Rel(dir, path)
-				return filepath.SkipAll
-			}
-		}
-		return nil
-	})
-	return found
 }

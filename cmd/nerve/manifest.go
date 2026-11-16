@@ -14,26 +14,16 @@ import (
 const manifestFile = "brain.toml"
 
 // Manifest is a Brain's brain.toml: the nerve release it is carried by (and,
-// optionally, the SHA-256 of that release's checksums.txt), its profiles, and
-// which third-party skills it uses at which commit.
+// optionally, the SHA-256 of that release's checksums.txt) and its profiles.
 type Manifest struct {
 	Nerve          string   `toml:"nerve"`
 	NerveChecksums string   `toml:"nerve-checksums"`
 	Profiles       []string `toml:"profiles"`
-	Sources        []Source `toml:"source"`
-}
-
-// Source is one third-party repo, pinned to a commit.
-type Source struct {
-	Repo   string   `toml:"repo"`
-	SHA    string   `toml:"sha"`
-	Skills []string `toml:"skills"`
 }
 
 var (
-	repoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
-	shaPattern  = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	sumPattern  = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	shaPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	sumPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 func loadManifest(root string) (Manifest, error) {
@@ -58,17 +48,6 @@ func loadManifest(root string) (Manifest, error) {
 		}
 		if slices.Contains(m.Profiles[:i], p) {
 			return m, fmt.Errorf("%s: profile %q is listed twice", manifestFile, p)
-		}
-	}
-	for _, s := range m.Sources {
-		if !repoPattern.MatchString(s.Repo) {
-			return m, fmt.Errorf("%s: repo %q is not owner/name", manifestFile, s.Repo)
-		}
-		if !shaPattern.MatchString(s.SHA) {
-			return m, fmt.Errorf("%s: %s: sha must be a full 40-character lowercase commit", manifestFile, s.Repo)
-		}
-		if len(s.Skills) == 0 {
-			return m, fmt.Errorf("%s: %s: no skills", manifestFile, s.Repo)
 		}
 	}
 	return m, nil

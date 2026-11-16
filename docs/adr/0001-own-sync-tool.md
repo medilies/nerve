@@ -1,6 +1,6 @@
 # Own sync tool instead of the `skills` CLI or a Claude plugin
 
-Status: accepted, 2026-11-16
+Status: accepted, 2026-11-16; superseded by [ADR 0004](0004-skills-as-plugins.md), 2026-11-17
 
 ## Context
 
