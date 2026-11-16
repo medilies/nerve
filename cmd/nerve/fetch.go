@@ -18,7 +18,7 @@ func fetch(repo, sha string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(cache, "skills-sync", repo, sha)
+	dir := filepath.Join(cache, "nerve", repo, sha)
 	if _, err := os.Stat(dir); err == nil {
 		return dir, nil
 	}

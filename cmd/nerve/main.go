@@ -1,4 +1,4 @@
-// Command skills installs this repo's skills and pinned third-party skills
+// Command nerve installs a Brain's own skills and pinned third-party skills
 // into every Claude Code config, builds claude.ai zips, and checks them.
 package main
 
@@ -10,11 +10,11 @@ import (
 	"path/filepath"
 )
 
-const usage = `usage: go run ./cmd/skills <command>
+const usage = `usage: nerve <command>
 
   sync              link every skill into each config, build dist/*.zip, report claude.ai drift
   update <repo> [sha]  show the upstream diff of a source's skills, then move its pin
-  check             validate every skill and pin (run by CI)
+  check             validate every skill and pin (run by the Brain's CI)
 `
 
 func main() {

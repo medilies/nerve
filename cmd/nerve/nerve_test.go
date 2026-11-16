@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// world is a temp HOME holding a skills repo, a fake GitHub, and one config.
+// world is a temp HOME holding a Brain, a fake GitHub, and one config.
 type world struct {
 	t        *testing.T
 	home     string

@@ -1,4 +1,4 @@
-module github.com/medilies/skills
+module github.com/medilies/nerve
 
 go 1.26.0
 
