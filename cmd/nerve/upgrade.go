@@ -59,35 +59,54 @@ func upgradeToPin(pin string, r *report) error {
 	if os.Getenv(upgradedEnv) == pin {
 		return fmt.Errorf("upgraded to %s, but the new binary reports %s", pin, running)
 	}
-	asset := fmt.Sprintf("nerve_%s_%s", runtime.GOOS, runtime.GOARCH)
-	sums, err := download(releaseURL + "/" + pin + "/checksums.txt")
-	if err != nil {
-		return err
-	}
-	want, err := checksumOf(sums, asset)
-	if err != nil {
-		return fmt.Errorf("nerve %s: %w", pin, err)
-	}
-	bin, err := download(releaseURL + "/" + pin + "/" + asset)
-	if err != nil {
-		return err
-	}
-	if got := sha256.Sum256(bin); hex.EncodeToString(got[:]) != want {
-		return fmt.Errorf("nerve %s: %s does not match checksums.txt", pin, asset)
-	}
 	path, err := selfPath()
 	if err != nil {
 		return err
 	}
 	tmp := path + ".new"
-	if err := os.WriteFile(tmp, bin, 0o755); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+	if err != nil {
+		return fmt.Errorf("cannot replace %s with nerve %s, the Brain's pin: %w; make its folder writable, or install %s by hand", path, pin, err, pin)
+	}
+	defer os.Remove(tmp) // a no-op once renamed
+	bin, err := fetchRelease(pin)
+	if err != nil {
+		f.Close()
+		return err
+	}
+	if _, err := f.Write(bin); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
 		return err
 	}
 	return reexec(path, append(os.Environ(), upgradedFromEnv+"="+running, upgradedEnv+"="+pin))
+}
+
+// fetchRelease downloads this platform's binary of release tag and checks it
+// against the release's checksums.txt.
+func fetchRelease(tag string) ([]byte, error) {
+	asset := fmt.Sprintf("nerve_%s_%s", runtime.GOOS, runtime.GOARCH)
+	list, err := download(releaseURL + "/" + tag + "/checksums.txt")
+	if err != nil {
+		return nil, err
+	}
+	want, err := checksumOf(list, asset)
+	if err != nil {
+		return nil, fmt.Errorf("nerve %s: %w", tag, err)
+	}
+	bin, err := download(releaseURL + "/" + tag + "/" + asset)
+	if err != nil {
+		return nil, err
+	}
+	if got := sha256.Sum256(bin); hex.EncodeToString(got[:]) != want {
+		return nil, fmt.Errorf("nerve %s: %s does not match checksums.txt", tag, asset)
+	}
+	return bin, nil
 }
 
 func download(url string) ([]byte, error) {

@@ -838,3 +838,23 @@ func TestSyncGivesUpOnAStalledDownload(t *testing.T) {
 		t.Errorf("binary is %q after a failed download", b)
 	}
 }
+
+func TestSyncSaysHowToUpgradeABinaryItCannotReplace(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can write anywhere")
+	}
+	w := newWorld(t)
+	self, reruns := w.fakeRelease("v0.1.0", "v0.2.0", []byte("new binary"), "")
+	os.Chmod(filepath.Dir(self), 0o555)
+	t.Cleanup(func() { os.Chmod(filepath.Dir(self), 0o755) })
+
+	var out strings.Builder
+	err := syncCmd(w.root, &out)
+
+	if err == nil || !strings.Contains(err.Error(), "cannot replace "+self+" with nerve v0.2.0") || !strings.Contains(err.Error(), "install v0.2.0 by hand") {
+		t.Fatalf("got %v, want an error saying how to upgrade", err)
+	}
+	if len(*reruns) > 0 {
+		t.Errorf("re-ran %v without replacing the binary", *reruns)
+	}
+}

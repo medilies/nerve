@@ -74,7 +74,7 @@ Settings that are sensitive or identifying never go in the Brain: put them in a 
 ## What sync does
 
 - Pulls the Brain first, fast-forward only. It skips the pull while tracked files have uncommitted changes or the checkout has no upstream, and fails if the checkout has diverged.
-- Brings nerve itself to the Brain's `nerve` release: it downloads that release, checks it against the release's `checksums.txt`, replaces itself and runs the new binary in its place. A development build (built from source, not a release) is kept.
+- Brings nerve itself to the Brain's `nerve` release: it downloads that release, checks it against the release's `checksums.txt`, replaces itself and runs the new binary in its place. A development build (built from source, not a release) is kept. If it cannot replace its own binary, it fails and says so: install the pinned release by hand.
 - Links every skill into `<config>/skills/` for each config in the machine file: own skills from the checkout, third-party ones from a cache at their pin, and the nerve skill from the binary.
 - Removes only links it made itself (recorded in `<config>/.nerve.json`), and refuses to replace a real folder. A link with a skill's name is replaced, whoever made it.
 - Links `<config>/keybindings.json` to the Brain's, so edits made from Claude Code land in the Brain. It refuses to replace a real file.
