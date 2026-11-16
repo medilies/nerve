@@ -953,3 +953,14 @@ func TestSyncRecordsLinksMadeBeforeARealFolderStoppedIt(t *testing.T) {
 		t.Errorf("a-one was linked by a failed sync and never removed once the Brain dropped it")
 	}
 }
+
+func TestCheckAcceptsAFrontmatterListAtColumnZero(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", "allowed-tools:\n- Read\n- Bash\n"))
+
+	var out strings.Builder
+	if err := runCheck(w.root, newReport(&out, false)); err != nil {
+		t.Fatalf("check failed on valid YAML: %v\n%s", err, out.String())
+	}
+}

@@ -124,7 +124,7 @@ func findSkill(tree, name string) (string, error) {
 }
 
 // readFrontmatter reads the top-level keys of a SKILL.md's YAML frontmatter.
-// Folded, literal and nested values are joined into one line.
+// Folded, literal and nested values, and lists, are joined into one line.
 func readFrontmatter(path string) (map[string]string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -144,6 +144,8 @@ func readFrontmatter(path string) (map[string]string, error) {
 		trimmed := strings.TrimSpace(line)
 		switch {
 		case trimmed == "" || strings.HasPrefix(trimmed, "#"):
+		case key != "" && (line == "-" || strings.HasPrefix(line, "- ")): // a list item, which YAML lets start at column 0
+			meta[key] = strings.TrimSpace(meta[key] + " " + trimmed)
 		case line[0] != ' ' && line[0] != '\t':
 			k, v, ok := strings.Cut(line, ":")
 			if !ok {
