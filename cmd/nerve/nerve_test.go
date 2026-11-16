@@ -933,3 +933,23 @@ func TestJSONSyncKeepsWhatHappenedBeforeAnUpgrade(t *testing.T) {
 		t.Errorf("events are %v, want the first run's one pull-skipped, then the upgrade", kinds)
 	}
 }
+
+func TestSyncRecordsLinksMadeBeforeARealFolderStoppedIt(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.root, "skills", "a-one", "SKILL.md"), skillMD("a-one", ""))
+	w.write(filepath.Join(w.root, "skills", "b-two", "SKILL.md"), skillMD("b-two", ""))
+	w.write(filepath.Join(w.config, "skills", "b-two", "SKILL.md"), "mine") // stops sync after a-one is linked
+
+	var out strings.Builder
+	if err := syncCmd(w.root, &out); err == nil {
+		t.Fatal("sync passed despite a real folder")
+	}
+	os.RemoveAll(filepath.Join(w.config, "skills", "b-two"))
+	os.RemoveAll(filepath.Join(w.root, "skills", "a-one"))
+	w.run(syncCmd)
+
+	if _, err := os.Lstat(filepath.Join(w.config, "skills", "a-one")); !os.IsNotExist(err) {
+		t.Errorf("a-one was linked by a failed sync and never removed once the Brain dropped it")
+	}
+}

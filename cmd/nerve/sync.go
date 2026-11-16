@@ -85,11 +85,16 @@ func syncConfig(root string, c Config, skills []Skill, discard bool, r *report) 
 }
 
 // link makes dir hold exactly one link per skill, plus whatever sync did not
-// make; made lists the links sync made before, and is updated. It never
-// touches a real folder.
+// make; made lists the links sync made before, and is updated, even when a
+// link fails part way. It never touches a real folder.
 func link(dir string, skills []Skill, made *[]string, r *report) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
+	}
+	record := func(name string) {
+		if !slices.Contains(*made, name) {
+			*made = append(*made, name)
+		}
 	}
 	var names []string
 	for _, s := range skills {
@@ -100,6 +105,7 @@ func link(dir string, skills []Skill, made *[]string, r *report) error {
 				return fmt.Errorf("%s is a real folder, not a link: move it away, then sync again", path)
 			}
 			if target, _ := os.Readlink(path); target == s.Dir {
+				record(s.Name)
 				continue
 			}
 			if err := os.Remove(path); err != nil {
@@ -109,6 +115,7 @@ func link(dir string, skills []Skill, made *[]string, r *report) error {
 		if err := os.Symlink(s.Dir, path); err != nil {
 			return err
 		}
+		record(s.Name)
 		r.add(Event{Kind: evLinked, Path: path, Target: s.Dir})
 	}
 	for _, name := range *made {
