@@ -995,3 +995,24 @@ func TestSyncKeepsASkillThatLinksToAFolderOffClaudeAI(t *testing.T) {
 		t.Errorf("output does not say why grill is skipped:\n%s", out)
 	}
 }
+
+func TestSyncWritesThroughALinkedCLAUDEmd(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.root, manifestFile), "")
+	w.write(filepath.Join(w.root, "instructions", "base.md"), "Be brief.\n")
+	dotfile := filepath.Join(w.home, "dotfiles", "CLAUDE.md")
+	w.write(dotfile, "Mine.\n")
+	os.MkdirAll(w.config, 0o755)
+	if err := os.Symlink(dotfile, filepath.Join(w.config, "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	w.run(syncCmd)
+
+	if got := linkTarget(t, filepath.Join(w.config, "CLAUDE.md")); got != dotfile {
+		t.Errorf("CLAUDE.md links to %s, want %s", got, dotfile)
+	}
+	if b, _ := os.ReadFile(dotfile); !strings.Contains(string(b), blockStart) || !strings.HasSuffix(string(b), "Mine.\n") {
+		t.Errorf("the linked file is %q, want the nerve block over its own text", b)
+	}
+}

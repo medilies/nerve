@@ -53,7 +53,7 @@ func syncInstructions(brain string, c Config, r *report) error {
 	if err := os.MkdirAll(c.Dir, 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
+	if err := writeFile(path, []byte(want)); err != nil {
 		return err
 	}
 	r.add(Event{Kind: evWrote, Path: path})

@@ -181,7 +181,7 @@ func syncSettings(brain string, c Config, st *state, discard bool, r *report) (b
 		if err := os.MkdirAll(c.Dir, 0o755); err != nil {
 			return false, err
 		}
-		if err := os.WriteFile(path, append(b, '\n'), 0o644); err != nil {
+		if err := writeFile(path, append(b, '\n')); err != nil {
 			return false, err
 		}
 		r.add(Event{Kind: evWrote, Path: path})
@@ -235,4 +235,34 @@ func settingsProblems(root string, m Manifest) []Event {
 		}
 	}
 	return p
+}
+
+// writeFile replaces path's content all at once, so Claude Code never reads
+// it half written. A path that is a link keeps the link and replaces what it
+// points to, and an existing file keeps its mode.
+func writeFile(path string, b []byte) error {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	mode := fs.FileMode(0o644)
+	if fi, err := os.Stat(path); err == nil {
+		mode = fi.Mode().Perm()
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name()) // a no-op once renamed
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Chmod(mode); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }

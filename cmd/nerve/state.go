@@ -47,7 +47,7 @@ func saveState(cfg string, st state) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(cfg, stateFile), append(b, '\n'), 0o644); err != nil {
+	if err := writeFile(filepath.Join(cfg, stateFile), append(b, '\n')); err != nil {
 		return err
 	}
 	if err := os.Remove(filepath.Join(cfg, legacyStateFile)); err != nil && !os.IsNotExist(err) {

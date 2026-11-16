@@ -96,7 +96,7 @@ func runUpdate(root, repo, sha string, r *report) error {
 	if bytes.Count(b, []byte(src.SHA)) != 1 {
 		return fmt.Errorf("%s: pin %s must appear exactly once", manifestFile, src.SHA)
 	}
-	if err := os.WriteFile(path, bytes.Replace(b, []byte(src.SHA), []byte(sha), 1), 0o644); err != nil {
+	if err := writeFile(path, bytes.Replace(b, []byte(src.SHA), []byte(sha), 1)); err != nil {
 		return err
 	}
 	r.add(Event{Kind: evPinned, Detail: repo, Target: sha})
