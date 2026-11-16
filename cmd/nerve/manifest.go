@@ -13,12 +13,14 @@ import (
 
 const manifestFile = "brain.toml"
 
-// Manifest is a Brain's brain.toml: the nerve release it is carried by, its
-// profiles, and which third-party skills it uses at which commit.
+// Manifest is a Brain's brain.toml: the nerve release it is carried by (and,
+// optionally, the SHA-256 of that release's checksums.txt), its profiles, and
+// which third-party skills it uses at which commit.
 type Manifest struct {
-	Nerve    string   `toml:"nerve"`
-	Profiles []string `toml:"profiles"`
-	Sources  []Source `toml:"source"`
+	Nerve          string   `toml:"nerve"`
+	NerveChecksums string   `toml:"nerve-checksums"`
+	Profiles       []string `toml:"profiles"`
+	Sources        []Source `toml:"source"`
 }
 
 // Source is one third-party repo, pinned to a commit.
@@ -31,6 +33,7 @@ type Source struct {
 var (
 	repoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 	shaPattern  = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	sumPattern  = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 func loadManifest(root string) (Manifest, error) {
@@ -45,6 +48,9 @@ func loadManifest(root string) (Manifest, error) {
 	}
 	if m.Nerve != "" && !tagPattern.MatchString(m.Nerve) {
 		return m, fmt.Errorf("%s: nerve %q must be a release tag such as v1.2.3", manifestFile, m.Nerve)
+	}
+	if m.NerveChecksums != "" && (m.Nerve == "" || !sumPattern.MatchString(m.NerveChecksums)) {
+		return m, fmt.Errorf("%s: nerve-checksums must be the lowercase SHA-256 of the pinned nerve release's checksums.txt", manifestFile)
 	}
 	for i, p := range m.Profiles {
 		if !namePattern.MatchString(p) {

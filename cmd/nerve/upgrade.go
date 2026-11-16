@@ -42,8 +42,10 @@ const (
 
 // upgradeToPin replaces the running binary with the Brain's pinned release
 // and runs it in its place. It does nothing when there is no pin or the pin
-// already runs, and leaves development builds alone.
-func upgradeToPin(pin string, r *report) error {
+// already runs, and leaves development builds alone. When the Brain also pins
+// the release's checksums.txt, the download must match it.
+func upgradeToPin(m Manifest, r *report) error {
+	pin := m.Nerve
 	running := currentVersion()
 	if pin == "" || running == pin {
 		if from := os.Getenv(upgradedFromEnv); pin != "" && os.Getenv(upgradedEnv) == pin && from != "" {
@@ -69,7 +71,7 @@ func upgradeToPin(pin string, r *report) error {
 		return fmt.Errorf("cannot replace %s with nerve %s, the Brain's pin: %w; make its folder writable, or install %s by hand", path, pin, err, pin)
 	}
 	defer os.Remove(tmp) // a no-op once renamed
-	bin, err := fetchRelease(pin)
+	bin, err := fetchRelease(pin, m.NerveChecksums)
 	if err != nil {
 		f.Close()
 		return err
@@ -88,12 +90,16 @@ func upgradeToPin(pin string, r *report) error {
 }
 
 // fetchRelease downloads this platform's binary of release tag and checks it
-// against the release's checksums.txt.
-func fetchRelease(tag string) ([]byte, error) {
+// against the release's checksums.txt, and that file against sums when the
+// Brain pins it.
+func fetchRelease(tag, sums string) ([]byte, error) {
 	asset := fmt.Sprintf("nerve_%s_%s", runtime.GOOS, runtime.GOARCH)
 	list, err := download(releaseURL + "/" + tag + "/checksums.txt")
 	if err != nil {
 		return nil, err
+	}
+	if got := sha256.Sum256(list); sums != "" && hex.EncodeToString(got[:]) != sums {
+		return nil, fmt.Errorf("nerve %s: checksums.txt does not match nerve-checksums in %s", tag, manifestFile)
 	}
 	want, err := checksumOf(list, asset)
 	if err != nil {

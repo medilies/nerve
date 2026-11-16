@@ -34,6 +34,7 @@ hooks/                   # any scripts settings run, referenced as {{brain}}/hoo
 
 ```toml
 nerve = "v0.1.0"                 # the release that carries this Brain
+nerve-checksums = "9f86d0…"      # optional: SHA-256 of that release's checksums.txt
 profiles = ["personal", "work"]
 
 [[source]]
@@ -74,7 +75,7 @@ Settings that are sensitive or identifying never go in the Brain: put them in a 
 ## What sync does
 
 - Pulls the Brain first, fast-forward only. It skips the pull while tracked files have uncommitted changes or the checkout has no upstream, and fails if the checkout has diverged.
-- Brings nerve itself to the Brain's `nerve` release: it downloads that release, checks it against the release's `checksums.txt`, replaces itself and runs the new binary in its place. A development build (built from source, not a release) is kept. If it cannot replace its own binary, it fails and says so: install the pinned release by hand.
+- Brings nerve itself to the Brain's `nerve` release: it downloads that release, checks it against the release's `checksums.txt` (and that file against `nerve-checksums`, if set), replaces itself and runs the new binary in its place. A development build (built from source, not a release) is kept. If it cannot replace its own binary, it fails and says so: install the pinned release by hand.
 - Links every skill into `<config>/skills/` for each config in the machine file: own skills from the checkout, third-party ones from a cache at their pin, and the nerve skill from the binary.
 - Removes only links it made itself (recorded in `<config>/.nerve.json`), and refuses to replace a real folder. A link with a skill's name is replaced, whoever made it.
 - Links `<config>/keybindings.json` to the Brain's, so edits made from Claude Code land in the Brain. It refuses to replace a real file.
@@ -90,5 +91,6 @@ claude.ai only takes skills uploaded by hand (Customize > Skills > Upload a skil
 
 - `check` refuses settings that may hold secrets, such as `env` and `apiKeyHelper`, in the Brain.
 
+- `nerve-checksums` guards against a release replaced after you pinned it: `curl -sL https://github.com/medilies/nerve/releases/download/<tag>/checksums.txt | sha256sum`.
 - A personal skill always wins over a project's skill of the same name; nothing changes that. Own skills can defer to a project in their own text.
 - Decisions: [docs/adr/](docs/adr/).

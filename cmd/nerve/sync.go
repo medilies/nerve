@@ -21,7 +21,7 @@ func runSync(machine Machine, discard bool, r *report) error {
 	if err != nil {
 		return err
 	}
-	if err := upgradeToPin(m.Nerve, r); err != nil {
+	if err := upgradeToPin(m, r); err != nil {
 		return err
 	}
 	if err := machine.checkProfiles(m); err != nil {

@@ -858,3 +858,39 @@ func TestSyncSaysHowToUpgradeABinaryItCannotReplace(t *testing.T) {
 		t.Errorf("re-ran %v without replacing the binary", *reruns)
 	}
 }
+
+// pinChecksums pins sum as the release's checksums.txt in the Brain.
+func (w *world) pinChecksums(tag, sum string) {
+	w.write(filepath.Join(w.root, manifestFile), "nerve = \""+tag+"\"\nnerve-checksums = \""+sum+"\"\n")
+}
+
+func TestSyncUpgradesWhenTheReleaseMatchesThePinnedChecksums(t *testing.T) {
+	w := newWorld(t)
+	bin := []byte("new binary")
+	self, _ := w.fakeRelease("v0.1.0", "v0.2.0", bin, "")
+	h := sha256.Sum256(bin)
+	list := sha256.Sum256([]byte(hex.EncodeToString(h[:]) + "  nerve_" + runtime.GOOS + "_" + runtime.GOARCH + "\n"))
+	w.pinChecksums("v0.2.0", hex.EncodeToString(list[:]))
+
+	w.run(syncCmd)
+
+	if b, _ := os.ReadFile(self); string(b) != "new binary" {
+		t.Errorf("binary is %q, want the pinned release", b)
+	}
+}
+
+func TestSyncRefusesAReleaseWhoseChecksumsTheBrainDoesNotPin(t *testing.T) {
+	w := newWorld(t)
+	self, reruns := w.fakeRelease("v0.1.0", "v0.2.0", []byte("new binary"), "")
+	w.pinChecksums("v0.2.0", strings.Repeat("0", 64))
+
+	var out strings.Builder
+	err := syncCmd(w.root, &out)
+
+	if err == nil || !strings.Contains(err.Error(), "does not match nerve-checksums") {
+		t.Fatalf("got %v, want a pinned checksums error", err)
+	}
+	if b, _ := os.ReadFile(self); string(b) != "old binary" || len(*reruns) > 0 {
+		t.Errorf("binary %q replaced or re-run %v despite unpinned checksums", b, *reruns)
+	}
+}
