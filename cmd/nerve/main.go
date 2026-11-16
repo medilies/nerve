@@ -8,9 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
 const usage = `usage: nerve <command>
+
+  help                 print this
 
   init <brain> <config>[=<profile>]...  write this machine's file: the Brain's checkout, and each config with its profile
   sync [--discard]     pull the machine's Brain, carry it to each config, build dist/*.zip, report drift;
@@ -23,11 +26,18 @@ check and update work on the Brain around the working directory, else on the mac
 --json, with any command, prints one JSON document of its events and error instead of text.
 `
 
+// errUsage is a command line nerve does not know; it prints the usage.
+var errUsage = errors.New(strings.TrimSpace(usage))
+
 func main() {
 	args := slices.DeleteFunc(slices.Clone(os.Args[1:]), func(a string) bool { return a == "--json" })
 	r := newReport(os.Stdout, len(args) < len(os.Args)-1)
 	err := run(args, r)
-	if !r.finish(err) && err != nil {
+	switch {
+	case r.finish(err) || err == nil:
+	case errors.Is(err, errUsage):
+		fmt.Fprintln(os.Stderr, err)
+	default:
 		fmt.Fprintln(os.Stderr, "error:", err)
 	}
 	if err != nil {
@@ -37,9 +47,12 @@ func main() {
 
 func run(args []string, r *report) error {
 	if len(args) == 0 {
-		return errors.New(usage)
+		return errUsage
 	}
 	switch {
+	case len(args) == 1 && slices.Contains([]string{"help", "-h", "--help"}, args[0]):
+		r.add(Event{Kind: evUsage, Detail: strings.TrimSpace(usage)})
+		return nil
 	case args[0] == "status" && len(args) == 1:
 		return runStatus(r)
 	case args[0] == "init":
@@ -63,7 +76,7 @@ func run(args []string, r *report) error {
 	case args[0] == "update" && len(args) == 3:
 		return runUpdate(root, args[1], args[2], r)
 	}
-	return errors.New(usage)
+	return errUsage
 }
 
 // findRoot returns the nearest directory, from the working directory up,

@@ -1051,3 +1051,15 @@ func TestMachineFileRefusesAConfigListedTwice(t *testing.T) {
 		t.Fatalf("got %v, want the second listing refused", err)
 	}
 }
+
+func TestHelpPrintsUsage(t *testing.T) {
+	var out strings.Builder
+
+	if err := run([]string{"help"}, newReport(&out, false)); err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.HasPrefix(out.String(), "usage: nerve <command>") {
+		t.Errorf("help printed %q", out.String())
+	}
+}

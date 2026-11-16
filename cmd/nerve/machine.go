@@ -100,7 +100,7 @@ func (m Machine) checkProfiles(b Manifest) error {
 // <config dir>[=<profile>] per Claude Code config.
 func runInit(args []string, r *report) error {
 	if len(args) < 2 {
-		return errors.New(usage)
+		return errUsage
 	}
 	path, err := machinePath()
 	if err != nil {

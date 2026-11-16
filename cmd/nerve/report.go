@@ -43,6 +43,7 @@ const (
 	evUpgradeSkipped = "upgrade-skipped" // a development build (Detail) ran instead of the pinned Target
 	evBrain          = "brain"           // Path is the machine's Brain checkout
 	evConfig         = "config"          // Path is a Claude Code config; Detail its profile
+	evUsage          = "usage"           // Detail is how to run nerve
 )
 
 func (e Event) String() string {
