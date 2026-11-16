@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 )
 
 var tagPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
@@ -28,7 +29,8 @@ var (
 		}
 		return filepath.EvalSymlinks(p)
 	}
-	reexec = func(path string, env []string) error { return syscall.Exec(path, os.Args, env) }
+	reexec     = func(path string, env []string) error { return syscall.Exec(path, os.Args, env) }
+	httpClient = &http.Client{Timeout: 5 * time.Minute}
 )
 
 // A run started by an upgrade gets both versions, so it reports the upgrade
@@ -89,7 +91,7 @@ func upgradeToPin(pin string, r *report) error {
 }
 
 func download(url string) ([]byte, error) {
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return nil, err
 	}

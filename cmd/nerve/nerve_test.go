@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // world is a temp HOME holding a Brain, a fake GitHub, and one config.
@@ -730,14 +731,16 @@ func (w *world) fakeRelease(running, tag string, bin []byte, sum string) (string
 	self := filepath.Join(w.home, "bin", "nerve")
 	w.write(self, "old binary")
 	var reruns []string
-	oldURL, oldSelf, oldExec, oldVersion := releaseURL, selfPath, reexec, version
+	oldURL, oldSelf, oldExec, oldVersion, oldClient := releaseURL, selfPath, reexec, version, httpClient
 	releaseURL, version = srv.URL, running
 	selfPath = func() (string, error) { return self, nil }
 	reexec = func(path string, env []string) error {
 		reruns = append(reruns, path+" "+env[len(env)-1])
 		return nil
 	}
-	w.t.Cleanup(func() { releaseURL, selfPath, reexec, version = oldURL, oldSelf, oldExec, oldVersion })
+	w.t.Cleanup(func() {
+		releaseURL, selfPath, reexec, version, httpClient = oldURL, oldSelf, oldExec, oldVersion, oldClient
+	})
 	w.write(filepath.Join(w.root, manifestFile), "nerve = \""+tag+"\"\n")
 	return self, &reruns
 }
@@ -812,5 +815,26 @@ func TestSyncKeepsPullingOnceItHasBuiltZipsIntoTheBrain(t *testing.T) {
 
 	if got, want := w.gitIn(w.root, "rev-parse", "HEAD"), w.gitIn(other, "rev-parse", "HEAD"); got != want {
 		t.Errorf("Brain is at %s, want the pushed %s: untracked dist/ blocked the pull", got, want)
+	}
+}
+
+func TestSyncGivesUpOnAStalledDownload(t *testing.T) {
+	w := newWorld(t)
+	self, _ := w.fakeRelease("v0.1.0", "v0.2.0", []byte("new binary"), "")
+	stalled := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		<-req.Context().Done() // never answers
+	}))
+	t.Cleanup(stalled.Close)
+	releaseURL = stalled.URL
+	httpClient = &http.Client{Timeout: 100 * time.Millisecond}
+
+	var out strings.Builder
+	err := syncCmd(w.root, &out)
+
+	if err == nil || !strings.Contains(err.Error(), "Timeout") {
+		t.Fatalf("got %v, want a timeout", err)
+	}
+	if b, _ := os.ReadFile(self); string(b) != "old binary" {
+		t.Errorf("binary is %q after a failed download", b)
 	}
 }
