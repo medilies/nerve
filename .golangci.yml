@@ -1,0 +1,36 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - depguard
+  settings:
+    depguard:
+      rules:
+        domain:
+          files:
+            - "**/internal/brain/domain/*.go"
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/medilies/nerve/internal/brain/domain # its own external tests
+        app:
+          files:
+            - "**/internal/brain/app/*.go"
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/medilies/nerve/internal/brain/domain
+            - github.com/medilies/nerve/internal/brain/app # its own external tests
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/medilies/nerve

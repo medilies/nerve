@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,7 +18,31 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/medilies/nerve/internal/brain/app"
+	"github.com/medilies/nerve/internal/brain/domain"
+	"github.com/medilies/nerve/internal/brain/infra"
 )
+
+func readJSONObject(path string) (map[string]any, error) {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]any
+	return obj, json.Unmarshal(b, &obj)
+}
+
+func writeJSONObject(path string, obj map[string]any) error {
+	b, _ := json.MarshalIndent(obj, "", "  ")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o644)
+}
 
 // world is a temp HOME holding a Brain, a project checkout listed nowhere
 // yet, and a fake GitHub.
@@ -53,7 +76,7 @@ func newWorld(t *testing.T) *world {
 	}
 	// As Claude Code does the first time it writes a settings.local.json.
 	w.write(filepath.Join(home, ".config", "git", "ignore"), "**/.claude/settings.local.json\n")
-	w.write(filepath.Join(w.brain, manifestFile), "")
+	w.write(filepath.Join(w.brain, domain.ManifestFile), "")
 	w.gitIn(home, "init", "-q", "-b", "main", w.brain)
 	w.gitIn(w.brain, "remote", "add", "origin", "git@github.com:Medilies/brain.git")
 	w.gitIn(home, "init", "-q", w.upstream)
@@ -84,6 +107,13 @@ func (w *world) write(path, content string) {
 	}
 }
 
+func (w *world) remove(path string) {
+	w.t.Helper()
+	if err := os.Remove(path); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
 func (w *world) read(path string) string {
 	w.t.Helper()
 	b, err := os.ReadFile(path)
@@ -99,16 +129,16 @@ func (w *world) in(dir string, mode int, args ...string) (string, error) {
 	w.t.Helper()
 	w.t.Chdir(dir)
 	var out strings.Builder
-	r := newReport(&out, mode)
+	r := infra.NewReport(&out, mode)
 	err := run(args, r)
-	r.finish(err)
+	r.Finish(err)
 	return out.String(), err
 }
 
 // nerve runs nerve in the project, and fails the test if it fails.
 func (w *world) nerve(args ...string) string {
 	w.t.Helper()
-	out, err := w.in(w.proj, asText, args...)
+	out, err := w.in(w.proj, infra.AsText, args...)
 	if err != nil {
 		w.t.Fatalf("nerve %v: %v\n%s", args, err, out)
 	}
@@ -119,7 +149,7 @@ func (w *world) nerve(args ...string) string {
 // error and output.
 func (w *world) nerveFails(args ...string) string {
 	w.t.Helper()
-	out, err := w.in(w.proj, asText, args...)
+	out, err := w.in(w.proj, infra.AsText, args...)
 	if err == nil {
 		w.t.Fatalf("nerve %v passed:\n%s", args, out)
 	}
@@ -127,7 +157,7 @@ func (w *world) nerveFails(args ...string) string {
 }
 
 func (w *world) manifest(content string) {
-	w.write(filepath.Join(w.brain, manifestFile), content)
+	w.write(filepath.Join(w.brain, domain.ManifestFile), content)
 }
 
 func skillMD(name, extra string) string {
@@ -156,7 +186,7 @@ func (w *world) commitUpstream(files map[string]string) string {
 // local reads the project's settings.local.json.
 func (w *world) local() map[string]any {
 	w.t.Helper()
-	obj, err := readObject(filepath.Join(w.proj, localSettings))
+	obj, err := readJSONObject(filepath.Join(w.proj, domain.LocalSettings))
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -165,14 +195,14 @@ func (w *world) local() map[string]any {
 
 func (w *world) setLocal(obj map[string]any) {
 	w.t.Helper()
-	if err := writeObject(filepath.Join(w.proj, localSettings), obj); err != nil {
+	if err := writeJSONObject(filepath.Join(w.proj, domain.LocalSettings), obj); err != nil {
 		w.t.Fatal(err)
 	}
 }
 
-func (w *world) loadManifest() Manifest {
+func (w *world) loadManifest() domain.Manifest {
 	w.t.Helper()
-	m, err := loadManifest(w.brain)
+	m, err := infra.NewBrainCheckout(w.brain).Load()
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -188,7 +218,7 @@ func linkTarget(t *testing.T, path string) string {
 	return target
 }
 
-func asJSONText(v any) string {
+func jsonText(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
@@ -224,11 +254,11 @@ deny = ["NotebookEdit"]
 		"includeCoAuthoredBy": false,
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("project settings are %s, want %s", asJSONText(got), asJSONText(want))
+		t.Errorf("project settings are %s, want %s", jsonText(got), jsonText(want))
 	}
-	overlay, _ := readObject(filepath.Join(w.home, ".config", "nerve", "overlays", "app.json"))
-	if wantOverlay := `{"env":{"TOKEN":"abc"},"statusLine":{"command":"/home/someone/bin/line"}}`; asJSONText(overlay) != wantOverlay {
-		t.Errorf("overlay is %s, want %s", asJSONText(overlay), wantOverlay)
+	overlay, _ := readJSONObject(filepath.Join(w.home, ".config", "nerve", "overlays", "app.json"))
+	if wantOverlay := `{"env":{"TOKEN":"abc"},"statusLine":{"command":"/home/someone/bin/line"}}`; jsonText(overlay) != wantOverlay {
+		t.Errorf("overlay is %s, want %s", jsonText(overlay), wantOverlay)
 	}
 	for _, line := range []string{
 		"imported model: already given by common",
@@ -242,7 +272,7 @@ deny = ["NotebookEdit"]
 			t.Errorf("output lacks %q:\n%s", line, out)
 		}
 	}
-	if strings.Contains(w.read(filepath.Join(w.brain, manifestFile)), "TOKEN") {
+	if strings.Contains(w.read(filepath.Join(w.brain, domain.ManifestFile)), "TOKEN") {
 		t.Errorf("a secret reached brain.toml")
 	}
 	if _, err := os.Stat(filepath.Join(w.proj, ".claude", "skills")); err == nil {
@@ -257,11 +287,11 @@ deny = ["NotebookEdit"]
 	after := w.local()
 	for k, v := range before {
 		if !reflect.DeepEqual(after[k], v) {
-			t.Errorf("%s went from %s to %s", k, asJSONText(v), asJSONText(after[k]))
+			t.Errorf("%s went from %s to %s", k, jsonText(v), jsonText(after[k]))
 		}
 	}
 	if after["syncClaudeAiSkills"] != false {
-		t.Errorf("common's syncClaudeAiSkills was not added: %s", asJSONText(after))
+		t.Errorf("common's syncClaudeAiSkills was not added: %s", jsonText(after))
 	}
 }
 
@@ -321,7 +351,7 @@ skills = ["grilling"]
 func TestSyncRefusesASettingsFileGitDoesNotIgnoreOrTracks(t *testing.T) {
 	w := newWorld(t)
 	w.nerve("project", "add", "app")
-	os.Remove(filepath.Join(w.home, ".config", "git", "ignore"))
+	w.remove(filepath.Join(w.home, ".config", "git", "ignore"))
 
 	if msg := w.nerveFails("sync", "--here"); !strings.Contains(msg, "git does not ignore .claude/settings.local.json") {
 		t.Errorf("got %s, want a refusal to write an unignored file", msg)
@@ -354,14 +384,14 @@ command = "{{brain}}/hooks/fmt.sh"
 	w.nerve("sync", "--here")
 
 	hooks, _ := w.local()["hooks"].(map[string]any)
-	post := asJSONText(hooks["PostToolUse"])
+	post := jsonText(hooks["PostToolUse"])
 	if want := `[{"hooks":[{"command":"` + w.brain + `/hooks/fmt.sh","type":"command"}],"matcher":"Edit|Write"}]`; post != want {
 		t.Errorf("PostToolUse is %s, want %s", post, want)
 	}
-	if start := asJSONText(hooks["SessionStart"]); !strings.Contains(start, " sync --here --hook") {
+	if start := jsonText(hooks["SessionStart"]); !strings.Contains(start, " sync --here --hook") {
 		t.Errorf("SessionStart is %s, want the autosync hook", start)
 	}
-	if got := asJSONText(w.local()["enabledPlugins"]); got != `{"gopls@claude-plugins-official":true}` {
+	if got := jsonText(w.local()["enabledPlugins"]); got != `{"gopls@claude-plugins-official":true}` {
 		t.Errorf("enabledPlugins is %s", got)
 	}
 
@@ -370,7 +400,7 @@ command = "{{brain}}/hooks/fmt.sh"
 
 	hooks, _ = w.local()["hooks"].(map[string]any)
 	if _, ok := hooks["SessionStart"]; ok {
-		t.Errorf("autosync off left its hook: %s", asJSONText(hooks))
+		t.Errorf("autosync off left its hook: %s", jsonText(hooks))
 	}
 }
 
@@ -399,7 +429,7 @@ func TestSyncKeepsDriftedKeysAndWritesTheRest(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", line, msg)
 		}
 	}
-	if got := asJSONText(w.local()); got != `{"effortLevel":"high","model":"sonnet","permissions":{"allow":["Bash(make)"]}}` {
+	if got := jsonText(w.local()); got != `{"effortLevel":"high","model":"sonnet","permissions":{"allow":["Bash(make)"]}}` {
 		t.Errorf("settings are %s, want the drift kept and the Brain's change written", got)
 	}
 
@@ -408,7 +438,7 @@ func TestSyncKeepsDriftedKeysAndWritesTheRest(t *testing.T) {
 		t.Errorf("drift was forgotten:\n%s", msg)
 	}
 	w.nerve("sync", "--here", "--discard")
-	if got := asJSONText(w.local()); got != `{"effortLevel":"high","model":"opus"}` {
+	if got := jsonText(w.local()); got != `{"effortLevel":"high","model":"opus"}` {
 		t.Errorf("settings are %s after --discard, want the Brain's", got)
 	}
 }
@@ -435,7 +465,7 @@ deny = ["NotebookEdit", "Cron"]
 	w.nerve("setting", "rm", "model")
 	w.nerve("sync", "--here")
 
-	if got := asJSONText(w.local()); got != `{"permissions":{"deny":["Cron"]}}` {
+	if got := jsonText(w.local()); got != `{"permissions":{"deny":["Cron"]}}` {
 		t.Errorf("settings are %s, want NotebookEdit and model revoked", got)
 	}
 }
@@ -449,8 +479,8 @@ func TestDeletingALinkDropsItFromTheProject(t *testing.T) {
 	w.nerve("skill", "add", "tdd")
 	w.nerve("sync", "--here")
 
-	os.Remove(filepath.Join(w.proj, ".claude", "skills", "go-stack"))
-	os.Remove(filepath.Join(w.proj, ".claude", "skills", "nerve"))
+	w.remove(filepath.Join(w.proj, ".claude", "skills", "go-stack"))
+	w.remove(filepath.Join(w.proj, ".claude", "skills", "nerve"))
 	out := w.nerve("sync", "--here")
 
 	if got := w.loadManifest().Projects["app"].Skills; !slices.Equal(got, []string{"tdd"}) {
@@ -491,7 +521,7 @@ func TestSyncLinksUnderTheOwnersPrefixWhereTheTeamHasTheName(t *testing.T) {
 // hookRun runs autosync as Claude Code does, and returns its hook output.
 func (w *world) hookRun() map[string]any {
 	w.t.Helper()
-	out, _ := w.in(w.proj, asHook, "sync", "--here", "--hook")
+	out, _ := w.in(w.proj, infra.AsHook, "sync", "--here", "--hook")
 	var doc map[string]any
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
 		w.t.Fatalf("hook output is not JSON: %v\n%s", err, out)
@@ -511,7 +541,7 @@ func TestAutosyncHandsAReportAndRescansSkillsWhenItLinkedOne(t *testing.T) {
 	if !strings.HasPrefix(msg, "nerve: ") || !strings.Contains(msg, "linked   "+filepath.Join(w.proj, ".claude", "skills", "go-stack")) {
 		t.Errorf("message does not report the link:\n%s", msg)
 	}
-	if got := asJSONText(doc["hookSpecificOutput"]); got != `{"hookEventName":"SessionStart","reloadSkills":true}` {
+	if got := jsonText(doc["hookSpecificOutput"]); got != `{"hookEventName":"SessionStart","reloadSkills":true}` {
 		t.Errorf("hookSpecificOutput is %s, want a skill rescan", got)
 	}
 
@@ -525,7 +555,7 @@ func TestAutosyncHandsAReportAndRescansSkillsWhenItLinkedOne(t *testing.T) {
 	}
 
 	// A failure is reported to the user, not swallowed.
-	os.Remove(filepath.Join(w.home, ".config", "git", "ignore"))
+	w.remove(filepath.Join(w.home, ".config", "git", "ignore"))
 	if msg, _ := w.hookRun()["systemMessage"].(string); !strings.Contains(msg, "git does not ignore") {
 		t.Errorf("the failure is not in the message:\n%s", msg)
 	}
@@ -548,7 +578,7 @@ func TestProjectRmCleansTheCheckoutAndKeepsWhatTheUserChanged(t *testing.T) {
 	if _, ok := w.loadManifest().Projects["app"]; ok {
 		t.Errorf("the project is still in the Brain")
 	}
-	if got := asJSONText(w.local()); got != `{"outputStyle":"terse"}` {
+	if got := jsonText(w.local()); got != `{"outputStyle":"terse"}` {
 		t.Errorf("settings are %s, want only the user's own", got)
 	}
 	if entries, _ := os.ReadDir(filepath.Join(w.proj, ".claude", "skills")); len(entries) > 0 {
@@ -576,7 +606,7 @@ func TestSyncCleansACheckoutWhoseProjectLeftTheBrain(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(w.proj, ".claude", "skills", "nerve")); err == nil {
 		t.Errorf("nerve's skill link is left")
 	}
-	if _, err := os.Stat(filepath.Join(w.proj, localSettings)); err == nil {
+	if _, err := os.Stat(filepath.Join(w.proj, domain.LocalSettings)); err == nil {
 		t.Errorf("settings.local.json, all nerve's, is left")
 	}
 }
@@ -604,7 +634,7 @@ skills = ["research", "notes"]
 	if zr.File[0].Name != "research/SKILL.md" {
 		t.Errorf("zip holds %s, want research/SKILL.md", zr.File[0].Name)
 	}
-	zr.Close()
+	_ = zr.Close()
 
 	if out := w.nerve("sync"); strings.Contains(out, "upload") {
 		t.Errorf("an unchanged skill was reported again:\n%s", out)
@@ -624,7 +654,7 @@ skills = ["research", "notes"]
 
 func (w *world) problems() string {
 	w.t.Helper()
-	out, err := w.in(w.brain, asText, "check")
+	out, err := w.in(w.brain, infra.AsText, "check")
 	if err == nil {
 		w.t.Fatalf("check passed:\n%s", out)
 	}
@@ -711,7 +741,7 @@ func TestSettingSetSendsASensitiveValueToTheOverlay(t *testing.T) {
 	if !strings.Contains(out, "overlay  env set in "+overlay+": env may hold secrets") {
 		t.Errorf("output does not say where it went:\n%s", out)
 	}
-	if strings.Contains(w.read(filepath.Join(w.brain, manifestFile)), "TOKEN") {
+	if strings.Contains(w.read(filepath.Join(w.brain, domain.ManifestFile)), "TOKEN") {
 		t.Errorf("a secret reached brain.toml")
 	}
 	if msg := w.nerveFails("setting", "set", "env", `{"TOKEN": "abc"}`, "--common"); !strings.Contains(msg, "cannot go in common") {
@@ -732,10 +762,10 @@ func TestCommandsFindTheProjectFromAWorktree(t *testing.T) {
 	tree := filepath.Join(w.home, "proj-feature")
 	w.gitIn(w.proj, "worktree", "add", "-q", "-b", "feature", tree)
 
-	if out, err := w.in(tree, asText, "skill", "add", "go-stack"); err != nil {
+	if out, err := w.in(tree, infra.AsText, "skill", "add", "go-stack"); err != nil {
 		t.Fatalf("skill add from a worktree: %v\n%s", err, out)
 	}
-	if out, err := w.in(tree, asText, "sync", "--here"); err != nil {
+	if out, err := w.in(tree, infra.AsText, "sync", "--here"); err != nil {
 		t.Fatalf("sync from a worktree: %v\n%s", err, out)
 	}
 
@@ -763,7 +793,7 @@ func TestSkillUpdateShowsUpstreamDiffAndMovesThePin(t *testing.T) {
 	w.manifest(fmt.Sprintf("# pins\n[[source]]\nrepo = \"acme/up\"\nsha = %q\nskills = [\"grilling\"]\n", old))
 	next := w.commitUpstream(map[string]string{"grilling": skillMD("grilling", "") + "Grill harder.\n"})
 
-	out, err := w.in(w.brain, asText, "skill", "update", "acme/up")
+	out, err := w.in(w.brain, infra.AsText, "skill", "update", "acme/up")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -771,7 +801,7 @@ func TestSkillUpdateShowsUpstreamDiffAndMovesThePin(t *testing.T) {
 	if !strings.Contains(out, "+Grill harder.") {
 		t.Errorf("output lacks the upstream diff:\n%s", out)
 	}
-	if got := w.read(filepath.Join(w.brain, manifestFile)); !strings.Contains(got, next) || !strings.HasPrefix(got, "# pins\n") {
+	if got := w.read(filepath.Join(w.brain, domain.ManifestFile)); !strings.Contains(got, next) || !strings.HasPrefix(got, "# pins\n") {
 		t.Errorf("brain.toml is not moved in place:\n%s", got)
 	}
 }
@@ -781,23 +811,24 @@ func TestSaveManifestKeepsValuesAsWritten(t *testing.T) {
 	w.manifest("[common.settings]\ncleanupPeriodDays = 30\nmodel = \"opus\"\n")
 	w.nerve("project", "add", "app")
 
-	got := w.read(filepath.Join(w.brain, manifestFile))
+	got := w.read(filepath.Join(w.brain, domain.ManifestFile))
 
 	if !strings.Contains(got, "cleanupPeriodDays = 30\n") || strings.Contains(got, "[project]\n") || strings.Contains(got, "[common]\n") {
 		t.Errorf("brain.toml is not written as a person would:\n%s", got)
 	}
-	if m := w.loadManifest(); m.Common.Settings["cleanupPeriodDays"] != float64(30) {
-		t.Errorf("cleanupPeriodDays reads back as %#v", m.Common.Settings["cleanupPeriodDays"])
+	if m := w.loadManifest(); m.Common["cleanupPeriodDays"] != float64(30) {
+		t.Errorf("cleanupPeriodDays reads back as %#v", m.Common["cleanupPeriodDays"])
 	}
 }
 
 func TestInitWritesTheMachineFile(t *testing.T) {
 	w := newWorld(t)
-	os.Remove(filepath.Join(w.home, ".config", "nerve", "config.toml"))
+	w.remove(filepath.Join(w.home, ".config", "nerve", "config.toml"))
 
 	w.nerve("init", w.brain)
 
-	m, err := loadMachine()
+	files, _ := infra.NewMachineFiles()
+	m, err := files.Load()
 	if err != nil || m.Brain != w.brain {
 		t.Errorf("machine file names %q (%v), want %s", m.Brain, err, w.brain)
 	}
@@ -809,7 +840,8 @@ func TestInitWritesTheMachineFile(t *testing.T) {
 func TestMachineFileRefusesTheOldConfigs(t *testing.T) {
 	w := newWorld(t)
 	w.write(filepath.Join(w.home, ".config", "nerve", "config.toml"), "brain = \"~/brain\"\n[[config]]\ndir = \"~/.claude\"\n")
-	if _, err := loadMachine(); err == nil || !strings.Contains(err.Error(), "[[config]] is gone since nerve v0.3") {
+	files, _ := infra.NewMachineFiles()
+	if _, err := files.Load(); err == nil || !strings.Contains(err.Error(), "[[config]] is gone since nerve v0.3") {
 		t.Errorf("got %v, want the old configs refused", err)
 	}
 }
@@ -842,12 +874,12 @@ func TestStatusShowsTheProjectItsLinksAndDrift(t *testing.T) {
 
 func TestJSONReportCarriesEventsAndTheError(t *testing.T) {
 	w := newWorld(t)
-	out, err := w.in(w.proj, asJSON, "skill", "add", "ghost")
+	out, err := w.in(w.proj, infra.AsJSON, "skill", "add", "ghost")
 	if err == nil {
 		t.Fatal("skill add outside a listed checkout passed")
 	}
 	var doc struct {
-		Events []Event
+		Events []app.Event
 		Error  string
 	}
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
@@ -878,7 +910,7 @@ func (w *world) published() string {
 	w.gitIn(w.brain, "branch", "-q", "-u", "origin/main")
 	other := filepath.Join(w.home, "other")
 	w.gitIn(w.home, "clone", "-q", remote, other)
-	w.write(filepath.Join(other, manifestFile), "[common.settings]\nmodel = \"opus\"\n")
+	w.write(filepath.Join(other, domain.ManifestFile), "[common.settings]\nmodel = \"opus\"\n")
 	w.gitIn(other, "add", "-A")
 	w.gitIn(other, "commit", "-q", "-m", "b")
 	w.gitIn(other, "push", "-q")
@@ -913,11 +945,11 @@ func TestSyncSkipsThePullWhileTheBrainHasUncommittedChanges(t *testing.T) {
 
 func TestNervesOwnSkillMeetsTheSkillRules(t *testing.T) {
 	newWorld(t)
-	s, err := installSelf()
+	s, err := infra.Nerve{SkillMD: selfSkill}.Skill()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p := s.problems(); len(p) > 0 {
+	if p := s.Problems(); len(p) > 0 {
 		t.Errorf("the nerve skill breaks the rules: %v", p)
 	}
 }
@@ -925,7 +957,7 @@ func TestNervesOwnSkillMeetsTheSkillRules(t *testing.T) {
 func TestCheckAcceptsAFrontmatterListAtColumnZero(t *testing.T) {
 	w := newWorld(t)
 	w.write(filepath.Join(w.brain, "skills", "go-stack", "SKILL.md"), "---\nname: go-stack\ndescription: Go.\nallowed-tools:\n- Bash\n- Read\n---\n")
-	if out, err := w.in(w.brain, asText, "check"); err != nil {
+	if out, err := w.in(w.brain, infra.AsText, "check"); err != nil {
 		t.Errorf("check refused a valid list: %v\n%s", err, out)
 	}
 }
@@ -933,7 +965,7 @@ func TestCheckAcceptsAFrontmatterListAtColumnZero(t *testing.T) {
 func TestCheckCountsDescriptionLengthInCharacters(t *testing.T) {
 	w := newWorld(t)
 	w.write(filepath.Join(w.brain, "skills", "go-stack", "SKILL.md"), "---\nname: go-stack\ndescription: "+strings.Repeat("é", 1024)+"\n---\n")
-	if out, err := w.in(w.brain, asText, "check"); err != nil {
+	if out, err := w.in(w.brain, infra.AsText, "check"); err != nil {
 		t.Errorf("check counted bytes: %v\n%s", err, out)
 	}
 	w.write(filepath.Join(w.brain, "skills", "tdd", "SKILL.md"), "---\nname: other\ndescription: x\n---\n")
@@ -955,9 +987,9 @@ func (w *world) fakeRelease(running, tag string, bin []byte, sum string) (string
 	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		switch req.URL.Path {
 		case "/" + tag + "/checksums.txt":
-			fmt.Fprintf(rw, "%s  %s\n", sum, asset)
+			_, _ = fmt.Fprintf(rw, "%s  %s\n", sum, asset)
 		case "/" + tag + "/" + asset:
-			rw.Write(bin)
+			_, _ = rw.Write(bin)
 		default:
 			http.NotFound(rw, req)
 		}
@@ -966,17 +998,19 @@ func (w *world) fakeRelease(running, tag string, bin []byte, sum string) (string
 	self := filepath.Join(w.home, "bin", "nerve")
 	w.write(self, "old binary")
 	var reruns []string
-	oldURL, oldSelf, oldExec, oldVersion, oldClient := releaseURL, selfPath, reexec, version, httpClient
-	releaseURL, version = srv.URL, running
-	selfPath = func() (string, error) { return self, nil }
-	reexec = func(path string, env []string) error {
-		reruns = append(reruns, path+" "+env[len(env)-1])
-		w.rerunEnv = env
-		return nil
+	oldRelease, oldVersion := release, version
+	version = running
+	release = infra.Release{
+		URL:    srv.URL,
+		Client: &http.Client{Timeout: time.Minute},
+		Path:   func() (string, error) { return self, nil },
+		Exec: func(path string, env []string) error {
+			reruns = append(reruns, path+" "+env[len(env)-1])
+			w.rerunEnv = env
+			return nil
+		},
 	}
-	w.t.Cleanup(func() {
-		releaseURL, selfPath, reexec, version, httpClient = oldURL, oldSelf, oldExec, oldVersion, oldClient
-	})
+	w.t.Cleanup(func() { release, version = oldRelease, oldVersion })
 	w.manifest("nerve = \"" + tag + "\"\n")
 	return self, &reruns
 }
@@ -990,14 +1024,14 @@ func TestSyncUpgradesNerveToTheBrainsPinAndRunsItInstead(t *testing.T) {
 	if b, _ := os.ReadFile(self); string(b) != "new binary" {
 		t.Errorf("binary is %q, want the pinned release", b)
 	}
-	if want := []string{self + " " + upgradedEnv + "=v0.2.0"}; !slices.Equal(*reruns, want) {
+	if want := []string{self + " " + "NERVE_UPGRADED_TO" + "=v0.2.0"}; !slices.Equal(*reruns, want) {
 		t.Errorf("re-runs are %v, want %v", *reruns, want)
 	}
 
 	// The re-run is the pinned release, and says what it upgraded from.
 	version = "v0.2.0"
-	t.Setenv(upgradedFromEnv, "v0.1.0")
-	t.Setenv(upgradedEnv, "v0.2.0")
+	t.Setenv("NERVE_UPGRADED_FROM", "v0.1.0")
+	t.Setenv("NERVE_UPGRADED_TO", "v0.2.0")
 	out := w.nerve("sync")
 
 	if !strings.Contains(out, "upgraded "+self+" from v0.1.0 to v0.2.0") {
@@ -1041,8 +1075,8 @@ func TestSyncGivesUpOnAStalledDownload(t *testing.T) {
 		<-req.Context().Done() // never answers
 	}))
 	t.Cleanup(stalled.Close)
-	releaseURL = stalled.URL
-	httpClient = &http.Client{Timeout: 100 * time.Millisecond}
+	release.URL = stalled.URL
+	release.Client = &http.Client{Timeout: 100 * time.Millisecond}
 
 	if msg := w.nerveFails("sync"); !strings.Contains(msg, "Timeout") {
 		t.Fatalf("got %s, want a timeout", msg)
@@ -1058,8 +1092,10 @@ func TestSyncSaysHowToUpgradeABinaryItCannotReplace(t *testing.T) {
 	}
 	w := newWorld(t)
 	self, reruns := w.fakeRelease("v0.1.0", "v0.2.0", []byte("new binary"), "")
-	os.Chmod(filepath.Dir(self), 0o555)
-	t.Cleanup(func() { os.Chmod(filepath.Dir(self), 0o755) })
+	if err := os.Chmod(filepath.Dir(self), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(self), 0o755) })
 
 	if msg := w.nerveFails("sync"); !strings.Contains(msg, "cannot replace "+self+" with nerve v0.2.0") || !strings.Contains(msg, "install v0.2.0 by hand") {
 		t.Fatalf("got %s, want an error saying how to upgrade", msg)
@@ -1101,11 +1137,7 @@ func TestJSONSyncKeepsWhatHappenedBeforeAnUpgrade(t *testing.T) {
 	w := newWorld(t)
 	w.published()
 	w.fakeRelease("v0.1.0", "v0.2.0", []byte("new binary"), "") // edits brain.toml, so the pull is skipped
-	m, err := loadMachine()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runSync(m, flags{}, newReport(io.Discard, asJSON)); err != nil {
+	if _, err := w.in(w.proj, infra.AsJSON, "sync"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1116,19 +1148,17 @@ func TestJSONSyncKeepsWhatHappenedBeforeAnUpgrade(t *testing.T) {
 			t.Setenv(k, v)
 		}
 	}
-	var out strings.Builder
-	r := newReport(&out, asJSON)
-	r.finish(runSync(m, flags{}, r))
+	out, _ := w.in(w.proj, infra.AsJSON, "sync")
 
-	var doc struct{ Events []Event }
-	if err := json.Unmarshal([]byte(out.String()), &doc); err != nil {
-		t.Fatalf("not JSON: %v\n%s", err, out.String())
+	var doc struct{ Events []app.Event }
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
 	}
 	var kinds []string
 	for _, e := range doc.Events {
 		kinds = append(kinds, e.Kind)
 	}
-	if !slices.Contains(kinds, evUpgraded) || slices.Index(kinds, evPullSkipped) != 0 || slices.Contains(kinds[1:], evPullSkipped) {
+	if !slices.Contains(kinds, app.EvUpgraded) || slices.Index(kinds, app.EvPullSkipped) != 0 || slices.Contains(kinds[1:], app.EvPullSkipped) {
 		t.Errorf("events are %v, want the first run's one pull-skipped, then the upgrade", kinds)
 	}
 }

@@ -11,6 +11,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # depguard keeps domain and app to their layers: see docs/adr/0006.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+
   check:
     runs-on: ubuntu-latest
     steps:

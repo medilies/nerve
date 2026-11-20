@@ -1,0 +1,197 @@
+package infra
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+
+	"github.com/BurntSushi/toml"
+
+	"github.com/medilies/nerve/internal/brain/app"
+	"github.com/medilies/nerve/internal/brain/domain"
+)
+
+// MachineFiles is what this machine keeps under its config folder: the
+// machine file, local overlays and state.
+type MachineFiles struct {
+	dir string
+}
+
+// NewMachineFiles keeps this machine's files in the user's config folder.
+func NewMachineFiles() (MachineFiles, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return MachineFiles{}, err
+	}
+	return MachineFiles{dir: filepath.Join(dir, "nerve")}, nil
+}
+
+var _ app.Machine = MachineFiles{}
+
+func (f MachineFiles) path() string { return filepath.Join(f.dir, "config.toml") }
+
+type machineFile struct {
+	Brain     string         `toml:"brain"`
+	Checkouts []checkoutLine `toml:"checkout,omitempty"`
+}
+
+type checkoutLine struct {
+	Path    string `toml:"path"`
+	Project string `toml:"project"`
+}
+
+// Load reads the machine file, with every path made absolute.
+func (f MachineFiles) Load() (domain.Machine, error) {
+	var mf machineFile
+	path := f.path()
+	meta, err := toml.DecodeFile(path, &mf)
+	if errors.Is(err, fs.ErrNotExist) {
+		return domain.Machine{}, fmt.Errorf("no machine file at %s: run nerve init", path)
+	}
+	if err != nil {
+		return domain.Machine{}, fmt.Errorf("%s: %w", path, err)
+	}
+	if keys := meta.Undecoded(); len(keys) > 0 {
+		if keys[0][0] == "config" {
+			return domain.Machine{}, fmt.Errorf("%s: [[config]] is gone since nerve v0.3, which carries nothing to user level: remove it", path)
+		}
+		return domain.Machine{}, fmt.Errorf("%s: unknown keys %v", path, keys)
+	}
+	if mf.Brain == "" {
+		return domain.Machine{}, fmt.Errorf("%s: no brain", path)
+	}
+	m := domain.Machine{}
+	if m.Brain, err = absolute(mf.Brain); err != nil {
+		return m, fmt.Errorf("%s: brain %w", path, err)
+	}
+	for _, c := range mf.Checkouts {
+		dir, err := absolute(c.Path)
+		if err != nil {
+			return m, fmt.Errorf("%s: checkout %w", path, err)
+		}
+		if _, ok := m.CheckoutAt(dir); ok {
+			return m, fmt.Errorf("%s: checkout %s is listed twice", path, dir)
+		}
+		m.Checkouts = append(m.Checkouts, domain.Checkout{Path: dir, Project: c.Project})
+	}
+	return m, nil
+}
+
+// absolute expands ~, resolves links, and refuses a relative path.
+func absolute(path string) (string, error) {
+	p, err := expandHome(path)
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(p) {
+		return "", fmt.Errorf("%q must be absolute or start with ~/", path)
+	}
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		p = real
+	}
+	return filepath.Clean(p), nil
+}
+
+func (f MachineFiles) Save(m domain.Machine) error {
+	mf := machineFile{Brain: shortenHome(m.Brain)}
+	for _, c := range m.Checkouts {
+		mf.Checkouts = append(mf.Checkouts, checkoutLine{Path: shortenHome(c.Path), Project: c.Project})
+	}
+	var buf bytes.Buffer
+	enc := toml.NewEncoder(&buf)
+	enc.Indent = ""
+	if err := enc.Encode(mf); err != nil {
+		return err
+	}
+	return writeFile(f.path(), buf.Bytes())
+}
+
+func (f MachineFiles) Create(m domain.Machine) (string, error) {
+	path := f.path()
+	if _, err := os.Stat(path); err == nil {
+		return "", fmt.Errorf("%s exists: edit it instead", path)
+	}
+	return path, f.Save(m)
+}
+
+func (f MachineFiles) overlayPath(project string) string {
+	return filepath.Join(f.dir, "overlays", project+".json")
+}
+
+func (f MachineFiles) Overlay(project string) (map[string]any, string, error) {
+	path := f.overlayPath(project)
+	obj, err := readObject(path)
+	return obj, path, err
+}
+
+func (f MachineFiles) SaveOverlay(project string, settings map[string]any) (string, error) {
+	path := f.overlayPath(project)
+	return path, writeObject(path, settings)
+}
+
+// treeState is a working tree's state as kept on disk.
+type treeState struct {
+	Path     string            `json:"path"`
+	Project  string            `json:"project,omitempty"`
+	Links    map[string]string `json:"links,omitempty"`
+	Settings map[string]any    `json:"settings,omitempty"`
+	Commit   string            `json:"commit,omitempty"`
+}
+
+func (f MachineFiles) statePath(dir string) string {
+	sum := sha256.Sum256([]byte(filepath.Clean(dir)))
+	return filepath.Join(f.dir, "state", hex.EncodeToString(sum[:8])+".json")
+}
+
+func (f MachineFiles) State(dir string) (domain.TreeState, error) {
+	st := treeState{Path: dir}
+	if err := readJSON(f.statePath(dir), &st); err != nil {
+		return domain.TreeState{}, err
+	}
+	if st.Links == nil {
+		st.Links = map[string]string{}
+	}
+	return domain.TreeState(st), nil
+}
+
+func (f MachineFiles) SaveState(st domain.TreeState) error {
+	return writeJSON(f.statePath(st.Path), treeState(st))
+}
+
+func (f MachineFiles) DropState(dir string) error {
+	if err := os.Remove(f.statePath(dir)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func (f MachineFiles) States() ([]domain.TreeState, error) {
+	files, err := filepath.Glob(filepath.Join(f.dir, "state", "*.json"))
+	if err != nil {
+		return nil, err
+	}
+	var states []domain.TreeState
+	for _, file := range files {
+		var st treeState
+		if err := readJSON(file, &st); err == nil && st.Path != "" {
+			states = append(states, domain.TreeState(st))
+		}
+	}
+	return states, nil
+}
+
+func (f MachineFiles) builtPath() string { return filepath.Join(f.dir, "state", "claude-ai.json") }
+
+func (f MachineFiles) Built() (map[string]map[string]string, error) {
+	built := map[string]map[string]string{}
+	return built, readJSON(f.builtPath(), &built)
+}
+
+func (f MachineFiles) SaveBuilt(built map[string]map[string]string) error {
+	return writeJSON(f.builtPath(), built)
+}

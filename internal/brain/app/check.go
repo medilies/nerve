@@ -1,0 +1,88 @@
+package app
+
+import (
+	"fmt"
+	"path/filepath"
+
+	"github.com/medilies/nerve/internal/brain/domain"
+)
+
+// Check validates a Brain: its manifest, own skills and agents, pins, and
+// what each project lists.
+func (a App) Check(r Reporter) error {
+	m, err := a.Brain.Load()
+	if err != nil {
+		return err
+	}
+	var p []domain.Problem
+	problem := func(path, key, detail string) {
+		p = append(p, domain.Problem{Path: path, Key: key, Detail: detail})
+	}
+	own, err := a.Brain.OwnSkills()
+	if err != nil {
+		return err
+	}
+	ownNames := map[string]bool{}
+	for _, s := range own {
+		ownNames[s.Name] = true
+		rel, _ := filepath.Rel(a.Brain.Root(), s.Dir)
+		for _, msg := range s.Problems() {
+			problem(rel, "", msg)
+		}
+		if s.Name == "nerve" {
+			problem(rel, "", "nerve is nerve's own skill: rename this one")
+		}
+	}
+	agents, err := a.Brain.Agents()
+	if err != nil {
+		return err
+	}
+	for _, ag := range agents {
+		if ag.Err != nil {
+			problem(ag.Rel, "", ag.Err.Error())
+		} else if err := domain.AgentProblem(ag.Name, ag.Meta); err != nil {
+			problem(ag.Rel, "", err.Error())
+		}
+	}
+	from := map[string]string{} // third-party skill -> its repo
+	for _, src := range m.Sources {
+		for _, name := range src.Skills {
+			if other, ok := from[name]; ok || ownNames[name] {
+				if !ok {
+					other = "skills/"
+				}
+				problem(domain.ManifestFile, "source", fmt.Sprintf("skill %s comes from both %s and %s", name, other, src.Repo))
+			}
+			from[name] = src.Repo
+			if _, err := a.Sources.Skill(src, name); err != nil {
+				problem(domain.ManifestFile, "source", err.Error())
+			}
+		}
+	}
+	for _, name := range domain.SortedKeys(m.Projects) {
+		pr := m.Projects[name]
+		key := "project." + name
+		for _, kind := range domain.ItemKinds {
+			for _, item := range *pr.List(kind) {
+				if why := a.offers(m, kind, item); why != "" {
+					problem(domain.ManifestFile, key, why)
+				}
+			}
+		}
+		if pr.Surface == domain.ClaudeAI && (len(pr.Agents)+len(pr.Hooks)+len(pr.Plugins)+len(pr.Settings) > 0 || pr.Autosync != nil) {
+			problem(domain.ManifestFile, key, "a claude.ai account takes skills only")
+		}
+		for _, k := range domain.OverridesOfCommon(pr, m.Common) {
+			problem(domain.ManifestFile, key+".settings."+k, "equals common: drop it from the project")
+		}
+	}
+	p = append(p, m.SensitiveValues()...)
+	for _, e := range p {
+		r.Add(problemEvent(e))
+	}
+	if len(p) > 0 {
+		return fmt.Errorf("%d problems", len(p))
+	}
+	r.Add(Event{Kind: EvOK, Detail: "no problems"})
+	return nil
+}

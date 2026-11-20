@@ -3,12 +3,17 @@
 package main
 
 import (
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/medilies/nerve/internal/brain/app"
+	"github.com/medilies/nerve/internal/brain/domain"
+	"github.com/medilies/nerve/internal/brain/infra"
 )
 
 const usage = `usage: nerve <command>
@@ -42,6 +47,18 @@ A command acts on the project around the working directory; --project <name> nam
 Commands that change the Brain edit brain.toml and never commit.
 --json, with any command, prints one JSON document of its events and error instead of text.
 `
+
+// selfSkill is the nerve skill, carried by the binary so the two always
+// match.
+//
+//go:embed skill/SKILL.md
+var selfSkill []byte
+
+// version is set at release time.
+var version string
+
+// release is where nerve upgrades itself from; tests replace it.
+var release = infra.GitHubRelease()
 
 // errUsage is a command line nerve does not know; it prints the usage.
 var errUsage = errors.New(strings.TrimSpace(usage))
@@ -85,28 +102,77 @@ func parseFlags(args []string) ([]string, flags, error) {
 
 func main() {
 	args := slices.DeleteFunc(slices.Clone(os.Args[1:]), func(a string) bool { return a == "--json" })
-	mode := asText
+	mode := infra.AsText
 	switch {
 	case slices.Contains(args, "--hook"):
-		mode = asHook
+		mode = infra.AsHook
 	case len(args) < len(os.Args)-1:
-		mode = asJSON
+		mode = infra.AsJSON
 	}
-	r := newReport(os.Stdout, mode)
+	r := infra.NewReport(os.Stdout, mode)
 	err := run(args, r)
 	switch {
-	case r.finish(err) || err == nil:
+	case r.Finish(err) || err == nil:
 	case errors.Is(err, errUsage):
 		fmt.Fprintln(os.Stderr, err)
 	default:
 		fmt.Fprintln(os.Stderr, "error:", err)
 	}
-	if err != nil && mode != asHook { // a hook that fails would only hide the report
+	if err != nil && mode != infra.AsHook { // a hook that fails would only hide the report
 		os.Exit(1)
 	}
 }
 
-func run(args []string, r *report) error {
+// wire builds nerve on the Brain at brainDir.
+func wire(brainDir string, machine infra.MachineFiles) (app.App, error) {
+	zips, err := infra.NewZipCache()
+	if err != nil {
+		return app.App{}, err
+	}
+	return app.App{
+		Brain:     infra.NewBrainCheckout(brainDir),
+		Sources:   infra.SourceCache{},
+		Machine:   machine,
+		Workspace: infra.LocalWorkspace{},
+		Self:      infra.Nerve{SkillMD: selfSkill, Ver: infra.Version(version), Release: release},
+		Zips:      zips,
+	}, nil
+}
+
+// onMachine builds nerve on this machine's Brain. A machine without its
+// file still gets an App, whose use cases say so.
+func onMachine() (app.App, error) {
+	machine, err := infra.NewMachineFiles()
+	if err != nil {
+		return app.App{}, err
+	}
+	m, _ := machine.Load()
+	return wire(m.Brain, machine)
+}
+
+// onBrainHere builds nerve on the Brain around the working directory, else
+// this machine's.
+func onBrainHere(wd string) (app.App, error) {
+	machine, err := infra.NewMachineFiles()
+	if err != nil {
+		return app.App{}, err
+	}
+	for dir := wd; ; dir = filepath.Dir(dir) {
+		if _, err := os.Stat(filepath.Join(dir, domain.ManifestFile)); err == nil {
+			return wire(dir, machine)
+		}
+		if filepath.Dir(dir) == dir {
+			break
+		}
+	}
+	m, err := machine.Load()
+	if err != nil {
+		return app.App{}, fmt.Errorf("no %s in this directory or above, and %w", domain.ManifestFile, err)
+	}
+	return wire(m.Brain, machine)
+}
+
+func run(args []string, r *infra.Report) error {
 	pos, f, err := parseFlags(args)
 	if err != nil {
 		return err
@@ -114,66 +180,73 @@ func run(args []string, r *report) error {
 	if len(pos) == 0 {
 		return errUsage
 	}
-	switch cmd, rest := pos[0], pos[1:]; {
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	t := app.Target{Dir: wd, Project: f.project}
+	cmd, rest := pos[0], pos[1:]
+	switch {
 	case slices.Contains([]string{"help", "-h"}, cmd) && len(rest) == 0:
-		r.add(Event{Kind: evUsage, Detail: strings.TrimSpace(usage)})
+		r.Add(app.Event{Kind: app.EvUsage, Detail: strings.TrimSpace(usage)})
 		return nil
-	case cmd == "init":
-		return runInit(rest, r)
-	case cmd == "status" && len(rest) == 0:
-		return runStatus(f, r)
-	case cmd == "sync" && len(rest) == 0:
-		m, err := loadMachine()
+	case cmd == "init" && len(rest) == 1:
+		brain, err := filepath.Abs(rest[0])
 		if err != nil {
 			return err
 		}
-		return runSync(m, f, r)
-	case cmd == "check" && len(rest) == 0:
-		root, err := findRoot()
+		machine, err := infra.NewMachineFiles()
 		if err != nil {
 			return err
 		}
-		return runCheck(root, r)
-	case cmd == "skill" && len(rest) > 0 && rest[0] == "update" && (len(rest) == 2 || len(rest) == 3):
-		root, err := findRoot()
+		a, err := wire(brain, machine)
 		if err != nil {
 			return err
+		}
+		return a.Init(r)
+	case (cmd == "check" && len(rest) == 0) || (cmd == "skill" && len(rest) > 1 && rest[0] == "update" && len(rest) <= 3):
+		a, err := onBrainHere(wd)
+		if err != nil {
+			return err
+		}
+		if cmd == "check" {
+			return a.Check(r)
 		}
 		sha := ""
 		if len(rest) == 3 {
 			sha = rest[2]
 		}
-		return runUpdate(root, rest[1], sha, r)
-	case cmd == "project":
-		return runProject(rest, f, r)
-	case slices.Contains(itemKinds, cmd):
-		return runItems(cmd, rest, f, r)
-	case cmd == "setting":
-		return runSetting(rest, f, r)
+		return a.UpdatePin(rest[1], sha, r)
+	}
+	a, err := onMachine()
+	if err != nil {
+		return err
+	}
+	switch {
+	case cmd == "status" && len(rest) == 0:
+		return a.Status(t, r)
+	case cmd == "sync" && len(rest) == 0:
+		return a.Sync(app.SyncOptions{Dir: wd, Here: f.here, Discard: f.discard, Hook: f.hook, SkipPull: infra.Resumed()}, r)
+	case cmd == "project" && len(rest) == 2 && rest[0] == "add":
+		return a.AddProject(wd, rest[1], r)
+	case cmd == "project" && len(rest) == 1 && rest[0] == "ls":
+		return a.ListProjects(r)
+	case cmd == "project" && len(rest) == 2 && rest[0] == "rm":
+		return a.RemoveProject(rest[1], r)
+	case cmd == "project" && len(rest) == 2 && rest[0] == "autosync" && (rest[1] == "on" || rest[1] == "off"):
+		return a.SetAutosync(t, rest[1] == "on", f.all, r)
+	case slices.Contains(domain.ItemKinds, cmd) && len(rest) == 2 && rest[0] == "add":
+		return a.AddItem(t, cmd, rest[1], r)
+	case slices.Contains(domain.ItemKinds, cmd) && len(rest) == 2 && rest[0] == "rm":
+		return a.RemoveItem(t, cmd, rest[1], f.all, r)
+	case slices.Contains(domain.ItemKinds, cmd) && len(rest) == 1 && rest[0] == "ls":
+		return a.ListItems(t, cmd, r)
+	case cmd == "setting" && len(rest) == 3 && rest[0] == "set":
+		return a.SetSetting(t, rest[1], domain.ParseValue(rest[2]), f.common, r)
+	case cmd == "setting" && len(rest) == 2 && rest[0] == "rm":
+		return a.RemoveSetting(t, rest[1], f.common, f.all, r)
+	case cmd == "setting" && len(rest) == 1 && rest[0] == "ls":
+		return a.ListSettings(t, r)
 	}
 	return errUsage
-}
-
-// findRoot returns the nearest directory, from the working directory up,
-// that holds the manifest, else the machine's Brain.
-func findRoot() (string, error) {
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, manifestFile)); err == nil {
-			return dir, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	m, err := loadMachine()
-	if err != nil {
-		return "", fmt.Errorf("no %s in this directory or above, and %w", manifestFile, err)
-	}
-	return m.Brain, nil
 }
