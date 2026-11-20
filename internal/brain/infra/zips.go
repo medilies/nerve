@@ -35,8 +35,9 @@ func (z ZipCache) path(project, name string) string {
 }
 
 // Zip zips a skill folder under its name, the same bytes for the same
-// files. A link to a file in the skill is zipped as that file; any other
-// link is refused, so nothing outside the skill reaches the zip.
+// files. The folder may be a link. A link to a file in the skill is zipped
+// as that file; any other link is refused, so nothing outside the skill
+// reaches the zip. A file that may be run is zipped as one.
 func (ZipCache) Zip(s domain.Skill) ([]byte, error) {
 	root, err := filepath.EvalSymlinks(s.Dir)
 	if err != nil {
@@ -44,7 +45,7 @@ func (ZipCache) Zip(s domain.Skill) ([]byte, error) {
 	}
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	err = filepath.WalkDir(s.Dir, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -54,13 +55,22 @@ func (ZipCache) Zip(s domain.Skill) ([]byte, error) {
 			}
 			return nil
 		}
-		rel, _ := filepath.Rel(s.Dir, path)
+		rel, _ := filepath.Rel(root, path)
 		if d.Type()&fs.ModeSymlink != 0 {
 			if why := linkProblem(root, path); why != "" {
 				return fmt.Errorf("%s links %s, which a zip cannot hold", filepath.ToSlash(rel), why)
 			}
 		}
-		w, err := zw.Create(s.Name + "/" + filepath.ToSlash(rel))
+		fi, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		h := &zip.FileHeader{Name: s.Name + "/" + filepath.ToSlash(rel), Method: zip.Deflate}
+		h.SetMode(0o644)
+		if fi.Mode()&0o111 != 0 {
+			h.SetMode(0o755)
+		}
+		w, err := zw.CreateHeader(h)
 		if err != nil {
 			return err
 		}

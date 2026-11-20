@@ -81,7 +81,6 @@ func TestZipRefusesALinkItCannotHold(t *testing.T) {
 }
 
 func TestZipKeepsWhatAFileMayRun(t *testing.T) {
-	openBug(t, "zips lose executable bits")
 	e := newTestEnv(t)
 	e.write(e.path("s/x/SKILL.md"), skillMD("x", ""))
 	e.write(e.path("s/x/scripts/run.sh"), "#!/bin/sh\n")
@@ -106,7 +105,6 @@ func TestZipKeepsWhatAFileMayRun(t *testing.T) {
 }
 
 func TestZipTakesASkillWhoseFolderIsALink(t *testing.T) {
-	openBug(t, "a skill whose folder is a link is refused by the zip")
 	e := newTestEnv(t)
 	e.write(e.path("real/x/SKILL.md"), skillMD("x", ""))
 	e.link(e.path("s/x"), e.path("real/x"))
