@@ -75,7 +75,7 @@ func (SourceCache) Diff(repo, name, from, to string) (string, error) {
 	}, out), nil
 }
 
-// fetch returns a checkout of repo at sha, cached under the user cache dir.
+// fetch returns the files of repo at sha, cached under the user cache dir.
 func fetch(repo, sha string) (string, error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {
@@ -102,6 +102,10 @@ func fetch(repo, sha string) (string, error) {
 		if _, err := git(tmp, args...); err != nil {
 			return "", fmt.Errorf("fetch %s@%s: %w", repo, sha[:7], err)
 		}
+	}
+	// The files only: a skill that is the whole repo carries no .git.
+	if err := os.RemoveAll(filepath.Join(tmp, ".git")); err != nil {
+		return "", err
 	}
 	if err := os.Rename(tmp, dir); err != nil {
 		if _, serr := os.Stat(dir); serr == nil { // another fetch got there first

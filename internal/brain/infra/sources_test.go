@@ -50,7 +50,6 @@ func TestSkillTakesAWholeRepoWhoseRootIsTheSkill(t *testing.T) {
 }
 
 func TestSkillThatIsTheWholeRepoHoldsNoGitFolder(t *testing.T) {
-	openBug(t, "a skill that is the whole repo carries .git")
 	e := newTestEnv(t)
 	sha := e.upstream(map[string]string{"SKILL.md": skillMD("tui-test", "")})
 
@@ -65,7 +64,6 @@ func TestSkillThatIsTheWholeRepoHoldsNoGitFolder(t *testing.T) {
 }
 
 func TestDiffOfASkillThatIsTheWholeRepoNamesNoGitFile(t *testing.T) {
-	openBug(t, "the diff of a skill that is the whole repo shows .git")
 	e := newTestEnv(t)
 	old := e.upstream(map[string]string{"SKILL.md": skillMD("tui-test", "")})
 	next := e.upstream(map[string]string{"SKILL.md": skillMD("tui-test", "") + "Test harder.\n"})
