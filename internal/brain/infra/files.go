@@ -168,17 +168,24 @@ func expandHome(path string) (string, error) {
 }
 
 // shortenHome writes a path under the home folder as ~/…, so a file reads
-// the same for anyone.
+// the same for anyone. A home folder that is a link counts under its own
+// path too.
 func shortenHome(path string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return path
 	}
-	if rel, err := filepath.Rel(home, path); err == nil && !strings.HasPrefix(rel, "..") {
-		if rel == "." {
-			return "~"
+	homes := []string{home}
+	if real, err := filepath.EvalSymlinks(home); err == nil && real != home {
+		homes = append(homes, real)
+	}
+	for _, home := range homes {
+		if rel, err := filepath.Rel(home, path); err == nil && !strings.HasPrefix(rel, "..") {
+			if rel == "." {
+				return "~"
+			}
+			return "~/" + filepath.ToSlash(rel)
 		}
-		return "~/" + filepath.ToSlash(rel)
 	}
 	return path
 }

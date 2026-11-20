@@ -78,7 +78,6 @@ func TestStatesReadOnlyFilesNamedLikeAState(t *testing.T) {
 }
 
 func TestMachineFileWritesANewPathUnderALinkedHomeWithTilde(t *testing.T) {
-	openBug(t, "a symlinked HOME makes new machine-file paths absolute")
 	e := newTestEnv(t)
 	real := e.path("real-home")
 	e.write(filepath.Join(real, "brain/brain.toml"), "")
