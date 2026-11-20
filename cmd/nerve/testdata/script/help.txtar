@@ -1,0 +1,8 @@
+# help prints the usage; an unknown flag prints it as the error.
+
+exec nerve help
+stdout '^usage: nerve <command>$'
+
+! exec nerve skill --bogus
+! stdout .
+stderr '^usage: nerve <command>$'

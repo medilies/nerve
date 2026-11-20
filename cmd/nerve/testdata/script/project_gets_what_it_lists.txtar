@@ -1,0 +1,39 @@
+# A project gets the skills, agents and settings it lists, and git sees
+# none of what nerve wrote.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+exec nerve skill add go-stack
+exec nerve agent add reviewer
+exec nerve setting set permissions.deny '["Cron"]'
+
+exec nerve sync --here
+
+link .claude/skills/go-stack $HOME/brain/skills/go-stack
+link .claude/agents/reviewer.md $HOME/brain/agents/reviewer.md
+link .claude/skills/nerve $HOME/.cache/nerve/skill/nerve
+grep '"model": "opus"' .claude/settings.local.json
+grep '"outputStyle": "terse"' .claude/settings.local.json
+grep '"SessionStart"' .claude/settings.local.json
+exec git status --porcelain --untracked-files=all
+! stdout .
+grep '^\[project.app\]\nskills = \["go-stack"\]\nagents = \["reviewer"\]$' $HOME/brain/brain.toml
+exec nerve status
+stdout '^project  app: autosync on, 1 skill, 1 agent, 2 settings$'
+
+-- brain/brain.toml --
+[common.settings]
+model = "opus"
+-- brain/skills/go-stack/SKILL.md --
+---
+name: go-stack
+description: Does go-stack.
+---
+-- brain/agents/reviewer.md --
+---
+name: reviewer
+description: Reviews.
+---
+-- proj/.claude/settings.local.json --
+{"outputStyle": "terse"}

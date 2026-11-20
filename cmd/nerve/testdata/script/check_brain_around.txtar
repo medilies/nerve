@@ -1,0 +1,16 @@
+# check uses the Brain around the working directory; outside one, with no
+# machine file, it says to run nerve init.
+
+cd brain/skills
+! exec nerve check
+stdout 'skills/bad: frontmatter name "other" differs from folder name'
+
+cd $HOME
+! exec nerve check
+stderr 'run nerve init'
+
+-- brain/skills/bad/SKILL.md --
+---
+name: other
+description: x
+---

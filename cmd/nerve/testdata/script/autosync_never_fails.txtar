@@ -1,0 +1,18 @@
+# Autosync never fails the session: it prints a hook's output, error
+# included, and exits 0.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+cp $HOME/ghost-hook $HOME/brain/brain.toml
+
+exec nerve sync --here --hook
+
+! stderr .
+stdout '^\{"systemMessage":"nerve: '
+stdout 'defines no hook \\"ghost\\"'
+stdout 'error: 1 of 1 working trees did not sync'
+
+-- ghost-hook --
+[project.app]
+hooks = ["ghost"]

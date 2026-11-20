@@ -22,7 +22,8 @@ If your output contradicts an ADR in `docs/adr/`, say so explicitly rather than 
 ## Tests
 
 - Meaningful tests over coverage: test behaviour through public APIs, one reason to fail per test, descriptive names. No coverage targets.
-- Tests sit next to the code they test. `domain` tests use plain values, and `app` tests use the in-memory fakes in `fakes_test.go`. `infra` tests may touch disk, git and a local HTTP server, since they test the adapters themselves. `cmd/nerve` keeps a few end-to-end runs of the CLI.
+- Tests sit next to the code they test. `domain` tests use plain values, and `app` tests use the in-memory fakes in `fakes_test.go`. `infra` tests may touch disk, git and a local HTTP server, since they test the adapters themselves. `cmd/nerve` tests the CLI end to end with testscript scripts in `testdata/script/`.
+- A test of an open bug is skipped with `openBug` (Go) or `[!bugs] skip` (script), and fails under `NERVE_OPEN_BUGS=1`. A fix deletes that line in the same commit.
 - Tests never touch the user's real HOME, git config, Brain or network. `infra` tests run in the temp HOME of `env_test.go`.
 - Never run `go test` with `-v`, because its output floods the context. A failure prints without it, and `-run` narrows it down.
 

@@ -1,0 +1,29 @@
+# A full sync carries the Brain to every checkout this machine lists, each
+# getting only what its project lists, and writes a deleted link back.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+exec nerve skill add go-stack
+exec git init -q ../other
+cd ../other
+exec nerve project add other
+exec nerve setting set model opus
+cd $HOME
+
+exec nerve sync
+
+link proj/.claude/skills/go-stack $HOME/brain/skills/go-stack
+grep '"model": "opus"' other/.claude/settings.local.json
+! exists other/.claude/skills/go-stack
+
+rm proj/.claude/skills/go-stack
+exec nerve sync
+stdout '^dropped  skill go-stack from project app in brain.toml, since its link was deleted'
+! grep go-stack brain/brain.toml
+
+-- brain/skills/go-stack/SKILL.md --
+---
+name: go-stack
+description: Does go-stack.
+---

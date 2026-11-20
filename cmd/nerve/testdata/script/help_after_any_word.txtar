@@ -1,0 +1,8 @@
+# --help and -h print the usage after any word.
+
+exec nerve --help
+stdout '^usage: nerve'
+exec nerve skill -h
+stdout '^usage: nerve'
+exec nerve setting set --help
+stdout '^usage: nerve'

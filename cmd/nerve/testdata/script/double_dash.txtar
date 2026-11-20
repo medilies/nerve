@@ -1,0 +1,9 @@
+# -- ends the flags, so a value after it may look like a flag.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+
+exec nerve --json setting set outputStyle -- --json
+
+grep '^outputStyle = "--json"$' $HOME/brain/brain.toml

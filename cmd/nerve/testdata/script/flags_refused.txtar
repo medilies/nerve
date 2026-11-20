@@ -1,0 +1,31 @@
+# Flags a command does not take are refused, and change nothing.
+
+exec nerve init brain
+cd proj
+
+! exec nerve setting set model sonnet --common --project app
+stderr 'each say where to act: pass one'
+! exec nerve skill rm a --all --project=app
+stderr 'each say where to act: pass one'
+! exec nerve setting rm model --common --all
+stderr 'each say where to act: pass one'
+
+! exec nerve sync --project app
+stderr '^--project does not go with this command$'
+stderr '^usage: nerve'
+! exec nerve skill add a --common
+stderr '^--common does not go with this command$'
+! exec nerve status --all
+stderr '^--all does not go with this command$'
+! exec nerve check --here
+stderr '^--here does not go with this command$'
+! exec nerve status --hook
+stderr '^--hook does not go with this command$'
+! exec nerve status --project=
+stderr '^--project needs a project name$'
+! exec nerve skill rm a --project --all
+stderr '^--project needs a project name$'
+
+cmp $HOME/brain/brain.toml $HOME/empty
+
+-- empty --

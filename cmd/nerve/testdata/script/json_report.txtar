@@ -1,0 +1,11 @@
+# --json prints one document of the events and the error, and still fails.
+
+exec nerve init brain
+cd proj
+
+! exec nerve --json skill add ghost
+
+! stderr .
+stdout '^\{$'
+stdout '^  "events": \[\],$'
+stdout '^  "error": ".*not a listed checkout'

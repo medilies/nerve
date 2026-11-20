@@ -1,0 +1,24 @@
+# A setting changed outside the Brain is drift: a sync by hand fails on it
+# until it is moved into the Brain or discarded.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+exec nerve setting set model opus
+exec nerve setting add permissions.allow Read
+exec nerve sync --here
+# As /model and an approval in Claude Code do.
+replace .claude/settings.local.json '"model": "opus"' '"model": "sonnet"'
+replace .claude/settings.local.json '"Read"' '"Read", "Bash(make)"'
+
+! exec nerve sync --here
+stderr 'nerve sync --here --discard'
+stdout '^drift    model is "sonnet" here, "opus" in the Brain: left as is$'
+stdout '^drift    permissions.allow has "Bash\(make\)" here, not in the Brain: left as is$'
+
+exec nerve setting add permissions.allow 'Bash(make)'
+! exec nerve sync --here
+! stdout 'permissions.allow'
+
+exec nerve sync --here --discard
+grep '"model": "opus"' .claude/settings.local.json

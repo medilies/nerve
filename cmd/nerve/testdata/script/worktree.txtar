@@ -1,0 +1,21 @@
+# Commands work from a worktree, and sync --here writes only in it.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+exec git worktree add -q -b feature ../proj-feature
+cd ../proj-feature
+
+exec nerve skill add go-stack
+exec nerve sync --here
+
+link .claude/skills/go-stack $HOME/brain/skills/go-stack
+! exists $HOME/proj/.claude/skills/go-stack
+exec git status --porcelain --untracked-files=all
+! stdout .
+
+-- brain/skills/go-stack/SKILL.md --
+---
+name: go-stack
+description: Does go-stack.
+---

@@ -1,0 +1,14 @@
+# The exit code says whether a command failed, and its error goes to stderr.
+
+exec nerve init brain
+cd proj
+
+! exec nerve skill add ghost
+! stdout .
+stderr '^error: '
+
+! exec nerve nope
+stderr '^usage: nerve'
+
+exec nerve help
+stdout '^usage: nerve'

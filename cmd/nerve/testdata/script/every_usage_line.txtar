@@ -1,0 +1,101 @@
+# Every usage line runs, and the usage keeps a line for each command run.
+
+exec nerve init brain
+cd proj
+
+exec nerve project add app
+stdout '^checkout .*/proj \(app\): listed'
+exec nerve project ls
+stdout '^project  app: autosync on'
+exec nerve project autosync off
+stdout 'autosync off for app'
+exec nerve project autosync on --all
+stdout 'autosync on by default'
+exec nerve skill add go-stack
+stdout '^added    skill go-stack to project app$'
+exec nerve agent add reviewer
+stdout '^added    agent reviewer to project app$'
+exec nerve hook add fmt
+stdout '^added    hook fmt to project app$'
+exec nerve plugin add gopls@claude-plugins-official
+stdout '^added    plugin gopls@claude-plugins-official'
+exec nerve skill ls
+stdout 'skill go-stack own, not linked yet: sync'
+exec nerve agent ls
+stdout 'agent reviewer own'
+exec nerve hook ls
+stdout 'hook fmt Stop'
+exec nerve plugin ls
+stdout 'plugin gopls@claude-plugins-official enabled'
+exec nerve setting set model opus
+stdout '^set      model = "opus"$'
+exec nerve setting add permissions.deny Cron
+stdout '^set      permissions.deny = \["Cron"\]$'
+exec nerve setting set outputStyle terse --common
+stdout '^set      outputStyle = "terse"$'
+exec nerve setting ls
+stdout 'model = "opus"  \(project\)'
+exec nerve sync --here
+stdout '^synced   app'
+exec nerve sync --here --discard
+stdout 'app is up to date'
+exec nerve sync
+stdout 'app is up to date'
+exec nerve status
+stdout '^project  app: autosync off'
+exec nerve check
+stdout 'no problems'
+exec nerve setting rm permissions.deny=Cron --all
+stdout '^dropped  setting permissions.deny=Cron from project app$'
+exec nerve setting rm outputStyle --common
+stdout '^dropped  setting outputStyle from common$'
+exec nerve setting rm model
+stdout '^dropped  setting model from project app$'
+exec nerve plugin rm gopls@claude-plugins-official
+stdout '^dropped  plugin gopls@claude-plugins-official from project app$'
+exec nerve hook rm fmt --all
+stdout '^dropped  hook fmt from project app$'
+exec nerve agent rm reviewer
+stdout '^dropped  agent reviewer from project app$'
+exec nerve skill rm go-stack
+stdout '^dropped  skill go-stack from project app$'
+! exec nerve skill update acme/up
+stderr 'acme/up is not a source in brain.toml'
+exec nerve project rm app
+stdout 'project  app: dropped from brain.toml'
+
+exec nerve help
+stdout '^  init <brain> '
+stdout '^  sync \[--here\] \[--discard\] '
+stdout '^  status '
+stdout '^  check '
+stdout '^  project add <name> '
+stdout '^  project ls '
+stdout '^  project rm <name> '
+stdout '^  project autosync on\|off '
+stdout '^  skill add\|rm <name> '
+stdout '^  skill ls '
+stdout '^  skill update <repo> \[sha\] '
+stdout '^  agent add\|rm <name>, agent ls '
+stdout '^  hook add\|rm <name>, hook ls '
+stdout '^  plugin add\|rm <plugin>@<marketplace>, plugin ls '
+stdout '^  setting set <key> <value> '
+stdout '^  setting add <key> <value> '
+stdout '^  setting rm <key>\[=<value>\] '
+stdout '^  setting ls '
+stdout '^  help, --help, -h '
+
+-- brain/brain.toml --
+[hook.fmt]
+event = "Stop"
+command = "true"
+-- brain/skills/go-stack/SKILL.md --
+---
+name: go-stack
+description: Does go-stack.
+---
+-- brain/agents/reviewer.md --
+---
+name: reviewer
+description: Reviews.
+---

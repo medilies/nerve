@@ -1,0 +1,29 @@
+# After git clean, sync relinks what the project lists, and writes nothing
+# back to the Brain.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+exec nerve skill add go-stack
+exec nerve skill add py
+exec nerve setting set model opus
+exec nerve sync --here
+exec git clean -fdxq
+
+exec nerve sync --here
+
+stdout '^relinked .*/proj'
+! stdout drift
+grep '^skills = \["go-stack", "py"\]$' $HOME/brain/brain.toml
+link .claude/skills/py $HOME/brain/skills/py
+
+-- brain/skills/go-stack/SKILL.md --
+---
+name: go-stack
+description: Does go-stack.
+---
+-- brain/skills/py/SKILL.md --
+---
+name: py
+description: Does py.
+---

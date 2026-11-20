@@ -1,0 +1,12 @@
+# Sync refuses a checkout whose settings.local.json git does not ignore,
+# and writes nothing there.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+rm $HOME/.config/git/ignore
+
+! exec nerve sync --here
+
+stdout 'git does not ignore .claude/settings.local.json: add \*\*/.claude/settings.local.json to ~/.config/git/ignore'
+! exists .claude

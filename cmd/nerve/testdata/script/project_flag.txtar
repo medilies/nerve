@@ -1,0 +1,20 @@
+# --project names a project other than the one around the working directory.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+cd $HOME
+
+exec nerve skill add go-stack --project app
+exec nerve setting set model opus --project=app
+
+exec nerve skill ls --project app
+stdout 'skill go-stack own'
+exec nerve setting ls --project app
+stdout 'model = "opus"  \(project\)'
+
+-- brain/skills/go-stack/SKILL.md --
+---
+name: go-stack
+description: Does go-stack.
+---
