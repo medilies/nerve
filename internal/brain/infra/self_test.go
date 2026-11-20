@@ -88,6 +88,22 @@ func TestUpgradeReplacesNerveWithThePinAndRunsItInstead(t *testing.T) {
 	}
 }
 
+func TestUpgradeThroughALinkReplacesTheFileItLinks(t *testing.T) {
+	e := newTestEnv(t)
+	n, self, reruns := e.release("v0.1.0", "v0.2.0", []byte("new binary"), "")
+	link := e.path("go/bin/nerve")
+	e.link(link, self)
+	n.Release.Path = func() (string, error) { return link, nil }
+
+	if err := n.Upgrade(domain.Manifest{Nerve: "v0.2.0"}, &events{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if !isLink(link) || e.read(self) != "new binary" || (*reruns)[0][0] != self {
+		t.Errorf("link kept %v, binary %q, re-runs %v", isLink(link), e.read(self), *reruns)
+	}
+}
+
 func TestUpgradeDoesNotNeedATempFileAnotherRunMayHold(t *testing.T) {
 	e := newTestEnv(t)
 	n, self, _ := e.release("v0.1.0", "v0.2.0", []byte("new binary"), "")
@@ -299,7 +315,6 @@ func TestCommandQuotesAPathTheShellWouldSplit(t *testing.T) {
 const printCommandEnv = "NERVE_TEST_PRINT_COMMAND"
 
 func TestCommandKeepsTheLinkNerveRunsThrough(t *testing.T) {
-	openBug(t, "the hook command is the binary's resolved path")
 	if os.Getenv(printCommandEnv) != "" {
 		command, err := Nerve{Release: GitHubRelease()}.Command()
 		fmt.Printf("command: %s (%v)\n", command, err)

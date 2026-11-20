@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -27,7 +28,7 @@ import (
 type Release struct {
 	URL    string
 	Client *http.Client
-	// Path is the running binary.
+	// Path is the running binary as it was run, through any link to it.
 	Path func() (string, error)
 	// Exec runs the binary at path in place of this process.
 	Exec func(path string, env []string) error
@@ -38,15 +39,47 @@ func GitHubRelease() Release {
 	return Release{
 		URL:    "https://github.com/medilies/nerve/releases/download",
 		Client: &http.Client{Timeout: 5 * time.Minute},
-		Path: func() (string, error) {
-			p, err := os.Executable()
-			if err != nil {
-				return "", err
-			}
-			return filepath.EvalSymlinks(p)
-		},
-		Exec: func(path string, env []string) error { return syscall.Exec(path, os.Args, env) },
+		Path:   ranAs,
+		Exec:   func(path string, env []string) error { return syscall.Exec(path, os.Args, env) },
 	}
+}
+
+// ranAs is the running binary as it was run, such as bin/nerve linking
+// v1/nerve, so a hook calling it follows the link to the next version. It
+// is the binary itself when the name it was run by leads elsewhere.
+func ranAs() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	name := os.Args[0]
+	if !strings.ContainsRune(name, filepath.Separator) {
+		if name, err = exec.LookPath(name); err != nil {
+			return exe, nil
+		}
+	}
+	name, err = filepath.Abs(name)
+	if err != nil {
+		return exe, nil
+	}
+	ran, err := os.Stat(name)
+	if err != nil {
+		return exe, nil
+	}
+	if self, err := os.Stat(exe); err != nil || !os.SameFile(ran, self) {
+		return exe, nil
+	}
+	return name, nil
+}
+
+// binary is the file the running binary really is, which an upgrade
+// replaces.
+func (r Release) binary() (string, error) {
+	path, err := r.Path()
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(path)
 }
 
 // A run started by an upgrade gets both versions, so it reports the upgrade
@@ -127,7 +160,7 @@ func (n Nerve) Upgrade(m domain.Manifest, r app.Reporter) error {
 	running := n.Ver
 	if pin == "" || running == pin {
 		if from := os.Getenv(upgradedFromEnv); pin != "" && os.Getenv(upgradedEnv) == pin && from != "" {
-			path, _ := n.Release.Path()
+			path, _ := n.Release.binary()
 			r.Add(app.Event{Kind: app.EvUpgraded, Path: path, Detail: from, Target: pin})
 		}
 		return nil
@@ -139,7 +172,7 @@ func (n Nerve) Upgrade(m domain.Manifest, r app.Reporter) error {
 	if os.Getenv(upgradedEnv) == pin {
 		return fmt.Errorf("upgraded to %s, but the new binary reports %s", pin, running)
 	}
-	path, err := n.Release.Path()
+	path, err := n.Release.binary()
 	if err != nil {
 		return err
 	}
