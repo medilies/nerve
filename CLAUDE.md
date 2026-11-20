@@ -21,6 +21,7 @@ If your output contradicts an ADR in `docs/adr/`, say so explicitly rather than 
 
 ## Tests
 
+- Test first: write the failing test before the code, for features as well as bugs, and see it fail before making it pass.
 - Meaningful tests over coverage: test behaviour through public APIs, one reason to fail per test, descriptive names. No coverage targets.
 - Tests sit next to the code they test. `domain` tests use plain values, and `app` tests use the in-memory fakes in `fakes_test.go`. `infra` tests may touch disk, git and a local HTTP server, since they test the adapters themselves. `cmd/nerve` tests the CLI end to end with testscript scripts in `testdata/script/`.
 - A test of an open bug is skipped with `openBug` (Go) or `[!bugs] skip` (script), and fails under `NERVE_OPEN_BUGS=1`. A fix deletes that line in the same commit.
