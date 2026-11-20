@@ -10,10 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -23,21 +25,17 @@ import (
 
 // writeFile replaces path's content all at once, so Claude Code never reads
 // it half written. A path that is a link keeps the link and replaces what it
-// points to, even a file that does not exist yet, and an existing file
-// keeps its mode.
+// points to, even a file that does not exist yet. An existing file keeps
+// its mode, and a new one gets 0644 less the umask, as os.WriteFile gives.
 func writeFile(path string, b []byte) error {
 	path, err := linkEnd(path)
 	if err != nil {
 		return err
 	}
-	mode := fs.FileMode(0o644)
-	if fi, err := os.Stat(path); err == nil {
-		mode = fi.Mode().Perm()
-	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	f, err := newTemp(path)
 	if err != nil {
 		return err
 	}
@@ -46,14 +44,29 @@ func writeFile(path string, b []byte) error {
 		_ = f.Close()
 		return err
 	}
-	if err := f.Chmod(mode); err != nil {
-		_ = f.Close()
-		return err
+	if fi, err := os.Stat(path); err == nil {
+		if err := f.Chmod(fi.Mode().Perm()); err != nil {
+			_ = f.Close()
+			return err
+		}
 	}
 	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(f.Name(), path)
+}
+
+// newTemp creates a file of its own next to path, as os.CreateTemp does,
+// but with the mode os.WriteFile gives, since it replaces path.
+func newTemp(path string) (*os.File, error) {
+	for range 100 {
+		name := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+"."+strconv.FormatUint(rand.Uint64(), 36))
+		f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
+		if !errors.Is(err, fs.ErrExist) {
+			return f, err
+		}
+	}
+	return nil, fmt.Errorf("%s: no free name for a temp file", path)
 }
 
 // linkEnd follows path while it is a link, to the file it ends at, which

@@ -1,4 +1,3 @@
-[!bugs] skip 'open bug: an overlay is written world-readable under umask 077'
 [!exec:sh] skip 'needs sh for umask'
 
 # An overlay, which holds secrets, is written as the umask says.
