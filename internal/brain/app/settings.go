@@ -37,7 +37,11 @@ func settingKey(key string) ([]string, error) {
 // never into the Brain.
 func (a App) SetSetting(ref ProjectRef, key string, v any, common bool, r Reporter) error {
 	return a.changeSetting(ref, key, v, common, r, func(obj map[string]any, path []string) (map[string]any, error) {
-		return domain.SetPath(obj, path, v), nil
+		obj, err := domain.SetPath(obj, path, v)
+		if err != nil {
+			return nil, fmt.Errorf("%s %w", key, err)
+		}
+		return obj, nil
 	})
 }
 

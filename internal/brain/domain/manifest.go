@@ -169,7 +169,7 @@ func (m Manifest) Describe(p *Project) string {
 	for _, x := range []struct {
 		n    int
 		what string
-	}{{len(p.Skills), "skills"}, {len(p.Agents), "agents"}, {len(p.Hooks), "hooks"}, {len(p.Plugins), "plugins"}, {len(Leaves(p.Settings)), "settings"}} {
+	}{{len(p.Skills), "skills"}, {len(p.Agents), "agents"}, {len(p.Hooks), "hooks"}, {len(p.Plugins), "plugins"}, {len(settingLeaves(p.Settings, nil)), "settings"}} {
 		switch {
 		case x.n == 1:
 			parts = append(parts, "1 "+strings.TrimSuffix(x.what, "s"))

@@ -278,7 +278,6 @@ func TestListSettingsNamesTheLayersGivingEach(t *testing.T) {
 }
 
 func TestSetSettingKeepsNoRepeatInAListInTheBrain(t *testing.T) {
-	openBug(t, "setting set stores a list's repeated items in the Brain")
 	e := newEnv(t)
 	e.listed("app", "/w/app")
 

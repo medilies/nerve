@@ -75,8 +75,9 @@ nerve refuses `inf`, `nan` and dates in settings.
 ## Nothing sensitive
 
 A Brain may be public. `check` and `sync` refuse secret-bearing
-settings such as `env` and `apiKeyHelper`. They also refuse home paths,
-emails and token-like strings anywhere in `brain.toml`: in values,
+settings such as `env` and `apiKeyHelper`. They also refuse home paths
+(`/home/…`, `/Users/…`, `/root`), emails, token-like strings, private
+keys and credentials in URLs anywhere in `brain.toml`: in values,
 settings keys, hook matchers and commands, plugin IDs, and names. Each
 refusal names the commands that move the value to a local overlay.
 

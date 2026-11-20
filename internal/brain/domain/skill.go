@@ -55,8 +55,10 @@ func (s Skill) ClaudeAIRejection() string {
 
 // ParseFrontmatter reads the top-level keys of a Markdown file's YAML
 // frontmatter; file names it in errors. Folded, literal and nested values,
-// and lists, are joined into one line. Comments are left out.
+// and lists, are joined into one line. Comments, and a byte order mark
+// before the file, are left out.
 func ParseFrontmatter(file, text string) (map[string]string, error) {
+	text = strings.TrimPrefix(text, "\ufeff")
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	if lines[0] != "---" || len(lines) == 1 {
 		return nil, fmt.Errorf("%s has no frontmatter", file)
@@ -74,11 +76,11 @@ func ParseFrontmatter(file, text string) (map[string]string, error) {
 		case key != "" && (line == "-" || strings.HasPrefix(line, "- ")): // a list item, which YAML lets start at column 0
 			meta[key] = strings.TrimSpace(meta[key] + " " + trimmed)
 		case line[0] != ' ' && line[0] != '\t':
-			k, v, ok := strings.Cut(line, ":")
+			k, v, ok := cutKey(line)
 			if !ok {
 				return nil, fmt.Errorf("frontmatter line %q is not key: value", line)
 			}
-			key = strings.TrimSpace(k)
+			key = k
 			v = scalar(strings.TrimSpace(v))
 			if strings.HasPrefix(v, ">") || strings.HasPrefix(v, "|") {
 				v = ""
@@ -91,17 +93,43 @@ func ParseFrontmatter(file, text string) (map[string]string, error) {
 	return meta, nil
 }
 
+// cutKey splits a "key: value" line, where the key may be quoted.
+func cutKey(line string) (key, value string, ok bool) {
+	if q := line[0]; q == '"' || q == '\'' {
+		end := quoteEnd(line)
+		if end < 0 {
+			return "", "", false
+		}
+		rest := strings.TrimLeft(line[end+1:], " \t")
+		if !strings.HasPrefix(rest, ":") {
+			return "", "", false
+		}
+		return line[1:end], rest[1:], true
+	}
+	k, v, ok := strings.Cut(line, ":")
+	return strings.TrimSpace(k), v, ok
+}
+
+// quoteEnd is the index of the quote that closes the one v starts with, or
+// -1.
+func quoteEnd(v string) int {
+	for i := 1; i < len(v); i++ {
+		switch {
+		case v[0] == '"' && v[i] == '\\', v[0] == '\'' && v[i] == '\'' && i+1 < len(v) && v[i+1] == '\'':
+			i++ // an escaped character
+		case v[i] == v[0]:
+			return i
+		}
+	}
+	return -1
+}
+
 // scalar reads a YAML value on one line: a quoted one without its quotes,
 // and a plain one without the comment after it.
 func scalar(v string) string {
 	if len(v) > 0 && (v[0] == '"' || v[0] == '\'') {
-		for i := 1; i < len(v); i++ {
-			switch {
-			case v[0] == '"' && v[i] == '\\', v[0] == '\'' && v[i] == '\'' && i+1 < len(v) && v[i+1] == '\'':
-				i++ // an escaped character
-			case v[i] == v[0]:
-				return v[1:i]
-			}
+		if end := quoteEnd(v); end > 0 {
+			return v[1:end]
 		}
 		return v
 	}

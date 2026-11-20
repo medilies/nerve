@@ -34,8 +34,7 @@ the one around the working directory, a worktree included.
   joined without repeats, and anything else in a later layer wins.
 - **Unlists a checkout that is gone**, on a full sync, and forgets a
   worktree that is.
-- **Reports what it did**, with sensitive values and keys shown as
-  `(hidden)`.
+- **Reports what it did**, with secrets and emails shown as `(hidden)`.
 - **Builds the claude.ai zips**, on a full sync only. See
   [below](#claudeai).
 

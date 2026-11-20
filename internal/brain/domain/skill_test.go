@@ -38,14 +38,12 @@ func TestParseFrontmatterReadsAnEmptyOne(t *testing.T) {
 }
 
 func TestParseFrontmatterReadsPastAByteOrderMark(t *testing.T) {
-	openBug(t, "a frontmatter after a UTF-8 BOM is not read")
 	if meta, err := domain.ParseFrontmatter("SKILL.md", "\ufeff---\nname: go-stack\n---\n"); err != nil || meta["name"] != "go-stack" {
 		t.Errorf("got %v, %v", meta, err)
 	}
 }
 
 func TestParseFrontmatterReadsAQuotedKey(t *testing.T) {
-	openBug(t, "a quoted frontmatter key keeps its quotes")
 	if meta, err := domain.ParseFrontmatter("SKILL.md", "---\n\"name\": go-stack\n'description': Go.\n---\n"); err != nil || meta["name"] != "go-stack" || meta["description"] != "Go." {
 		t.Errorf("got %q, %v", meta, err)
 	}

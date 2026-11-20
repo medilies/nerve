@@ -251,11 +251,33 @@ func leafLayers(layers ...map[string]any) []map[string]any {
 	return flat
 }
 
-// settingLeaves flattens as leavesUpTo does, without empty objects.
+// settingLeaves flattens as leavesUpTo does, without empty objects, even
+// inside a value taken whole.
 func settingLeaves(obj map[string]any, whole map[string]bool) map[string]any {
 	l := leavesUpTo(obj, whole)
+	for k, v := range l {
+		if o, ok := v.(map[string]any); ok {
+			l[k] = withoutEmpty(o)
+		}
+	}
 	maps.DeleteFunc(l, func(_ string, v any) bool { return emptyObject(v) })
 	return l
+}
+
+// withoutEmpty is a copy of o without the empty objects it holds, at any
+// depth.
+func withoutEmpty(o map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range o {
+		if sub, ok := v.(map[string]any); ok {
+			if sub = withoutEmpty(sub); len(sub) == 0 {
+				continue
+			}
+			v = sub
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // inner lists the paths that some leaf of the layers sits under.
@@ -338,10 +360,10 @@ func Show(m map[string]any, k string) string {
 	return ShowValue(k, v)
 }
 
-// ShowValue writes a value at leaf k as JSON, or Hidden when it is
-// sensitive.
+// ShowValue writes a value at leaf k as JSON, or Hidden when it is secret
+// or identifying. A home path shows: it is this machine's own.
 func ShowValue(k string, v any) string {
-	if Sensitive(k, v) != "" {
+	if secret(k, v) != "" {
 		return Hidden
 	}
 	var b strings.Builder
@@ -642,7 +664,8 @@ func ParseValue(s string) any {
 
 // Numbers makes each number in decoded JSON, read as json.Number, one that
 // compares equal to the same number written another way: an int64 when it
-// is whole, so it keeps every digit, else a float64. It changes objects and
+// is whole and fits, so it keeps every digit, else a float64, as brain.toml
+// and Claude Code hold it. It changes objects and
 // lists in place.
 func Numbers(v any) any {
 	switch t := v.(type) {
@@ -687,18 +710,41 @@ func HasNull(v any) bool {
 	return false
 }
 
-// SetPath sets the value at a path of keys, making objects on the way.
-func SetPath(obj map[string]any, path []string, v any) map[string]any {
+// SetPath sets the value at a path of keys, making objects on the way, and
+// refuses a path through something other than an object. A list is set
+// without repeats.
+func SetPath(obj map[string]any, path []string, v any) (map[string]any, error) {
 	if obj == nil {
 		obj = map[string]any{}
 	}
 	if len(path) == 1 {
+		if list, ok := v.([]any); ok {
+			v = distinct(list)
+		}
 		obj[path[0]] = v
-		return obj
+		return obj, nil
 	}
-	sub, _ := obj[path[0]].(map[string]any)
-	obj[path[0]] = SetPath(sub, path[1:], v)
-	return obj
+	sub, isObj := obj[path[0]].(map[string]any)
+	if _, ok := obj[path[0]]; ok && !isObj {
+		return obj, errors.New("is not an object")
+	}
+	sub, err := SetPath(sub, path[1:], v)
+	if err != nil {
+		return obj, err
+	}
+	obj[path[0]] = sub
+	return obj, nil
+}
+
+// distinct is list without its repeats, in order.
+func distinct(list []any) []any {
+	var out []any
+	for _, x := range list {
+		if !hasItem(out, x) {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // AddPath adds item to the list at a path of keys, making the list and the

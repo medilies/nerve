@@ -219,12 +219,11 @@ func TestReconcileProperties(t *testing.T) {
 // settings nested a level or two, as permissions and hooks are.
 func TestReconcilePropertiesWithNestedKeys(t *testing.T) {
 	checkReconcile(t,
-		[]string{"", `1`, `{"c":1}`, `{"c":2}`, `{"c":["p"]}`, `{"c":["q","p"]}`, `{"c":{"d":1}}`, `{"c":1,"e":["p"]}`},
+		[]string{"", `1`, `{"c":1}`, `{"c":2}`, `{"c":["p"]}`, `{"c":["q","p"]}`, `{"c":{"d":1}}`, `{"c":{}}`, `{"c":1,"e":["p"]}`},
 		[]string{"", `{"c":["p"]}`, `{"c":{"d":["p","q"]}}`})
 }
 
 func TestReconcileDiscardWritesNoEmptyObjectAFreshFileLacks(t *testing.T) {
-	openBug(t, "discard writes an empty object nested in a key taken whole")
 	want := obj(t, `{"a": {"c": {}}}`)
 
 	discard := domain.Reconcile(obj(t, `{"a": 1}`), obj(t, `{"a": {"c": 1}}`), want, true)
@@ -415,17 +414,16 @@ func TestRemovePathTakesAKeyOrAnItemAndEmptyObjects(t *testing.T) {
 }
 
 func TestSetPathMakesObjectsOnTheWay(t *testing.T) {
-	if got := domain.SetPath(nil, []string{"a", "b"}, 1.0); text(got) != `{"a":{"b":1}}` {
-		t.Errorf("set %s", text(got))
+	if got, err := domain.SetPath(nil, []string{"a", "b"}, 1.0); err != nil || text(got) != `{"a":{"b":1}}` {
+		t.Errorf("set %s (%v)", text(got), err)
 	}
 }
 
-func TestSetPathKeepsAValueOnTheWay(t *testing.T) {
-	openBug(t, "SetPath under a value replaces it")
-	got := domain.SetPath(obj(t, `{"k": {"a": 2}}`), []string{"k", "a", "b"}, int64(2))
+func TestSetPathRefusesAPathThroughAValue(t *testing.T) {
+	got, err := domain.SetPath(obj(t, `{"k": {"a": 2}}`), []string{"k", "a", "b"}, int64(2))
 
-	if text(got) != `{"k":{"a":2}}` {
-		t.Errorf("set %s, want k.a kept, as AddPath refuses a path through a value", text(got))
+	if err == nil || text(got) != `{"k":{"a":2}}` {
+		t.Errorf("set %s (%v), want k.a kept and refused, as AddPath does", text(got), err)
 	}
 }
 
@@ -466,7 +464,6 @@ func TestShowValueKeepsWhatJSONNeedNotEscape(t *testing.T) {
 }
 
 func TestShowValueShowsThePathsNerveFillsIn(t *testing.T) {
-	openBug(t, "nerve's own filled paths show as (hidden)")
 	m := domain.Manifest{Hooks: map[string]domain.Hook{"fmt": {Event: "PostToolUse", Command: "{{brain}}/hooks/fmt.sh"}}}
 	p := &domain.Project{Hooks: []string{"fmt"}}
 
@@ -487,10 +484,9 @@ func TestShowValueHidesTokensAndEmails(t *testing.T) {
 	}
 }
 
-func TestParseValueKeepsEveryDigitOfAWholeNumberBeyondInt64(t *testing.T) {
-	openBug(t, "whole numbers above int64 lose digits")
-	if got := text(domain.ParseValue("12345678901234567890")); got != "12345678901234567890" {
-		t.Errorf("reads as %s", got)
+func TestParseValueReadsAWholeNumberBeyondInt64AsAFloat(t *testing.T) {
+	if got, ok := domain.ParseValue("12345678901234567890").(float64); !ok || got != 12345678901234567890 {
+		t.Errorf("reads as %T %v", got, got)
 	}
 }
 
@@ -573,7 +569,7 @@ func TestReconcileLeavesAListTheUserEmptiedOrDeleted(t *testing.T) {
 }
 
 func TestReconcileHidesSensitiveValues(t *testing.T) {
-	rc := domain.Reconcile(nil, nil, obj(t, `{"env": {"TOKEN": "sk-abc"}, "permissions": {"allow": ["Read(/home/bob/x)"]}}`), false)
+	rc := domain.Reconcile(nil, nil, obj(t, `{"env": {"TOKEN": "sk-abc"}, "permissions": {"allow": ["Bash(notify bob@example.com)"]}}`), false)
 
 	for _, c := range rc.Changes {
 		if c.After != domain.Hidden {
