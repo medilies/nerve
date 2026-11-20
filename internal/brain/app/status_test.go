@@ -12,8 +12,8 @@ func TestStatusShowsTheProjectItsLinksAndDriftWithoutChangingIt(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
 	e.must(e.sync("/w/app", app.SyncOptions{}))
-	e.ws.settings["/w/app/.claude/settings.local.json"]["model"] = "sonnet"
-	e.ws.files["/w/app/.claude/agents/team.md"] = true
+	e.trees.settings["/w/app/.claude/settings.local.json"]["model"] = "sonnet"
+	e.trees.files["/w/app/.claude/agents/team.md"] = true
 	r := &recorder{}
 
 	e.must(r, e.app.Status(target("/w/app"), r))
@@ -62,37 +62,99 @@ func TestCommandsOutsideAListedCheckoutSayHowToAddIt(t *testing.T) {
 	}
 }
 
-func TestCheckRefusesWhatAProjectCannotGet(t *testing.T) {
+func TestStatusRefusesAProjectTheBrainDoesNotList(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+
+	err := e.app.Status(app.ProjectRef{Dir: "/w/app", Project: "typo"}, &recorder{})
+
+	if err == nil || err.Error() != `brain.toml lists no project "typo"` {
+		t.Errorf("got %v", err)
+	}
+}
+
+// check runs check on e's Brain, and returns what it reported.
+func check(t *testing.T, e *env) string {
+	t.Helper()
+	r := &recorder{}
+	if err := e.app.Check(r); err == nil {
+		t.Fatalf("check passed:\n%s", r)
+	}
+	return r.String()
+}
+
+func TestCheckRefusesAnInvalidOwnSkill(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go-stack").Meta["description"] = ""
+	if out := check(t, e); !strings.Contains(out, "problem  skills/go-stack: no description") {
+		t.Errorf("check says:\n%s", out)
+	}
+}
+
+func TestCheckRefusesAnOwnSkillNamedNerve(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("nerve")
+	if out := check(t, e); !strings.Contains(out, "nerve is nerve's own skill: rename this one") {
+		t.Errorf("check says:\n%s", out)
+	}
+}
+
+func TestCheckRefusesASkillFromTwoPlaces(t *testing.T) {
 	e := newEnv(t)
 	e.ownSkill("go-stack")
-	bad := e.ownSkill("nerve")
-	bad.Meta["description"] = ""
-	e.brain.m.Common = map[string]any{"model": "opus", "apiKeyHelper": "x"}
-	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"go-stack", "missing"}}}
-	e.brain.m.Projects["app"] = &domain.Project{
-		Skills: []string{"go-stack", "ghost"}, Agents: []string{"nobody"}, Hooks: []string{"fmt"}, Plugins: []string{"bad"},
-		Settings: map[string]any{"model": "opus"},
+	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"go-stack"}}}
+	e.sources.skills["acme/up@"+pinA+"/go-stack"] = domain.Skill{}
+	if out := check(t, e); !strings.Contains(out, "skill go-stack comes from both skills/ and acme/up") {
+		t.Errorf("check says:\n%s", out)
 	}
-	e.brain.m.Projects["claude-ai-work"] = &domain.Project{Surface: domain.ClaudeAI, Plugins: []string{"x@y"}}
-	r := &recorder{}
+}
 
-	err := e.app.Check(r)
-
-	if err == nil {
-		t.Fatal("check passed")
+func TestCheckRefusesASourceSkillMissingAtItsPin(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"missing"}}}
+	if out := check(t, e); !strings.Contains(out, `acme/up@5863806: no skill "missing"`) {
+		t.Errorf("check says:\n%s", out)
 	}
-	contains(t, r,
-		"problem  skills/nerve: no description",
-		"nerve is nerve's own skill: rename this one",
-		"skill go-stack comes from both skills/ and acme/up",
-		`acme/up@5863806: no skill "missing"`,
-		`project.app: the Brain has no skill "ghost"`,
-		`project.app: the Brain has no agent "nobody"`,
-		`project.app: brain.toml defines no hook "fmt"`,
-		`project.app: plugin "bad" must be <plugin>@<marketplace>`,
-		"project.app.settings.model: equals common: drop it from the project",
-		"project.claude-ai-work: a claude.ai account takes skills only",
-		"common.settings.apiKeyHelper: apiKeyHelper may hold secrets")
+}
+
+func TestCheckRefusesItemsTheBrainCannotGive(t *testing.T) {
+	for kind, want := range map[string]string{
+		"skill":  `project.app: the Brain has no skill "ghost"`,
+		"agent":  `project.app: the Brain has no agent "ghost"`,
+		"hook":   `project.app: brain.toml defines no hook "ghost"`,
+		"plugin": `project.app: plugin "ghost" must be <plugin>@<marketplace>`,
+	} {
+		e := newEnv(t)
+		*e.listed("app", "/w/app").List(kind) = []string{"ghost"}
+		if out := check(t, e); !strings.Contains(out, want) {
+			t.Errorf("%s: check says:\n%s", kind, out)
+		}
+	}
+}
+
+func TestCheckRefusesAProjectSettingThatEqualsCommon(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Common = map[string]any{"model": "opus"}
+	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
+	if out := check(t, e); !strings.Contains(out, "project.app.settings.model: equals common: drop it from the project") {
+		t.Errorf("check says:\n%s", out)
+	}
+}
+
+func TestCheckRefusesAClaudeAIAccountThatTakesMoreThanSkills(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Projects["acct"] = &domain.Project{Surface: domain.ClaudeAI, Plugins: []string{"x@y"}}
+	if out := check(t, e); !strings.Contains(out, "project.acct: a claude.ai account takes skills only") {
+		t.Errorf("check says:\n%s", out)
+	}
+}
+
+func TestCheckRefusesSensitiveValues(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Common = map[string]any{"apiKeyHelper": "x"}
+	if out := check(t, e); !strings.Contains(out, "common.settings.apiKeyHelper: apiKeyHelper may hold secrets") {
+		t.Errorf("check says:\n%s", out)
+	}
 }
 
 func TestCheckPassesAGoodBrain(t *testing.T) {

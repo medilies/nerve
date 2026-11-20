@@ -3,6 +3,8 @@ package app_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/medilies/nerve/internal/brain/app"
 )
 
 func TestSetSettingInTheProjectOrCommon(t *testing.T) {
@@ -40,8 +42,131 @@ func TestSetSettingSendsASensitiveValueToTheOverlay(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "cannot go in common") {
 		t.Errorf("got %v, want common refused", err)
 	}
-	if err := e.app.SetSetting(target("/w/app"), "model.", "x", false, &recorder{}); err == nil {
-		t.Errorf("a key ending in a dot was set")
+}
+
+func TestSetSettingRefusesWhatBrainTomlCannotHold(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	for _, c := range []struct {
+		key  string
+		v    any
+		want string
+	}{
+		{"model.", "x", "must be keys joined by dots"},
+		{"a..b", "x", "must be keys joined by dots"},
+		{"foo", nil, "foo cannot hold null: to remove a setting, use setting rm"},
+		{"foo", []any{"a", nil}, "cannot hold null"},
+	} {
+		err := e.app.SetSetting(target("/w/app"), c.key, c.v, false, &recorder{})
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s = %v: got %v, want %q", c.key, c.v, err, c.want)
+		}
+	}
+	if e.brain.saves != 0 {
+		t.Errorf("a refused setting changed the Brain")
+	}
+}
+
+func TestSetSettingTakesAQuotedKeyWithDots(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	r := &recorder{}
+
+	e.must(r, e.app.SetSetting(target("/w/app"), `enabledPlugins."x@y.z"`, true, false, r))
+
+	if got := jsonText(e.project("app").Settings); got != `{"enabledPlugins":{"x@y.z":true}}` {
+		t.Errorf("project settings are %s", got)
+	}
+	e.must(r, e.app.RemoveSetting(target("/w/app"), `enabledPlugins."x@y.z"`, false, false, r))
+	if e.project("app").Settings != nil {
+		t.Errorf("the quoted key was not removed: %s", jsonText(e.project("app").Settings))
+	}
+}
+
+func TestSettingCommandsRefuseTwoPlacesAtOnce(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	acct := app.ProjectRef{Dir: "/w/app", Project: "app"}
+	for name, err := range map[string]error{
+		"set --common --project":   e.app.SetSetting(acct, "model", "opus", true, &recorder{}),
+		"add --common --project":   e.app.AddSetting(acct, "permissions.deny", "Cron", true, &recorder{}),
+		"rm --all --project":       e.app.RemoveSetting(acct, "model", false, true, &recorder{}),
+		"rm --all --common":        e.app.RemoveSetting(target("/w/app"), "model", true, true, &recorder{}),
+		"skill rm --all --project": e.app.RemoveItem(acct, "skill", "x", true, &recorder{}),
+		"autosync --all --project": e.app.SetAutosync(acct, false, true, &recorder{}),
+	} {
+		if err == nil || !strings.Contains(err.Error(), "each say where to act: pass one") {
+			t.Errorf("%s: got %v", name, err)
+		}
+	}
+	if e.brain.saves != 0 {
+		t.Errorf("a refused command changed the Brain")
+	}
+}
+
+func TestAddSettingAddsOneItemToAList(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app").Settings = map[string]any{"permissions": map[string]any{"allow": []any{"Read"}}, "model": "opus"}
+	r := &recorder{}
+
+	e.must(r, e.app.AddSetting(target("/w/app"), "permissions.allow", "Bash(make)", false, r))
+	e.must(r, e.app.AddSetting(target("/w/app"), "permissions.allow", "Bash(make)", false, r))
+	e.must(r, e.app.AddSetting(target("/w/app"), "permissions.deny", "Cron", true, r))
+
+	if got := jsonText(e.project("app").Settings["permissions"]); got != `{"allow":["Read","Bash(make)"]}` {
+		t.Errorf("project permissions are %s", got)
+	}
+	if got := jsonText(e.brain.m.Common); got != `{"permissions":{"deny":["Cron"]}}` {
+		t.Errorf("common is %s", got)
+	}
+	contains(t, r,
+		`set      permissions.allow = ["Read","Bash(make)"] (was ["Read"])`,
+		`permissions.allow already holds "Bash(make)" in brain.toml (project app)`,
+		`set      permissions.deny = ["Cron"]`)
+	if err := e.app.AddSetting(target("/w/app"), "model", "x", false, &recorder{}); err == nil || err.Error() != "model is not a list" {
+		t.Errorf("got %v, want a value that is not a list refused", err)
+	}
+}
+
+func TestAddSettingSendsASensitiveItemToTheOverlay(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	r := &recorder{}
+
+	e.must(r, e.app.AddSetting(target("/w/app"), "permissions.allow", "Read(/home/bob/notes)", false, r))
+
+	if e.project("app").Settings != nil || e.brain.saves != 0 {
+		t.Errorf("a home path reached the Brain")
+	}
+	if got := jsonText(e.machine.overlays["app"]); got != `{"permissions":{"allow":["Read(/home/bob/notes)"]}}` {
+		t.Errorf("overlay is %s", got)
+	}
+	err := e.app.AddSetting(target("/w/app"), "permissions.allow", "Read(/home/bob/notes)", true, &recorder{})
+	if err == nil || !strings.Contains(err.Error(), "cannot go in common") {
+		t.Errorf("got %v, want common refused", err)
+	}
+}
+
+func TestRemoveSettingTakesItFromTheOverlayToo(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.listed("other", "/w/other")
+	e.machine.overlays["app"] = map[string]any{"env": map[string]any{"FOO": "bar"}}
+	e.machine.overlays["other"] = map[string]any{"env": map[string]any{"FOO": "baz", "KEEP": "x"}}
+	r := &recorder{}
+
+	e.must(r, e.app.RemoveSetting(target("/w/app"), "env.FOO", false, false, r))
+
+	if _, ok := e.machine.overlays["app"]; ok {
+		t.Errorf("the emptied overlay is kept: %v", e.machine.overlays["app"])
+	}
+	contains(t, r, "dropped  setting env.FOO from the local overlay of project app")
+	e.must(r, e.app.RemoveSetting(target("/w"), "env.FOO", false, true, r))
+	if got := jsonText(e.machine.overlays["other"]); got != `{"env":{"KEEP":"x"}}` {
+		t.Errorf("other's overlay is %s", got)
+	}
+	if e.brain.saves != 0 {
+		t.Errorf("removing from overlays changed the Brain")
 	}
 }
 
@@ -86,5 +211,5 @@ func TestListSettingsNamesTheLayersGivingEach(t *testing.T) {
 	contains(t, r,
 		`permissions.deny = ["A","B"]  (common + project)`,
 		`enabledPlugins.x@y = true  (nerve: plugins, hooks, autosync)`,
-		`env.T = "1"  (local overlay)`)
+		`env.T = (hidden)  (local overlay)`)
 }

@@ -35,7 +35,9 @@ type syncer struct {
 
 // Sync pulls the Brain and carries it to every checkout this machine lists,
 // or only to the tree around the working directory, then reports which
-// claude.ai zips changed.
+// claude.ai zips changed. A checkout that fails is reported, and the others
+// still sync; what the run changed in the Brain and on this machine is
+// saved either way.
 func (a App) Sync(o SyncOptions, r Reporter) error {
 	if !o.SkipPull {
 		if err := a.Brain.Pull(r); err != nil {
@@ -64,21 +66,23 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 		return err
 	}
 	s := &syncer{App: a, m: l.m, r: r, self: self, cmd: cmd, discard: o.Discard}
-	targets := l.machine.Checkouts
+	checkouts := l.machine.Checkouts
 	if o.Here {
 		t, name, err := a.here(l.machine, o.Dir)
 		if err != nil {
 			return err
 		}
-		targets = []domain.Checkout{{Path: t.Top, Project: name}}
+		checkouts = []domain.Checkout{{Path: t.Top, Project: name}}
 	}
 	failed, drifted := 0, 0
 	kept := slices.Clone(l.machine.Checkouts)
-	for _, c := range targets {
+	for _, c := range checkouts {
 		p := l.m.Projects[c.Project]
 		if p == nil || p.Surface == domain.ClaudeAI {
 			if err := a.clean(c.Path, fmt.Sprintf("project %s left the Brain", c.Project), r); err != nil {
-				return err
+				r.Add(Event{Kind: EvProblem, Path: c.Path, Detail: err.Error()})
+				failed++
+				continue
 			}
 			kept = slices.DeleteFunc(kept, func(k domain.Checkout) bool { return k == c })
 			continue
@@ -93,29 +97,28 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 			drifted++
 		}
 	}
+	var errs []error
 	if len(kept) != len(l.machine.Checkouts) {
 		l.machine.Checkouts = kept
-		if err := a.Machine.Save(l.machine); err != nil {
-			return err
-		}
+		errs = append(errs, a.Machine.Save(l.machine))
 	}
 	if s.dirty {
-		if err := a.Brain.Save(l.m); err != nil {
-			return err
-		}
+		errs = append(errs, a.Brain.Save(l.m))
 	}
 	if !o.Here {
-		if err := s.claudeAI(); err != nil {
-			return err
+		errs = append(errs, s.claudeAI())
+	}
+	if failed > 0 {
+		errs = append(errs, fmt.Errorf("%d of %d checkouts did not sync", failed, len(checkouts)))
+	}
+	if drifted > 0 && !o.Hook {
+		discard := "nerve sync --discard"
+		if o.Here {
+			discard = "nerve sync --here --discard"
 		}
+		errs = append(errs, fmt.Errorf("settings drifted in %d of %d checkouts: move each change into the Brain, or drop it with %s", drifted, len(checkouts), discard))
 	}
-	switch {
-	case failed > 0:
-		return fmt.Errorf("%d of %d checkouts did not sync", failed, len(targets))
-	case drifted > 0 && !o.Hook:
-		return fmt.Errorf("settings drifted in %d of %d checkouts: move each change into the Brain, or sync --discard", drifted, len(targets))
-	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func problemEvent(p domain.Problem) Event {
@@ -125,8 +128,15 @@ func problemEvent(p domain.Problem) Event {
 // syncTree carries one project to one working tree and records what it did,
 // even when a step fails part way. It returns whether settings drifted.
 func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool, err error) {
-	if !s.Workspace.Exists(dir) {
+	if !s.Trees.Exists(dir) {
 		return false, errors.New("checkout is gone")
+	}
+	if err := s.refusals(s.m, p); err != nil {
+		return false, err
+	}
+	tree, err := s.Trees.Locate(dir)
+	if err != nil {
+		return false, err
 	}
 	st, err := s.Machine.State(dir)
 	if err != nil {
@@ -137,17 +147,14 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 			err = serr
 		}
 	}()
-	st.Project = name
+	st.Project, st.Repo = name, tree.Repo
 	before := s.r.Count()
-	if err := s.Workspace.CheckIgnored(dir); err != nil {
+	if err := s.Trees.CheckIgnored(dir); err != nil {
 		return false, err
 	}
 	s.writeBack(name, p, dir, &st)
 	links := []domain.Link{{Kind: "skill", Name: "nerve", Target: s.self.Dir}}
 	for _, n := range p.Skills {
-		if n == "nerve" {
-			return false, errors.New("nerve is nerve's own skill: drop it from the project")
-		}
 		sk, err := s.skill(s.m, n)
 		if err != nil {
 			return false, err
@@ -155,16 +162,23 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 		links = append(links, domain.Link{Kind: "skill", Name: n, Target: sk.Dir})
 	}
 	for _, n := range p.Agents {
-		file, ok := s.Brain.AgentFile(n)
-		if !ok {
-			return false, fmt.Errorf("the Brain has no agent %q", n)
-		}
+		file, _ := s.Brain.AgentFile(n)
 		links = append(links, domain.Link{Kind: "agent", Name: n, Target: file})
 	}
+	// Whatever link did, even part way, git must not see it.
+	excluded := false
+	defer func() {
+		if !excluded {
+			if xerr := s.exclude(tree, st.Links); err == nil {
+				err = xerr
+			}
+		}
+	}()
 	if err := s.link(dir, links, &st); err != nil {
 		return false, err
 	}
-	if err := s.Workspace.SyncExclude(dir, domain.SortedKeys(st.Links)); err != nil {
+	excluded = true
+	if err := s.exclude(tree, st.Links); err != nil {
 		return false, err
 	}
 	overlay, _, err := s.Machine.Overlay(name)
@@ -184,22 +198,62 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 	return held, nil
 }
 
+// refusals says what a project lists that the Brain cannot give it, as
+// check does, or nil.
+func (a App) refusals(m domain.Manifest, p *domain.Project) error {
+	var why []string
+	for _, kind := range domain.ItemKinds {
+		for _, item := range *p.List(kind) {
+			if w := a.offers(m, kind, item); w != "" {
+				why = append(why, w)
+			}
+		}
+	}
+	if len(why) == 0 {
+		return nil
+	}
+	return errors.New(strings.Join(why, "; "))
+}
+
+// exclude keeps out of git the links of every working tree that shares
+// tree's info/exclude: links, this tree's, and those nerve made in the
+// repo's other worktrees.
+func (a App) exclude(tree domain.Tree, links map[string]domain.Link) error {
+	rels := map[string]bool{}
+	for rel := range links {
+		rels[rel] = true
+	}
+	states, err := a.Machine.States()
+	if err != nil {
+		return err
+	}
+	for _, st := range states {
+		if filepath.Clean(st.Path) == filepath.Clean(tree.Top) || st.Repo != tree.Repo || !a.Trees.Exists(st.Path) {
+			continue
+		}
+		for rel := range st.Links {
+			rels[rel] = true
+		}
+	}
+	return a.Trees.SyncExclude(tree.Top, domain.SortedKeys(rels))
+}
+
 // reconcile writes a settings file as the Brain wants it, except for drift,
 // and reports each key it changes or holds back.
 func (s *syncer) reconcile(path string, want map[string]any, last *map[string]any) (bool, error) {
-	current, err := s.Workspace.ReadSettings(path)
+	current, err := s.Trees.ReadSettings(path)
 	if err != nil {
 		return false, err
 	}
 	rc := domain.Reconcile(current, *last, want, s.discard)
 	for _, c := range rc.Drift {
-		s.r.Add(Event{Kind: EvDrift, Path: path, Key: c.Key, Local: c.After, Brain: c.Before})
+		s.r.Add(driftEvent(path, c))
 	}
 	for _, c := range rc.Changes {
 		s.r.Add(Event{Kind: EvSetting, Path: path, Key: c.Key, Local: c.Before, Brain: c.After})
 	}
 	if rc.Write {
-		if err := s.Workspace.WriteSettings(path, rc.Result); err != nil {
+		if err := s.Trees.WriteSettings(path, rc.Result); err != nil {
 			return false, err
 		}
 	}
@@ -207,37 +261,56 @@ func (s *syncer) reconcile(path string, want map[string]any, last *map[string]an
 	return len(rc.Drift) > 0, nil
 }
 
+func driftEvent(path string, c domain.Change) Event {
+	e := Event{Kind: EvDrift, Path: path, Key: c.Key, Local: c.After, Brain: c.Before}
+	if c.Item {
+		e.Item = c.After
+		if c.After == "unset" {
+			e.Item = c.Before
+		}
+	}
+	return e
+}
+
 // writeBack drops from the project each skill or agent whose link nerve made
 // and the user deleted.
 func (s *syncer) writeBack(name string, p *domain.Project, dir string, st *domain.TreeState) {
 	for _, rel := range domain.SortedKeys(st.Links) {
-		if s.Workspace.Present(filepath.Join(dir, rel)) {
+		if s.Trees.Present(filepath.Join(dir, rel)) {
 			continue
 		}
-		kind, item, _ := strings.Cut(st.Links[rel], ":")
+		l := st.Links[rel]
 		delete(st.Links, rel)
-		list := p.List(kind)
-		if list == nil || !slices.Contains(*list, item) {
+		list := p.List(l.Kind)
+		if list == nil || !slices.Contains(*list, l.Name) {
 			continue
 		}
-		*list = slices.DeleteFunc(*list, func(x string) bool { return x == item })
+		*list = slices.DeleteFunc(*list, func(x string) bool { return x == l.Name })
 		s.dirty = true
-		s.r.Add(Event{Kind: EvWroteBack, Project: name, Item: kind + " " + item})
+		s.r.Add(Event{Kind: EvWroteBack, Project: name, Item: l.Item()})
 	}
+}
+
+// ours says whether the link at rel in dir is still the one nerve made: a
+// link that points where nerve pointed it.
+func (a App) ours(dir, rel string, l domain.Link) bool {
+	target, ok := a.Trees.LinkTarget(filepath.Join(dir, rel))
+	return ok && target == l.Target
 }
 
 // link makes dir hold each link, and removes the links nerve made that are
 // no longer wanted. Where the team already has a skill or agent of that
 // name, it links nerve's as <owner>-<name>. It never touches what nerve did
-// not make.
+// not make, nor a link someone pointed elsewhere.
 func (s *syncer) link(dir string, links []domain.Link, st *domain.TreeState) error {
 	ours := func(rel string) bool {
-		return st.Links[rel] != "" && s.Workspace.IsLink(filepath.Join(dir, rel))
+		l, ok := st.Links[rel]
+		return ok && s.ours(dir, rel, l)
 	}
 	taken := func(rel string) bool {
-		return s.Workspace.Present(filepath.Join(dir, rel)) && !ours(rel)
+		return s.Trees.Present(filepath.Join(dir, rel)) && !ours(rel)
 	}
-	next := map[string]string{}
+	next := map[string]domain.Link{}
 	for _, l := range links {
 		rel := l.Rel("")
 		if taken(rel) {
@@ -250,21 +323,21 @@ func (s *syncer) link(dir string, links []domain.Link, st *domain.TreeState) err
 			}
 		}
 		path := filepath.Join(dir, rel)
-		if target, ok := s.Workspace.LinkTarget(path); !ok || target != l.Target {
-			if err := s.Workspace.Link(path, l.Target); err != nil {
+		if target, ok := s.Trees.LinkTarget(path); !ok || target != l.Target {
+			if err := s.Trees.Link(path, l.Target); err != nil {
 				return err
 			}
 			s.r.Add(Event{Kind: EvLinked, Path: path, Target: l.Target})
 		}
-		next[rel] = l.Carries()
-		st.Links[rel] = next[rel] // ours from here on, should a later link collide
+		next[rel] = l
+		st.Links[rel] = l // ours from here on, should a later link collide
 	}
 	for _, rel := range domain.SortedKeys(st.Links) {
 		if _, ok := next[rel]; ok || !ours(rel) {
 			continue
 		}
 		path := filepath.Join(dir, rel)
-		if err := s.Workspace.Remove(path); err != nil {
+		if err := s.Trees.Remove(path); err != nil {
 			return err
 		}
 		s.r.Add(Event{Kind: EvRemoved, Path: path})
@@ -284,28 +357,32 @@ func (s *syncer) ownerName() (string, error) {
 	return s.owner, nil
 }
 
-// clean takes out of a working tree what nerve put there: its links, its
-// exclude block, and the settings it wrote that were not changed since.
+// clean takes out of a working tree what nerve put there: its links that
+// still point where it pointed them, its share of the exclude block, and
+// the settings it wrote that were not changed since.
 func (a App) clean(dir, why string, r Reporter) error {
 	st, err := a.Machine.State(dir)
 	if err != nil {
 		return err
 	}
-	if a.Workspace.Exists(dir) {
+	if a.Trees.Exists(dir) {
 		for _, rel := range domain.SortedKeys(st.Links) {
+			if !a.ours(dir, rel, st.Links[rel]) {
+				continue
+			}
 			path := filepath.Join(dir, rel)
-			if a.Workspace.IsLink(path) {
-				if err := a.Workspace.Remove(path); err != nil {
-					return err
-				}
-				r.Add(Event{Kind: EvRemoved, Path: path})
+			if err := a.Trees.Remove(path); err != nil {
+				return err
+			}
+			r.Add(Event{Kind: EvRemoved, Path: path})
+		}
+		if tree, err := a.Trees.Locate(dir); err == nil { // no git, no exclude block
+			if err := a.exclude(tree, nil); err != nil {
+				return err
 			}
 		}
-		if err := a.Workspace.SyncExclude(dir, nil); err != nil {
-			return err
-		}
 		path := settingsPath(dir)
-		current, err := a.Workspace.ReadSettings(path)
+		current, err := a.Trees.ReadSettings(path)
 		if err != nil {
 			return err
 		}
@@ -313,12 +390,12 @@ func (a App) clean(dir, why string, r Reporter) error {
 		switch {
 		case current == nil || !changed:
 		case len(rest) == 0:
-			if err := a.Workspace.Remove(path); err != nil {
+			if err := a.Trees.Remove(path); err != nil {
 				return err
 			}
 			r.Add(Event{Kind: EvRemoved, Path: path})
 		default:
-			if err := a.Workspace.WriteSettings(path, rest); err != nil {
+			if err := a.Trees.WriteSettings(path, rest); err != nil {
 				return err
 			}
 			r.Add(Event{Kind: EvWrote, Path: path})
@@ -348,15 +425,20 @@ func (s *syncer) claudeAI() error {
 		next[name] = map[string]string{}
 		for _, n := range p.Skills {
 			sk, err := s.skill(s.m, n)
+			why := ""
 			if err != nil {
-				return err
-			}
-			why := sk.ClaudeAIRejection()
-			if link := s.Zips.FolderLink(sk.Dir); link != "" {
-				why = link + " links to a folder or to nothing, which a zip cannot hold"
+				why = err.Error()
+			} else if why = sk.ClaudeAIRejection(); why != "" {
+				why = n + ": " + why
+			} else if link := s.Zips.FolderLink(sk.Dir); link != "" {
+				why = n + ": " + link + " links to a folder or to nothing, which a zip cannot hold"
 			}
 			if why != "" {
-				s.r.Add(Event{Kind: EvProblem, Path: domain.ManifestFile, Key: "project." + name, Detail: n + ": " + why})
+				// The account keeps what was uploaded last: no delete for it.
+				if hash, ok := built[name][n]; ok {
+					next[name][n] = hash
+				}
+				s.r.Add(Event{Kind: EvProblem, Path: domain.ManifestFile, Key: "project." + name, Detail: why})
 				continue
 			}
 			zip, err := s.Zips.Zip(sk)

@@ -1,9 +1,11 @@
 package app_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/medilies/nerve/internal/brain/app"
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
@@ -11,7 +13,7 @@ func TestAddProjectRecordsTheCheckoutsSettingsAgainstCommon(t *testing.T) {
 	e := newEnv(t)
 	e.checkout("/w/app")
 	e.brain.m.Common = map[string]any{"model": "opus", "syncClaudeAiSkills": false}
-	e.ws.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus", "effortLevel": "low", "env": map[string]any{"TOKEN": "x"}}
+	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus", "effortLevel": "low", "env": map[string]any{"TOKEN": "x"}}
 	r := &recorder{}
 
 	e.must(r, e.app.AddProject("/w/app/src", "app", r))
@@ -25,7 +27,7 @@ func TestAddProjectRecordsTheCheckoutsSettingsAgainstCommon(t *testing.T) {
 	if got := e.machine.machine.Checkouts; len(got) != 1 || got[0] != (domain.Checkout{Path: "/w/app", Project: "app"}) {
 		t.Errorf("checkouts are %v", got)
 	}
-	if len(e.ws.links) > 0 || len(e.ws.settings) != 1 {
+	if len(e.trees.links) > 0 || len(e.trees.settings) != 1 {
 		t.Errorf("project add wrote in the project")
 	}
 	contains(t, r,
@@ -38,7 +40,7 @@ func TestAddProjectRecordsTheCheckoutsSettingsAgainstCommon(t *testing.T) {
 
 func TestAddProjectFromAWorktreeListsTheMainCheckout(t *testing.T) {
 	e := newEnv(t)
-	e.ws.trees = []domain.Tree{{Top: "/w/app-feature", Main: "/w/app"}}
+	e.trees.trees = []domain.Tree{{Top: "/w/app-feature", Main: "/w/app", Repo: "/w/app/.git"}}
 	r := &recorder{}
 
 	e.must(r, e.app.AddProject("/w/app-feature", "app", r))
@@ -91,7 +93,7 @@ func TestListProjectsShowsEachCheckoutsSyncState(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app").Skills = []string{"a", "b"}
 	e.machine.machine.Checkouts = append(e.machine.machine.Checkouts, domain.Checkout{Path: "/w/gone", Project: "gone"})
-	e.machine.states["/w/app"] = domain.TreeState{Path: "/w/app", Commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Links: map[string]string{"x": "skill:a"}}
+	e.machine.states["/w/app"] = domain.TreeState{Path: "/w/app", Commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Links: map[string]domain.Link{"x": {Kind: "skill", Name: "a"}}}
 	r := &recorder{}
 
 	e.must(r, e.app.ListProjects(r))
@@ -104,11 +106,13 @@ func TestListProjectsShowsEachCheckoutsSyncState(t *testing.T) {
 
 func TestRemoveProjectCleansItsTreesAndDropsIt(t *testing.T) {
 	e := newEnv(t)
-	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
+	e.ownSkill("go-stack")
+	p := e.listed("app", "/w/app")
+	p.Skills, p.Settings = []string{"go-stack"}, map[string]any{"model": "opus"}
 	e.listed("other", "/w/other")
-	r, err := e.sync("/w/app", appSyncAll())
-	e.must(r, err)
-	r = &recorder{}
+	e.machine.overlays["app"] = map[string]any{"env": map[string]any{"TOKEN": "x"}}
+	e.must(e.sync("/w", appSyncAll()))
+	r := &recorder{}
 
 	e.must(r, e.app.RemoveProject("app", r))
 
@@ -118,12 +122,43 @@ func TestRemoveProjectCleansItsTreesAndDropsIt(t *testing.T) {
 	if len(e.machine.machine.Checkouts) != 1 || e.settings("/w/app") != nil {
 		t.Errorf("checkouts %v, settings %v", e.machine.machine.Checkouts, e.settings("/w/app"))
 	}
-	if _, ok := e.ws.links["/w/other/.claude/skills/nerve"]; !ok {
+	for link := range e.trees.links {
+		if strings.HasPrefix(link, "/w/app/") {
+			t.Errorf("%s is left", link)
+		}
+	}
+	if got := e.trees.excludes["/w/app"]; got != nil {
+		t.Errorf("the exclude block is left: %v", got)
+	}
+	if _, ok := e.machine.overlays["app"]; ok {
+		t.Errorf("the local overlay is left")
+	}
+	if _, ok := e.trees.links["/w/other/.claude/skills/nerve"]; !ok {
 		t.Errorf("another project was cleaned")
 	}
-	contains(t, r, "cleaned  /w/app: project app removed", "project  app: dropped from brain.toml")
+	contains(t, r, "cleaned  /w/app: project app removed", "removed  /cfg/nerve/overlays/app.json", "project  app: dropped from brain.toml")
 	if err := e.app.RemoveProject("app", &recorder{}); err == nil {
 		t.Errorf("removing it again passed")
+	}
+}
+
+func TestAddProjectThatFailsPartWayImportsAgainWhenRunAgain(t *testing.T) {
+	e := newEnv(t)
+	e.checkout("/w/app")
+	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"env": map[string]any{"TOKEN": "x"}, "model": "opus"}
+	e.machine.saveErr = errors.New("config dir is read-only")
+
+	if err := e.app.AddProject("/w/app", "app", &recorder{}); err == nil {
+		t.Fatal("add passed")
+	}
+	if e.project("app") != nil {
+		t.Errorf("the project reached the Brain without its overlay")
+	}
+	e.machine.saveErr = nil
+	e.must(&recorder{}, e.app.AddProject("/w/app", "app", &recorder{}))
+
+	if got := jsonText(e.machine.overlays["app"]); got != `{"env":{"TOKEN":"x"}}` {
+		t.Errorf("overlay is %s", got)
 	}
 }
 
@@ -139,6 +174,17 @@ func TestSetAutosyncForAProjectOrTheBrain(t *testing.T) {
 		t.Errorf("project %v, brain %v", p.Autosync, e.brain.m.Autosync)
 	}
 	contains(t, r, "autosync off for app", "autosync off by default")
+}
+
+func TestSetAutosyncRefusesAClaudeAIAccount(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Projects["acct"] = &domain.Project{Surface: domain.ClaudeAI, Skills: []string{"x"}}
+
+	err := e.app.SetAutosync(app.ProjectRef{Project: "acct"}, false, false, &recorder{})
+
+	if err == nil || !strings.Contains(err.Error(), "is a claude.ai account") || e.brain.saves != 0 {
+		t.Errorf("got %v", err)
+	}
 }
 
 func TestInitNamesTheBrainOnce(t *testing.T) {

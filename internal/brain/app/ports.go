@@ -55,6 +55,9 @@ type Machine interface {
 	Create(domain.Machine) (string, error)
 	Overlay(project string) (settings map[string]any, path string, err error)
 	SaveOverlay(project string, settings map[string]any) (path string, err error)
+	// DropOverlay deletes a project's local overlay, returning its path, or
+	// "" when it had none.
+	DropOverlay(project string) (path string, err error)
 	State(dir string) (domain.TreeState, error)
 	SaveState(domain.TreeState) error
 	DropState(dir string) error
@@ -65,13 +68,15 @@ type Machine interface {
 	SaveBuilt(map[string]map[string]string) error
 }
 
-// Workspace is the filesystem of project working trees, and git in them.
-type Workspace interface {
+// Trees are the working trees of checkouts on this machine, and git in
+// them.
+type Trees interface {
 	// Locate finds the git working tree around dir.
 	Locate(dir string) (domain.Tree, error)
 	Exists(path string) bool  // follows links
 	Present(path string) bool // a link counts, even a broken one
-	IsLink(path string) bool
+	// LinkTarget is where the link at path points, false when path is not
+	// a link.
 	LinkTarget(path string) (string, bool)
 	// Link makes path a link to target, replacing a link already there.
 	Link(path, target string) error
@@ -81,7 +86,8 @@ type Workspace interface {
 	// does not ignore.
 	CheckIgnored(dir string) error
 	// SyncExclude keeps rels out of git through nerve's block in the
-	// repo's info/exclude.
+	// repo's info/exclude, which every worktree of the repo shares: rels
+	// must cover them all. It refuses a block someone damaged.
 	SyncExclude(dir string, rels []string) error
 	ReadSettings(path string) (map[string]any, error)
 	WriteSettings(path string, settings map[string]any) error
@@ -112,10 +118,10 @@ type Zips interface {
 
 // App carries a Brain through its ports.
 type App struct {
-	Brain     Brain
-	Sources   Sources
-	Machine   Machine
-	Workspace Workspace
-	Self      Self
-	Zips      Zips
+	Brain   Brain
+	Sources Sources
+	Machine Machine
+	Trees   Trees
+	Self    Self
+	Zips    Zips
 }

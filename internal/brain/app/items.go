@@ -12,12 +12,12 @@ import (
 )
 
 // AddItem adds a skill, agent, hook or plugin to the target project.
-func (a App) AddItem(t Target, kind, name string, r Reporter) error {
+func (a App) AddItem(ref ProjectRef, kind, name string, r Reporter) error {
 	l, err := a.load()
 	if err != nil {
 		return err
 	}
-	project, p, err := a.project(l, t)
+	project, p, err := a.project(l, ref)
 	if err != nil {
 		return err
 	}
@@ -42,7 +42,10 @@ func (a App) AddItem(t Target, kind, name string, r Reporter) error {
 
 // RemoveItem takes an item out of the target project, or with all out of
 // every project.
-func (a App) RemoveItem(t Target, kind, name string, all bool, r Reporter) error {
+func (a App) RemoveItem(ref ProjectRef, kind, name string, all bool, r Reporter) error {
+	if err := onePlace(ref.Project, false, all); err != nil {
+		return err
+	}
 	l, err := a.load()
 	if err != nil {
 		return err
@@ -51,7 +54,7 @@ func (a App) RemoveItem(t Target, kind, name string, all bool, r Reporter) error
 	if all {
 		projects = domain.SortedKeys(l.m.Projects)
 	} else {
-		project, _, err := a.project(l, t)
+		project, _, err := a.project(l, ref)
 		if err != nil {
 			return err
 		}
@@ -79,28 +82,28 @@ func (a App) RemoveItem(t Target, kind, name string, all bool, r Reporter) error
 // ListItems lists the target project's items of a kind and where each comes
 // from. Inside its checkout, skills and agents also show how they are
 // linked, and the team's own.
-func (a App) ListItems(t Target, kind string, r Reporter) error {
+func (a App) ListItems(ref ProjectRef, kind string, r Reporter) error {
 	l, err := a.load()
 	if err != nil {
 		return err
 	}
-	project, p, err := a.project(l, t)
+	project, p, err := a.project(l, ref)
 	if err != nil {
 		return err
 	}
 	var st domain.TreeState
 	dir := ""
-	if t.Project == "" && (kind == "skill" || kind == "agent") {
-		if tree, _, err := a.here(l.machine, t.Dir); err == nil {
+	if ref.Project == "" && (kind == "skill" || kind == "agent") {
+		if tree, _, err := a.here(l.machine, ref.Dir); err == nil {
 			dir = tree.Top
 			if st, err = a.Machine.State(dir); err != nil {
 				return err
 			}
 		}
 	}
-	linkedAs := map[string]string{} // kind:name -> link
-	for rel, what := range st.Links {
-		linkedAs[what] = rel
+	linkedAs := map[string]string{} // item -> link
+	for rel, l := range st.Links {
+		linkedAs[l.Item()] = rel
 	}
 	for _, name := range *p.List(kind) {
 		detail := ""
@@ -119,7 +122,7 @@ func (a App) ListItems(t Target, kind string, r Reporter) error {
 		case "plugin":
 			detail = "enabled"
 		}
-		if rel, ok := linkedAs[kind+":"+name]; ok {
+		if rel, ok := linkedAs[kind+" "+name]; ok {
 			detail += ", linked as " + rel
 		} else if dir != "" {
 			detail += ", not linked yet: sync"
@@ -143,8 +146,8 @@ func (a App) ListItems(t Target, kind string, r Reporter) error {
 func (a App) teamItems(dir, kind string, st domain.TreeState) []string {
 	sub := map[string]string{"skill": "skills", "agent": "agents"}[kind]
 	var names []string
-	for _, e := range a.Workspace.Entries(filepath.Join(dir, ".claude", sub)) {
-		if st.Links[path.Join(".claude", sub, e)] != "" || strings.HasPrefix(e, ".") {
+	for _, e := range a.Trees.Entries(filepath.Join(dir, ".claude", sub)) {
+		if _, ours := st.Links[path.Join(".claude", sub, e)]; ours || strings.HasPrefix(e, ".") {
 			continue
 		}
 		names = append(names, strings.TrimSuffix(e, ".md"))

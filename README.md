@@ -97,6 +97,7 @@ From then on, `sync` keeps nerve at the release the Brain pins.
 nerve project add billing            # list this checkout as project billing, keeping its settings.local.json
 nerve skill add go-stack             # give it a skill; agent, hook and plugin work the same
 nerve setting set model opus         # a setting for it; --common for every project
+nerve setting add permissions.allow "Bash(make test)"   # one more item in a list
 nerve sync --here                    # carry the Brain to it; autosync does this at each session start
 nerve status                         # where it stands: links, the team's skills, drift
 nerve skill rm grilling --all        # take a skill out of every project
@@ -110,7 +111,8 @@ nerve check                          # validate the Brain, as its CI does
 A command acts on the project around the working directory;
 `--project <name>` names another. Commands that change the Brain edit
 `brain.toml` and never commit. `--json` prints one JSON document of
-what happened.
+what happened. A settings key that holds a dot goes in double quotes:
+`enabledPlugins."x@y.z"`. `nerve help` lists every command.
 
 ## Documentation
 

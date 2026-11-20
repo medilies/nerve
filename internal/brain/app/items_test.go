@@ -9,7 +9,7 @@ import (
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
-func target(dir string) app.Target { return app.Target{Dir: dir} }
+func target(dir string) app.ProjectRef { return app.ProjectRef{Dir: dir} }
 
 func appSyncAll() app.SyncOptions { return app.SyncOptions{} }
 
@@ -49,7 +49,7 @@ func TestAddItemRefusesWhatTheBrainDoesNotOffer(t *testing.T) {
 		{"", "plugin", "a@b@c", "must be <plugin>@<marketplace>"},
 		{"claude-ai-work", "plugin", "a@b", "is a claude.ai account, which takes skills only"},
 	} {
-		err := e.app.AddItem(app.Target{Dir: "/w/app", Project: c.project}, c.kind, c.name, &recorder{})
+		err := e.app.AddItem(app.ProjectRef{Dir: "/w/app", Project: c.project}, c.kind, c.name, &recorder{})
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s %s: got %v, want %q", c.kind, c.name, err, c.want)
 		}
@@ -89,7 +89,7 @@ func TestListItemsShowsLinksAndTheTeamsOwn(t *testing.T) {
 	e.ownSkill("go-stack")
 	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
 	e.sources.skills["acme/up@"+pinA+"/grilling"] = domain.Skill{Name: "grilling", Dir: "/cache/grilling"}
-	e.ws.files["/w/app/.claude/skills/go-stack"] = true
+	e.trees.files["/w/app/.claude/skills/go-stack"] = true
 	e.must(e.sync("/w/app", app.SyncOptions{}))
 	r := &recorder{}
 

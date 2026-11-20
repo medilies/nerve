@@ -67,3 +67,25 @@ func TestDiffShowsHowASkillChangedUpstream(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 }
+
+func TestTwoFetchesOfOnePinAtOnceBothSucceed(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	errs := make(chan error, 2)
+
+	for range 2 {
+		go func() {
+			_, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling")
+			errs <- err
+		}()
+	}
+
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Errorf("a fetch failed: %v", err)
+		}
+	}
+	if leftovers, _ := filepath.Glob(e.path(".cache/nerve/sources/acme/up/*.tmp-*")); len(leftovers) > 0 {
+		t.Errorf("left %v", leftovers)
+	}
+}

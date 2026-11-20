@@ -211,3 +211,13 @@ func TestHeadAndStateOfAPlainFolderAreEmpty(t *testing.T) {
 		t.Errorf("pulled a plain folder: %v %s", err, r)
 	}
 }
+
+func TestLoadRefusesSettingsJSONCannotHold(t *testing.T) {
+	e := newTestEnv(t)
+	for _, toml := range []string{"[common.settings]\nx = inf\n", "[project.app.settings]\nx = [nan]\n"} {
+		e.write(e.path("brain/brain.toml"), toml)
+		if _, err := NewBrainCheckout(e.path("brain")).Load(); err == nil || !strings.Contains(err.Error(), "no inf or nan") {
+			t.Errorf("%s: got %v", toml, err)
+		}
+	}
+}

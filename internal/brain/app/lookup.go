@@ -7,9 +7,9 @@ import (
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
-// Target names the project a use case acts on: the one given, else the one
+// ProjectRef names the project a use case acts on: the one given, else the one
 // whose checkout holds the working directory.
-type Target struct {
+type ProjectRef struct {
 	Dir     string
 	Project string
 }
@@ -38,7 +38,7 @@ func (a App) load() (loaded, error) {
 // here returns the working tree around dir and the project its checkout is
 // listed under.
 func (a App) here(machine domain.Machine, dir string) (domain.Tree, string, error) {
-	t, err := a.Workspace.Locate(dir)
+	t, err := a.Trees.Locate(dir)
 	if err != nil {
 		return t, "", err
 	}
@@ -50,12 +50,12 @@ func (a App) here(machine domain.Machine, dir string) (domain.Tree, string, erro
 	return t, "", fmt.Errorf("%s is not a listed checkout: run nerve project add <name> here, or pass --project", t.Top)
 }
 
-// project returns the project a target names.
-func (a App) project(l loaded, t Target) (string, *domain.Project, error) {
-	name := t.Project
+// project returns the project ref names.
+func (a App) project(l loaded, ref ProjectRef) (string, *domain.Project, error) {
+	name := ref.Project
 	if name == "" {
 		var err error
-		if _, name, err = a.here(l.machine, t.Dir); err != nil {
+		if _, name, err = a.here(l.machine, ref.Dir); err != nil {
 			return "", nil, err
 		}
 	}

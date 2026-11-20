@@ -21,6 +21,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	if real, err := filepath.EvalSymlinks(home); err == nil {
 		home = real
 	}
+	unsetRepoEnv(t)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -30,6 +31,15 @@ func newTestEnv(t *testing.T) *testEnv {
 	t.Setenv("GIT_CONFIG_KEY_0", "url.file://"+filepath.Join(home, "github")+"/.insteadOf")
 	t.Setenv("GIT_CONFIG_VALUE_0", "https://github.com/")
 	return &testEnv{t: t, home: home}
+}
+
+// unsetRepoEnv keeps a test run from a git hook off the repo the hook set,
+// for the test's own git commands too.
+func unsetRepoEnv(t *testing.T) {
+	for _, name := range repoEnv {
+		t.Setenv(name, "")
+		_ = os.Unsetenv(name)
+	}
 }
 
 func (e *testEnv) path(rel string) string { return filepath.Join(e.home, rel) }
@@ -62,6 +72,16 @@ func (e *testEnv) read(path string) string {
 		e.t.Fatal(err)
 	}
 	return string(b)
+}
+
+func (e *testEnv) link(path, target string) {
+	e.t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		e.t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		e.t.Fatal(err)
+	}
 }
 
 // repo makes dir a git repo on main, and returns it.

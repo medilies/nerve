@@ -14,7 +14,7 @@ func TestLinkRelPlacesSkillsAndAgentsUnderAPrefix(t *testing.T) {
 		skill.Rel("medilies-"): ".claude/skills/medilies-go-stack",
 		agent.Rel(""):          ".claude/agents/reviewer.md",
 		agent.Rel("medilies-"): ".claude/agents/medilies-reviewer.md",
-		skill.Carries():        "skill:go-stack",
+		skill.Item():           "skill go-stack",
 	} {
 		if got != want {
 			t.Errorf("got %s, want %s", got, want)

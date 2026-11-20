@@ -47,6 +47,10 @@ func walkStrings(v any, fn func(string)) {
 	switch t := v.(type) {
 	case string:
 		fn(t)
+	case []string:
+		for _, x := range t {
+			fn(x)
+		}
 	case []any:
 		for _, x := range t {
 			walkStrings(x, fn)

@@ -207,7 +207,7 @@ func TestSetPathMakesObjectsOnTheWay(t *testing.T) {
 func TestLeafPathsKeepDottedKeysWhole(t *testing.T) {
 	l := domain.Leaves(obj(t, `{"enabledPlugins": {"x.y@z": true}}`))
 	for k := range l {
-		if domain.Dotted(k) != "enabledPlugins.x.y@z" || len(l) != 1 {
+		if domain.Dotted(k) != `enabledPlugins."x.y@z"` || len(l) != 1 {
 			t.Errorf("leaf %q", k)
 		}
 	}
@@ -228,5 +228,132 @@ func TestParseValueReadsJSONElseText(t *testing.T) {
 		if got := text(domain.ParseValue(in)); got != want {
 			t.Errorf("%s reads as %s, want %s", in, got, want)
 		}
+	}
+}
+
+func TestParseKeyReadsWhatDottedWrites(t *testing.T) {
+	for _, path := range [][]string{{"model"}, {"permissions", "deny"}, {"enabledPlugins", "x@y.z"}, {"a=b", "c"}} {
+		shown := domain.Dotted(domain.LeafKey(path))
+		got, err := domain.ParseKey(shown)
+		if err != nil || !reflect.DeepEqual(got, path) {
+			t.Errorf("%v shows as %s, which reads as %v (%v)", path, shown, got, err)
+		}
+	}
+}
+
+func TestParseKeyRefusesWhatIsNotAKey(t *testing.T) {
+	for _, key := range []string{"", ".model", "model.", "a..b", `a."b`, `a"b".c`, `"a"b`, `""`} {
+		if path, err := domain.ParseKey(key); err == nil {
+			t.Errorf("%q reads as %v", key, path)
+		}
+	}
+}
+
+func TestCutItemSplitsAtTheFirstEqualsOutsideQuotes(t *testing.T) {
+	for arg, want := range map[string][3]any{
+		"permissions.deny=Bash(x=1)": {"permissions.deny", "Bash(x=1)", true},
+		`env."A=B"=1`:                {`env."A=B"`, "1", true},
+		"model":                      {"model", "", false},
+	} {
+		key, value, ok := domain.CutItem(arg)
+		if key != want[0] || value != want[1] || ok != want[2] {
+			t.Errorf("%s cuts to %q, %q, %v", arg, key, value, ok)
+		}
+	}
+}
+
+func TestReconcileTakesAListItemByItem(t *testing.T) {
+	last := obj(t, `{"permissions": {"allow": ["Read"], "deny": ["Cron", "Old"]}}`)
+	current := obj(t, `{"permissions": {"allow": ["Read", "Bash(make)"], "deny": ["Old"]}}`) // an approval, and a deny removed
+	want := obj(t, `{"permissions": {"allow": ["Read", "Edit"], "deny": ["Cron"]}}`)         // the Brain adds Edit and revokes Old
+
+	rc := domain.Reconcile(current, last, want, false)
+
+	if got := text(rc.Result); got != `{"permissions":{"allow":["Read","Bash(make)","Edit"],"deny":[]}}` {
+		t.Errorf("result is %s, want the approval and the removal kept, Edit added and Old revoked", got)
+	}
+	if got := text(rc.Next); got != `{"permissions":{"allow":["Read","Edit"],"deny":["Cron"]}}` {
+		t.Errorf("next is %s, want what nerve means, so drift stays drift", got)
+	}
+	wantDrift := []domain.Change{
+		{Key: "permissions.allow", Item: true, Before: "unset", After: `"Bash(make)"`},
+		{Key: "permissions.deny", Item: true, Before: `"Cron"`, After: "unset"},
+	}
+	if !reflect.DeepEqual(rc.Drift, wantDrift) {
+		t.Errorf("drift is %+v", rc.Drift)
+	}
+}
+
+func TestReconcileDiscardDropsOnlyWhatDrifted(t *testing.T) {
+	last := obj(t, `{"permissions": {"allow": ["Read"]}}`)
+	current := obj(t, `{"permissions": {"allow": ["Read", "Bash(make)"]}}`)
+
+	rc := domain.Reconcile(current, last, last, true)
+
+	if text(rc.Result) != `{"permissions":{"allow":["Read"]}}` || len(rc.Drift) > 0 {
+		t.Errorf("result %s, drift %v", text(rc.Result), rc.Drift)
+	}
+}
+
+func TestReconcileLeavesAListTheUserEmptiedOrDeleted(t *testing.T) {
+	last := obj(t, `{"permissions": {"deny": ["Cron"]}}`)
+	for current, want := range map[string]string{
+		`{"permissions": {"deny": []}}`: `{"permissions":{"deny":[]}}`,
+		`{}`:                            `{}`,
+	} {
+		rc := domain.Reconcile(obj(t, current), last, last, false)
+		if text(rc.Result) != want || len(rc.Drift) != 1 || rc.Write {
+			t.Errorf("%s became %s (write %v), drift %v", current, text(rc.Result), rc.Write, rc.Drift)
+		}
+	}
+}
+
+func TestReconcileHidesSensitiveValues(t *testing.T) {
+	rc := domain.Reconcile(nil, nil, obj(t, `{"env": {"TOKEN": "sk-abc"}, "permissions": {"allow": ["Read(/home/bob/x)"]}}`), false)
+
+	for _, c := range rc.Changes {
+		if c.After != domain.Hidden {
+			t.Errorf("%s shows as %s", c.Key, c.After)
+		}
+	}
+}
+
+func TestStripTakesNervesItemsFromAListTheUserAddedTo(t *testing.T) {
+	current := obj(t, `{"permissions": {"allow": ["Read", "Bash(make)"], "deny": ["Cron"]}}`)
+	last := obj(t, `{"permissions": {"allow": ["Read"], "deny": ["Cron"]}}`)
+
+	rest, changed := domain.Strip(current, last)
+
+	if text(rest) != `{"permissions":{"allow":["Bash(make)"]}}` || !changed {
+		t.Errorf("left %s (changed %v), want only the user's item", text(rest), changed)
+	}
+}
+
+func TestAddPathAddsOneItemToAList(t *testing.T) {
+	s, added, err := domain.AddPath(nil, []string{"permissions", "allow"}, "Read")
+	if err != nil || !added || text(s) != `{"permissions":{"allow":["Read"]}}` {
+		t.Errorf("made %s (%v, %v)", text(s), added, err)
+	}
+	if s, added, _ = domain.AddPath(s, []string{"permissions", "allow"}, "Edit"); !added || text(s) != `{"permissions":{"allow":["Read","Edit"]}}` {
+		t.Errorf("appended to %s", text(s))
+	}
+	if _, added, err = domain.AddPath(s, []string{"permissions", "allow"}, "Read"); added || err != nil {
+		t.Errorf("added an item already there (%v)", err)
+	}
+	for _, path := range [][]string{{"model"}, {"model", "x"}} {
+		if _, _, err := domain.AddPath(obj(t, `{"model": "opus"}`), path, "x"); err == nil {
+			t.Errorf("added to %v, which is not a list", path)
+		}
+	}
+}
+
+func TestHasNullFindsNullAnywhere(t *testing.T) {
+	for _, v := range []any{nil, []any{"a", nil}, map[string]any{"a": map[string]any{"b": nil}}} {
+		if !domain.HasNull(v) {
+			t.Errorf("%v has no null", v)
+		}
+	}
+	if domain.HasNull(map[string]any{"a": []any{1.0, "x"}}) {
+		t.Errorf("found a null in a value without one")
 	}
 }

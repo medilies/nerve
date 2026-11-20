@@ -85,7 +85,8 @@ func (r *Report) Finish(err error) bool {
 
 // hookOutput is what autosync hands Claude Code: a message shown to the
 // user and kept out of Claude's context, and a skill rescan when it linked a
-// skill, so the skill is usable in this session.
+// skill, so the skill is usable in this session. When nothing changed, the
+// message is one line.
 func hookOutput(events []app.Event, err error) map[string]any {
 	var lines []string
 	reload := false
@@ -95,6 +96,9 @@ func hookOutput(events []app.Event, err error) map[string]any {
 		}
 		lines = append(lines, e.String())
 	}
+	if line, ok := oneLine(events); ok && err == nil {
+		lines = []string{line}
+	}
 	if err != nil {
 		lines = append(lines, "error: "+err.Error())
 	}
@@ -103,4 +107,33 @@ func hookOutput(events []app.Event, err error) map[string]any {
 		out["hookSpecificOutput"] = map[string]any{"hookEventName": "SessionStart", "reloadSkills": true}
 	}
 	return out
+}
+
+// oneLine folds a run that changed nothing into its up-to-date line, with
+// why the pull or the upgrade was skipped, if it was.
+func oneLine(events []app.Event) (string, bool) {
+	var line string
+	var notes []string
+	for _, e := range events {
+		switch e.Kind {
+		case app.EvUpToDate:
+			if line != "" {
+				return "", false
+			}
+			line = e.String()
+		case app.EvPullSkipped:
+			notes = append(notes, "no pull: "+e.Detail)
+		case app.EvUpgradeSkipped:
+			notes = append(notes, "kept development build "+e.Detail+" over "+e.Target)
+		default:
+			return "", false
+		}
+	}
+	if line == "" {
+		return "", false
+	}
+	if len(notes) > 0 {
+		line += " (" + strings.Join(notes, "; ") + ")"
+	}
+	return line, true
 }

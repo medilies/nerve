@@ -83,24 +83,31 @@ func fetch(repo, sha string) (string, error) {
 	if _, err := os.Stat(dir); err == nil {
 		return dir, nil
 	}
-	tmp := dir + ".tmp"
-	if err := os.RemoveAll(tmp); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(tmp, 0o755); err != nil {
+	// Each fetch in its own folder: two syncs may fetch the same pin at once.
+	tmp, err := os.MkdirTemp(filepath.Dir(dir), sha+".tmp-*")
+	if err != nil {
 		return "", err
 	}
+	defer func() { _ = os.RemoveAll(tmp) }() // a no-op once renamed
 	for _, args := range [][]string{
 		{"init", "-q"},
 		{"fetch", "-q", "--depth", "1", "--", repoURL(repo), sha},
 		{"-c", "advice.detachedHead=false", "checkout", "-q", "FETCH_HEAD"},
 	} {
 		if _, err := git(tmp, args...); err != nil {
-			_ = os.RemoveAll(tmp)
 			return "", fmt.Errorf("fetch %s@%s: %w", repo, sha[:7], err)
 		}
 	}
-	return dir, os.Rename(tmp, dir)
+	if err := os.Rename(tmp, dir); err != nil {
+		if _, serr := os.Stat(dir); serr == nil { // another fetch got there first
+			return dir, nil
+		}
+		return "", err
+	}
+	return dir, nil
 }
 
 // findSkill finds a skill in a repo checkout: the whole repo when its root

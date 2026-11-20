@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +32,10 @@ func newWorld(t *testing.T) *world {
 	home := t.TempDir()
 	if real, err := filepath.EvalSymlinks(home); err == nil {
 		home = real
+	}
+	for _, name := range []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"} {
+		t.Setenv(name, "") // as a git hook running the tests would set them
+		_ = os.Unsetenv(name)
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
@@ -115,6 +120,91 @@ func TestHelpPrintsUsage(t *testing.T) {
 	}
 }
 
+func TestFlagsACommandDoesNotTakeAreRefused(t *testing.T) {
+	w := newWorld(t)
+	w.nerve(w.home, "init", w.brain)
+	for _, args := range [][]string{
+		{"setting", "set", "model", "sonnet", "--common", "--project", "app"},
+		{"skill", "rm", "a", "--all", "--project=app"},
+		{"setting", "rm", "model", "--common", "--all"},
+	} {
+		if _, err := w.in(w.proj, infra.AsText, args...); err == nil || !strings.Contains(err.Error(), "each say where to act: pass one") {
+			t.Errorf("%v: got %v", args, err)
+		}
+	}
+	for _, args := range [][]string{
+		{"sync", "--project", "app"},
+		{"skill", "add", "a", "--common"},
+		{"status", "--all"},
+		{"check", "--here"},
+		{"status", "--project="},
+	} {
+		if _, err := w.in(w.proj, infra.AsText, args...); !errors.Is(err, errUsage) {
+			t.Errorf("%v: got %v", args, err)
+		}
+	}
+	if got := w.read(filepath.Join(w.brain, domain.ManifestFile)); got != "" {
+		t.Errorf("a refused command changed brain.toml:\n%s", got)
+	}
+}
+
+// cliIn runs main's code in dir, and returns its exit code and output.
+func (w *world) cliIn(dir string, args ...string) (int, string, string) {
+	w.t.Helper()
+	w.t.Chdir(dir)
+	var stdout, stderr bytes.Buffer
+	code := cli(args, &stdout, &stderr)
+	return code, stdout.String(), stderr.String()
+}
+
+func TestTheExitCodeSaysWhetherACommandFailed(t *testing.T) {
+	w := newWorld(t)
+	w.nerve(w.home, "init", w.brain)
+
+	code, out, errOut := w.cliIn(w.proj, "skill", "add", "ghost")
+	if code != 1 || out != "" || !strings.HasPrefix(errOut, "error: ") {
+		t.Errorf("a failed command exits %d, prints %q and %q", code, out, errOut)
+	}
+	if code, _, errOut := w.cliIn(w.proj, "nope"); code != 1 || !strings.HasPrefix(errOut, "usage: nerve") {
+		t.Errorf("an unknown command exits %d, prints %q", code, errOut)
+	}
+	if code, out, _ := w.cliIn(w.home, "help"); code != 0 || !strings.Contains(out, "usage: nerve") {
+		t.Errorf("help exits %d", code)
+	}
+}
+
+func TestJSONFlagPrintsOneDocumentAndStillFails(t *testing.T) {
+	w := newWorld(t)
+	w.nerve(w.home, "init", w.brain)
+
+	code, out, errOut := w.cliIn(w.proj, "--json", "skill", "add", "ghost")
+
+	var doc struct {
+		Events []app.Event
+		Error  string
+	}
+	if code != 1 || errOut != "" || json.Unmarshal([]byte(out), &doc) != nil || !strings.Contains(doc.Error, "not a listed checkout") {
+		t.Errorf("exits %d, prints %q and %q", code, out, errOut)
+	}
+}
+
+func TestAutosyncNeverFailsTheSession(t *testing.T) {
+	w := newWorld(t)
+	w.nerve(w.home, "init", w.brain)
+	w.nerve(w.proj, "project", "add", "app")
+	w.write(filepath.Join(w.brain, domain.ManifestFile), "[project.app]\nhooks = [\"ghost\"]\n")
+
+	code, out, errOut := w.cliIn(w.proj, "sync", "--here", "--hook")
+
+	var doc map[string]any
+	if code != 0 || errOut != "" || json.Unmarshal([]byte(out), &doc) != nil {
+		t.Fatalf("exits %d, prints %q and %q", code, out, errOut)
+	}
+	if msg, _ := doc["systemMessage"].(string); !strings.Contains(msg, `defines no hook "ghost"`) || !strings.Contains(msg, "error: 1 of 1 checkouts did not sync") {
+		t.Errorf("message:\n%s", msg)
+	}
+}
+
 func TestAProjectGetsWhatItListsAndGitSeesNone(t *testing.T) {
 	w := newWorld(t)
 	w.skill("go-stack")
@@ -172,8 +262,8 @@ func TestAutosyncPrintsAHookOutput(t *testing.T) {
 	if msg, _ := doc["systemMessage"].(string); !strings.Contains(msg, "linked   "+filepath.Join(w.proj, ".claude", "skills", "go-stack")) {
 		t.Errorf("message:\n%s", msg)
 	}
-	if doc["hookSpecificOutput"] == nil {
-		t.Errorf("no skill rescan after linking a skill")
+	if hso, _ := doc["hookSpecificOutput"].(map[string]any); hso["reloadSkills"] != true || hso["hookEventName"] != "SessionStart" {
+		t.Errorf("no skill rescan after linking a skill: %v", doc["hookSpecificOutput"])
 	}
 	settings := w.read(filepath.Join(w.proj, domain.LocalSettings))
 	if !strings.Contains(settings, " sync --here --hook") {
@@ -240,5 +330,112 @@ func TestNervesOwnSkillMeetsTheSkillRules(t *testing.T) {
 	}
 	if p := s.Problems(); len(p) > 0 {
 		t.Errorf("the nerve skill breaks the rules: %v", p)
+	}
+}
+
+// settingsOf reads a checkout's settings.local.json.
+func (w *world) settingsOf(dir string) map[string]any {
+	w.t.Helper()
+	var s map[string]any
+	if err := json.Unmarshal([]byte(w.read(filepath.Join(dir, domain.LocalSettings))), &s); err != nil {
+		w.t.Fatal(err)
+	}
+	return s
+}
+
+func TestDriftIsKeptUntilMovedIntoTheBrainOrDiscarded(t *testing.T) {
+	w := newWorld(t)
+	w.nerve(w.home, "init", w.brain)
+	w.nerve(w.proj, "project", "add", "app")
+	w.nerve(w.proj, "setting", "set", "model", "opus")
+	w.nerve(w.proj, "setting", "add", "permissions.allow", "Read")
+	w.nerve(w.proj, "sync", "--here")
+	s := w.settingsOf(w.proj)
+	s["model"] = "sonnet"
+	s["permissions"] = map[string]any{"allow": []any{"Read", "Bash(make)"}} // as /model and an approval do
+	b, _ := json.Marshal(s)
+	w.write(filepath.Join(w.proj, domain.LocalSettings), string(b))
+
+	out, err := w.in(w.proj, infra.AsText, "sync", "--here")
+
+	if err == nil || !strings.Contains(err.Error(), "nerve sync --here --discard") {
+		t.Errorf("a sync by hand passed drift: %v", err)
+	}
+	for _, line := range []string{`drift    model is "sonnet" here, "opus" in the Brain`, `drift    permissions.allow has "Bash(make)" here, not in the Brain`} {
+		if !strings.Contains(out, line) {
+			t.Errorf("lacks %q:\n%s", line, out)
+		}
+	}
+	w.nerve(w.proj, "setting", "add", "permissions.allow", "Bash(make)")
+	if out, _ := w.in(w.proj, infra.AsText, "sync", "--here"); strings.Contains(out, "permissions.allow") {
+		t.Errorf("the item moved into the Brain still drifts:\n%s", out)
+	}
+	w.nerve(w.proj, "sync", "--here", "--discard")
+	if s := w.settingsOf(w.proj); s["model"] != "opus" {
+		t.Errorf("--discard kept model %v", s["model"])
+	}
+}
+
+func TestRemovingAProjectTakesOutEverythingNerveMade(t *testing.T) {
+	w := newWorld(t)
+	w.skill("go-stack")
+	w.nerve(w.home, "init", w.brain)
+	w.write(filepath.Join(w.proj, domain.LocalSettings), `{"outputStyle": "terse", "env": {"TOKEN": "x"}}`)
+	w.nerve(w.proj, "project", "add", "app")
+	w.nerve(w.proj, "skill", "add", "go-stack")
+	w.nerve(w.proj, "setting", "set", "model", "opus")
+	w.nerve(w.proj, "sync", "--here")
+	s := w.settingsOf(w.proj)
+	s["spinnerTipsEnabled"] = false // the user's own, since the sync
+	b, _ := json.Marshal(s)
+	w.write(filepath.Join(w.proj, domain.LocalSettings), string(b))
+
+	w.nerve(w.proj, "project", "rm", "app")
+
+	if entries, _ := os.ReadDir(filepath.Join(w.proj, ".claude", "skills")); len(entries) > 0 {
+		t.Errorf("links are left: %v", entries)
+	}
+	if got := w.read(filepath.Join(w.proj, ".git", "info", "exclude")); strings.Contains(got, "nerve") {
+		t.Errorf("the exclude block is left:\n%s", got)
+	}
+	if got := w.settingsOf(w.proj); len(got) != 1 || got["spinnerTipsEnabled"] != false {
+		t.Errorf("settings are %v, want only what the user set since", got)
+	}
+	if _, err := os.Stat(filepath.Join(w.home, ".config", "nerve", "overlays", "app.json")); err == nil {
+		t.Errorf("the local overlay is left")
+	}
+	if got := w.read(filepath.Join(w.brain, domain.ManifestFile)); strings.Contains(got, "app") {
+		t.Errorf("brain.toml still has the project:\n%s", got)
+	}
+}
+
+func TestAFullSyncCarriesTheBrainToEveryCheckout(t *testing.T) {
+	w := newWorld(t)
+	w.skill("go-stack")
+	w.nerve(w.home, "init", w.brain)
+	w.nerve(w.proj, "project", "add", "app")
+	w.nerve(w.proj, "skill", "add", "go-stack")
+	other := filepath.Join(w.home, "other")
+	w.git(w.home, "init", "-q", other)
+	w.nerve(other, "project", "add", "other")
+	w.nerve(other, "setting", "set", "model", "opus")
+
+	w.nerve(w.home, "sync")
+
+	if _, err := os.Readlink(filepath.Join(w.proj, ".claude", "skills", "go-stack")); err != nil {
+		t.Errorf("app is not linked: %v", err)
+	}
+	if s := w.settingsOf(other); s["model"] != "opus" {
+		t.Errorf("other's settings are %v", s)
+	}
+	if _, err := os.Lstat(filepath.Join(other, ".claude", "skills", "go-stack")); err == nil {
+		t.Errorf("other got a skill it does not list")
+	}
+	if err := os.Remove(filepath.Join(w.proj, ".claude", "skills", "go-stack")); err != nil {
+		t.Fatal(err)
+	}
+	out := w.nerve(w.home, "sync")
+	if !strings.Contains(out, "dropped  skill go-stack from project app in brain.toml") || strings.Contains(w.read(filepath.Join(w.brain, domain.ManifestFile)), "go-stack") {
+		t.Errorf("the deleted link was not written back:\n%s", out)
 	}
 }

@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/medilies/nerve/internal/brain/domain"
 )
@@ -11,7 +10,7 @@ import (
 // not pushed, and how the target project stands: autosync, links, the
 // team's skills, and drift. Outside a listed checkout, it lists the projects
 // instead.
-func (a App) Status(t Target, r Reporter) error {
+func (a App) Status(ref ProjectRef, r Reporter) error {
 	machine, err := a.Machine.Load()
 	if err != nil {
 		r.Add(Event{Kind: EvVersion, Detail: a.Self.Version()})
@@ -27,9 +26,12 @@ func (a App) Status(t Target, r Reporter) error {
 	}
 	r.Add(Event{Kind: EvBrain, Path: a.Brain.Root(), Detail: a.Brain.State()})
 	l := loaded{machine: machine, m: m}
-	tree, name, err := a.here(machine, t.Dir)
-	if t.Project != "" {
-		name, err, tree = t.Project, nil, domain.Tree{}
+	tree, name, err := a.here(machine, ref.Dir)
+	if ref.Project != "" {
+		if _, err := m.Project(ref.Project); err != nil {
+			return err
+		}
+		name, err, tree = ref.Project, nil, domain.Tree{}
 		for _, c := range machine.Checkouts {
 			if c.Project == name {
 				tree = domain.Tree{Top: c.Path, Main: c.Path}
@@ -55,8 +57,7 @@ func (a App) Status(t Target, r Reporter) error {
 		return err
 	}
 	for _, rel := range domain.SortedKeys(st.Links) {
-		kind, item, _ := strings.Cut(st.Links[rel], ":")
-		r.Add(Event{Kind: EvItem, Project: name, Item: kind + " " + item, Detail: "linked as " + rel})
+		r.Add(Event{Kind: EvItem, Project: name, Item: st.Links[rel].Item(), Detail: "linked as " + rel})
 	}
 	for _, kind := range []string{"skill", "agent"} {
 		for _, item := range a.teamItems(tree.Top, kind, st) {
@@ -72,13 +73,13 @@ func (a App) Status(t Target, r Reporter) error {
 		return err
 	}
 	path := settingsPath(tree.Top)
-	current, err := a.Workspace.ReadSettings(path)
+	current, err := a.Trees.ReadSettings(path)
 	if err != nil {
 		return err
 	}
 	rc := domain.Reconcile(current, st.Settings, domain.Want(m, p, cmd, overlay, a.Brain.Root()), false)
 	for _, c := range rc.Drift {
-		r.Add(Event{Kind: EvDrift, Path: path, Key: c.Key, Local: c.After, Brain: c.Before})
+		r.Add(driftEvent(path, c))
 	}
 	return nil
 }

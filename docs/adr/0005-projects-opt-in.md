@@ -44,13 +44,13 @@ nerve writes only in listed projects, and nothing at user level:
 
 ### Autosync is explicit
 
-- `autosync` is a key in `brain.toml`, on by default, and a project entry can turn it off. When it is on, nerve adds a `SessionStart` hook to the project's `settings.local.json` that runs `nerve sync --here`. On is the default because the source is a git repo the user committed to: the hook only applies what was already reviewed.
+- `autosync` is a key in `brain.toml`, on by default, and a project entry can turn it off. When it is on, nerve adds a `SessionStart` hook to the project's `settings.local.json` that runs `nerve sync --here --hook`, which prints its report as the hook's output. On is the default because the source is a git repo the user committed to: the hook only applies what was already reviewed.
 - Every run hands the user a report as the hook's `systemMessage`. That is shown to the user and does not enter Claude's context. It says:
   - what changed (links made or removed, settings added, changed or revoked);
   - what was held back as drift;
   - whether the pull was skipped.
 
-  When nothing changed, it is one line naming the Brain commit the project is at.
+  When nothing changed, it is one line naming the Brain commit the project is at, and why the pull was skipped, if it was.
 - Settings the hook writes take effect in the same session, and so do skills it links: the hook asks Claude Code to rescan them (`reloadSkills`).
 - Autosync never resolves drift: it is the CLI, run without a person. It leaves drifted keys as they are and reports them. The nerve skill resolves drift with the user.
 - `/nerve` on its own changes nothing. It summarizes the current project's state, autosync included, or says what it can do.

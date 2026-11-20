@@ -18,7 +18,7 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 	if err != nil {
 		return err
 	}
-	t, err := a.Workspace.Locate(dir)
+	t, err := a.Trees.Locate(dir)
 	if err != nil {
 		return err
 	}
@@ -38,7 +38,7 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 	case p != nil:
 		r.Add(Event{Kind: EvProject, Project: name, Detail: "already in the Brain: this checkout joins it"})
 	default:
-		existing, err := a.Workspace.ReadSettings(settingsPath(t.Top))
+		existing, err := a.Trees.ReadSettings(settingsPath(t.Top))
 		if err != nil {
 			return err
 		}
@@ -46,11 +46,8 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 		for _, f := range fates {
 			r.Add(Event{Kind: EvImported, Project: name, Key: f.Key, Detail: f.What})
 		}
-		l.m.Projects[name] = &domain.Project{Settings: entry}
-		if err := a.Brain.Save(l.m); err != nil {
-			return err
-		}
-		r.Add(Event{Kind: EvProject, Project: name, Detail: "added to " + domain.ManifestFile})
+		// The overlay first: a run that fails after it and is run again
+		// imports again, and merges the same values.
 		if overlay != nil {
 			old, _, err := a.Machine.Overlay(name)
 			if err != nil {
@@ -62,6 +59,11 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 			}
 			r.Add(Event{Kind: EvWrote, Path: path})
 		}
+		l.m.Projects[name] = &domain.Project{Settings: entry}
+		if err := a.Brain.Save(l.m); err != nil {
+			return err
+		}
+		r.Add(Event{Kind: EvProject, Project: name, Detail: "added to " + domain.ManifestFile})
 	}
 	l.machine.Checkouts = append(l.machine.Checkouts, domain.Checkout{Path: t.Main, Project: name})
 	if err := a.Machine.Save(l.machine); err != nil {
@@ -113,8 +115,9 @@ func (a App) syncState(dir, head string) string {
 	return "synced at " + Short(head)
 }
 
-// RemoveProject cleans the project's working trees on this machine and drops
-// it from the Brain; other machines clean theirs at their next sync.
+// RemoveProject cleans the project's working trees on this machine, deletes
+// its local overlay here, and drops it from the Brain; other machines clean
+// theirs at their next sync.
 func (a App) RemoveProject(name string, r Reporter) error {
 	l, err := a.load()
 	if err != nil {
@@ -132,7 +135,11 @@ func (a App) RemoveProject(name string, r Reporter) error {
 		}
 	}
 	listed := slices.ContainsFunc(l.machine.Checkouts, func(c domain.Checkout) bool { return c.Project == name })
-	if !inBrain && !listed && len(trees) == 0 {
+	overlay, _, err := a.Machine.Overlay(name)
+	if err != nil {
+		return err
+	}
+	if !inBrain && !listed && len(trees) == 0 && overlay == nil {
 		return fmt.Errorf("no project %q here or in the Brain", name)
 	}
 	for _, c := range l.machine.Checkouts {
@@ -151,6 +158,11 @@ func (a App) RemoveProject(name string, r Reporter) error {
 			return err
 		}
 	}
+	if path, err := a.Machine.DropOverlay(name); err != nil {
+		return err
+	} else if path != "" {
+		r.Add(Event{Kind: EvRemoved, Path: path})
+	}
 	if inBrain {
 		delete(l.m.Projects, name)
 		if err := a.Brain.Save(l.m); err != nil {
@@ -163,7 +175,10 @@ func (a App) RemoveProject(name string, r Reporter) error {
 
 // SetAutosync turns autosync on or off for the target project, or with all
 // for the Brain's default.
-func (a App) SetAutosync(t Target, on, all bool, r Reporter) error {
+func (a App) SetAutosync(ref ProjectRef, on, all bool, r Reporter) error {
+	if err := onePlace(ref.Project, false, all); err != nil {
+		return err
+	}
 	l, err := a.load()
 	if err != nil {
 		return err
@@ -177,9 +192,12 @@ func (a App) SetAutosync(t Target, on, all bool, r Reporter) error {
 		r.Add(Event{Kind: EvAutosync, Detail: word})
 		return nil
 	}
-	name, p, err := a.project(l, t)
+	name, p, err := a.project(l, ref)
 	if err != nil {
 		return err
+	}
+	if p.Surface == domain.ClaudeAI {
+		return fmt.Errorf("project %s is a claude.ai account, which has no sessions to sync", name)
 	}
 	p.Autosync = &on
 	if err := a.Brain.Save(l.m); err != nil {

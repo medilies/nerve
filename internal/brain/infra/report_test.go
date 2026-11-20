@@ -70,3 +70,24 @@ func TestHookReportIsAMessageToTheUserAndRescansLinkedSkills(t *testing.T) {
 		t.Errorf("doc is %v", doc)
 	}
 }
+
+func TestHookReportIsOneLineWhenNothingChanged(t *testing.T) {
+	upToDate := app.Event{Kind: app.EvUpToDate, Project: "app", Target: "abcdef0123"}
+	for want, events := range map[string][]app.Event{
+		"nerve: app is up to date at abcdef0": {upToDate},
+		"nerve: app is up to date at abcdef0 (no pull: no upstream branch; kept development build (devel) over v0.3.0)": {
+			{Kind: app.EvPullSkipped, Path: "/brain", Detail: "no upstream branch"},
+			{Kind: app.EvUpgradeSkipped, Detail: "(devel)", Target: "v0.3.0"},
+			upToDate,
+		},
+		"nerve: no pull  /brain: uncommitted changes\ndrift    model is \"sonnet\" here, \"opus\" in the Brain: left as is\napp is up to date at abcdef0": {
+			{Kind: app.EvPullSkipped, Path: "/brain", Detail: "uncommitted changes"},
+			{Kind: app.EvDrift, Key: "model", Local: `"sonnet"`, Brain: `"opus"`},
+			upToDate,
+		},
+	} {
+		if got := hookDoc(t, events, nil)["systemMessage"]; got != want {
+			t.Errorf("message is\n%s\nwant\n%s", got, want)
+		}
+	}
+}

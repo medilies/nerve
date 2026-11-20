@@ -12,13 +12,13 @@ import (
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
-// LocalWorkspace is project working trees on this machine's disk, and git
+// LocalTrees are the working trees of checkouts on this machine's disk, and git
 // in them.
-type LocalWorkspace struct{}
+type LocalTrees struct{}
 
-var _ app.Workspace = LocalWorkspace{}
+var _ app.Trees = LocalTrees{}
 
-func (LocalWorkspace) Locate(dir string) (domain.Tree, error) {
+func (LocalTrees) Locate(dir string) (domain.Tree, error) {
 	top, err := git(dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return domain.Tree{}, fmt.Errorf("not in a git repo: %w", err)
@@ -27,32 +27,33 @@ func (LocalWorkspace) Locate(dir string) (domain.Tree, error) {
 	if err != nil {
 		return domain.Tree{}, err
 	}
-	t := domain.Tree{Top: filepath.Clean(trim(top)), Main: filepath.Clean(trim(top))}
-	if c := filepath.Clean(trim(common)); filepath.Base(c) == ".git" {
+	c := filepath.Clean(trim(common))
+	t := domain.Tree{Top: filepath.Clean(trim(top)), Main: filepath.Clean(trim(top)), Repo: c}
+	if filepath.Base(c) == ".git" {
 		t.Main = filepath.Dir(c)
 	}
 	return t, nil
 }
 
-func (LocalWorkspace) Exists(path string) bool { return fileExists(path) }
+func (LocalTrees) Exists(path string) bool { return fileExists(path) }
 
-func (LocalWorkspace) Present(path string) bool {
+func (LocalTrees) Present(path string) bool {
 	_, err := os.Lstat(path)
 	return err == nil
 }
 
-func (LocalWorkspace) IsLink(path string) bool {
+func isLink(path string) bool {
 	fi, err := os.Lstat(path)
 	return err == nil && fi.Mode()&fs.ModeSymlink != 0
 }
 
-func (LocalWorkspace) LinkTarget(path string) (string, bool) {
+func (LocalTrees) LinkTarget(path string) (string, bool) {
 	target, err := os.Readlink(path)
 	return target, err == nil
 }
 
-func (w LocalWorkspace) Link(path, target string) error {
-	if w.IsLink(path) {
+func (LocalTrees) Link(path, target string) error {
+	if isLink(path) {
 		if err := os.Remove(path); err != nil {
 			return err
 		}
@@ -63,9 +64,9 @@ func (w LocalWorkspace) Link(path, target string) error {
 	return os.Symlink(target, path)
 }
 
-func (LocalWorkspace) Remove(path string) error { return os.Remove(path) }
+func (LocalTrees) Remove(path string) error { return os.Remove(path) }
 
-func (LocalWorkspace) Entries(dir string) []string {
+func (LocalTrees) Entries(dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -77,7 +78,7 @@ func (LocalWorkspace) Entries(dir string) []string {
 	return names
 }
 
-func (LocalWorkspace) CheckIgnored(dir string) error {
+func (LocalTrees) CheckIgnored(dir string) error {
 	rel := domain.LocalSettings
 	if _, err := git(dir, "ls-files", "--error-unmatch", "--", rel); err == nil {
 		return fmt.Errorf("git tracks %s, so the team shares it: untrack it before nerve writes it", rel)
@@ -94,8 +95,8 @@ const (
 )
 
 // SyncExclude keeps rels out of git through a marked block in the repo's
-// info/exclude, which only this clone reads.
-func (LocalWorkspace) SyncExclude(dir string, rels []string) error {
+// info/exclude, which only this clone reads, and all its worktrees share.
+func (LocalTrees) SyncExclude(dir string, rels []string) error {
 	out, err := git(dir, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude")
 	if err != nil {
 		return err
@@ -105,12 +106,31 @@ func (LocalWorkspace) SyncExclude(dir string, rels []string) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	text := string(old)
-	if i := strings.Index(text, excludeBegin+"\n"); i >= 0 {
-		if j := strings.Index(text[i:], excludeEnd+"\n"); j >= 0 {
-			text = text[:i] + text[i+j+len(excludeEnd)+1:]
+	var kept []string // the lines outside nerve's block
+	begin, end := -1, -1
+	lines := strings.SplitAfter(string(old), "\n")
+	for i, line := range lines {
+		switch strings.TrimRight(line, "\r\n") {
+		case excludeBegin:
+			if begin >= 0 {
+				return damagedExclude(path)
+			}
+			begin = i
+		case excludeEnd:
+			if begin < 0 || end >= 0 {
+				return damagedExclude(path)
+			}
+			end = i
+		default:
+			if begin < 0 || end >= 0 {
+				kept = append(kept, line)
+			}
 		}
 	}
+	if begin >= 0 && end < 0 {
+		return damagedExclude(path)
+	}
+	text := strings.Join(kept, "")
 	if len(rels) > 0 {
 		if text != "" && !strings.HasSuffix(text, "\n") {
 			text += "\n"
@@ -127,8 +147,12 @@ func (LocalWorkspace) SyncExclude(dir string, rels []string) error {
 	return writeFile(path, []byte(text))
 }
 
-func (LocalWorkspace) ReadSettings(path string) (map[string]any, error) { return readObject(path) }
+func damagedExclude(path string) error {
+	return fmt.Errorf("%s: nerve's block must be one %q line, then its links, then one %q line: fix it by hand", path, excludeBegin, excludeEnd)
+}
 
-func (LocalWorkspace) WriteSettings(path string, settings map[string]any) error {
+func (LocalTrees) ReadSettings(path string) (map[string]any, error) { return readObject(path) }
+
+func (LocalTrees) WriteSettings(path string, settings map[string]any) error {
 	return writeObject(path, settings)
 }

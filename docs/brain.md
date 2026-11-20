@@ -17,7 +17,7 @@ reasoning is in [ADR 0005](adr/0005-projects-opt-in.md).
 
 ```toml
 nerve = "v0.3.0"                 # the release that carries this Brain
-nerve-checksums = "9f86d0…"      # optional: SHA-256 of that release's checksums.txt
+nerve-checksums = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"  # optional: SHA-256 of that release's checksums.txt
 autosync = true                  # sync each project at session start; the default
 
 [[source]]                       # third-party skills, pinned to a full commit
@@ -52,7 +52,8 @@ skills = ["research"]
   release's `checksums.txt`, and that file against `nerve-checksums`
   when set. A development build is never replaced.
 - **`[[source]]`** is a third-party repo on GitHub at a full commit,
-  and the skills used from it. A skill is the folder of that name
+  and the skills used from it. Skill, agent, hook and project names are
+  lowercase words joined by hyphens. A skill is the folder of that name
   holding a `SKILL.md`, or the whole repo when its root `SKILL.md`
   names it. `nerve skill update <repo> [sha]` shows the upstream diff,
   then moves the pin.
@@ -69,18 +70,31 @@ skills = ["research"]
 nerve rewrites `brain.toml` in this layout when a command changes it,
 so comments in it are not kept; `nerve skill update` only moves the pin.
 
+Settings hold only what a JSON file can, so nerve refuses `inf` and
+`nan` in them.
+
 ## Nothing sensitive
 
-A Brain may be public. `check` and `sync` refuse, anywhere in
-`brain.toml`, secret-bearing settings such as `env` and `apiKeyHelper`,
-home paths, emails and token-like strings. Nor does a Brain say where
-a project lives, or name a claude.ai account by its email.
+A Brain may be public. `check` and `sync` refuse secret-bearing
+settings such as `env` and `apiKeyHelper`. They also refuse home paths,
+emails and token-like strings anywhere in `brain.toml`: in values,
+settings keys, hook matchers and commands, plugin IDs, and names. Nor
+does a Brain say where a project lives, or name a claude.ai account by
+its email.
 
 ## This machine
 
-`~/.config/nerve/config.toml`, written by `nerve init`, names the
-Brain's checkout and each listed checkout's project. `nerve project
-add` adds a checkout.
+nerve keeps this machine's files in its config folder:
+
+- Linux: `~/.config/nerve`, or `$XDG_CONFIG_HOME/nerve` when set.
+- macOS: `~/Library/Application Support/nerve`.
+
+Fetched skills and claude.ai zips go in its cache folder:
+`~/.cache/nerve` (or `$XDG_CACHE_HOME/nerve`) on Linux,
+`~/Library/Caches/nerve` on macOS.
+
+`config.toml`, written by `nerve init`, names the Brain's checkout and
+each listed checkout's project. `nerve project add` adds a checkout.
 
 ```toml
 brain = "~/dev/brain"
@@ -90,12 +104,14 @@ path = "~/dev/billing"
 project = "billing"
 ```
 
-- **Local overlays**, `~/.config/nerve/overlays/<project>.json`, hold a
-  project's settings that are sensitive or identifying. nerve puts them
-  there on its own when it imports a project or sets a value. They
-  never leave the machine, so set them again on each one.
-- **State**, under `~/.config/nerve/state/`, is what nerve last did to
-  each working tree, never kept in the project.
+- **Local overlays**, `overlays/<project>.json`, hold a project's
+  settings that are sensitive or identifying. nerve puts them there on
+  its own when it imports a project or sets a value. They never leave
+  the machine, so set them again on each one.
+  - `nerve setting rm` removes a key from the overlay too.
+  - `nerve project rm` deletes the project's overlay on this machine.
+- **State**, under `state/`, is what nerve last did to each working
+  tree, never kept in the project.
 
 ## Checking a Brain
 

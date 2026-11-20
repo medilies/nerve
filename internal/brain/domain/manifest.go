@@ -87,6 +87,11 @@ func (m Manifest) Validate() error {
 		if len(s.Skills) == 0 {
 			return fmt.Errorf("%s: %s: no skills", ManifestFile, s.Repo)
 		}
+		for _, name := range s.Skills {
+			if !NamePattern.MatchString(name) {
+				return fmt.Errorf("%s: %s: skill %q must be lowercase words joined by hyphens", ManifestFile, s.Repo, name)
+			}
+		}
 	}
 	for name, h := range m.Hooks {
 		if !NamePattern.MatchString(name) {
@@ -102,6 +107,15 @@ func (m Manifest) Validate() error {
 		}
 		if p.Surface != "" && p.Surface != ClaudeAI {
 			return fmt.Errorf("%s: project %s: surface must be %q or left out", ManifestFile, name, ClaudeAI)
+		}
+		// Skills, agents and hooks name files and folders: a name must not
+		// lead out of them.
+		for _, kind := range []string{"skill", "agent", "hook"} {
+			for _, item := range *p.List(kind) {
+				if !NamePattern.MatchString(item) {
+					return fmt.Errorf("%s: project %s: %s %q must be lowercase words joined by hyphens", ManifestFile, name, kind, item)
+				}
+			}
 		}
 	}
 	return nil
@@ -173,25 +187,45 @@ type Problem struct {
 }
 
 // SensitiveValues lists the values in the manifest that must never be in a
-// Brain, which may be public.
+// Brain, which may be public: anywhere in it, keys and names included.
 func (m Manifest) SensitiveValues() []Problem {
 	var p []Problem
-	scan := func(where string, settings map[string]any) {
-		l := Leaves(settings)
+	add := func(key, why string) {
+		p = append(p, Problem{Path: ManifestFile, Key: key, Detail: why})
+	}
+	settings := func(where string, s map[string]any) {
+		l := Leaves(s)
 		for _, k := range SortedKeys(l) {
 			if why := Sensitive(k, l[k]); why != "" {
-				p = append(p, Problem{Path: ManifestFile, Key: where + Dotted(k), Detail: why + ": move it to a local overlay"})
+				add(where+Dotted(k), why+": move it to a local overlay")
+			} else if why := SensitiveText(strings.Split(k, Sep)); why != "" {
+				add(where+Dotted(k), "the key "+why+": move it to a local overlay")
 			}
 		}
 	}
-	scan("common.settings.", m.Common)
-	for _, name := range SortedKeys(m.Projects) {
-		scan("project."+name+".settings.", m.Projects[name].Settings)
+	text := func(key string, v any) {
+		if why := SensitiveText(v); why != "" {
+			add(key, why)
+		}
+	}
+	for i, s := range m.Sources {
+		text(fmt.Sprintf("source[%d]", i), []any{s.Repo, s.Skills})
 	}
 	for _, name := range SortedKeys(m.Hooks) {
-		if why := SensitiveText(m.Hooks[name].Command); why != "" {
-			p = append(p, Problem{Path: ManifestFile, Key: "hook." + name + ".command", Detail: why})
+		h := m.Hooks[name]
+		text("hook."+name, name)
+		text("hook."+name+".event", h.Event)
+		text("hook."+name+".matcher", h.Matcher)
+		text("hook."+name+".command", h.Command)
+	}
+	settings("common.settings.", m.Common)
+	for _, name := range SortedKeys(m.Projects) {
+		pr := m.Projects[name]
+		text("project."+name, name)
+		for _, kind := range ItemKinds {
+			text("project."+name+"."+kind+"s", *pr.List(kind))
 		}
+		settings("project."+name+".settings.", pr.Settings)
 	}
 	return p
 }

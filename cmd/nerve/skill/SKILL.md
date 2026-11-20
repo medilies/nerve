@@ -20,7 +20,7 @@ agents/<name>.md    # own agents
 hooks/<script>      # scripts hooks run, as {{brain}}/hooks/<script>
 ```
 
-A project entry lists `skills`, `agents`, `hooks`, `plugins` and `settings`. `common.settings` reach every project; nothing else does. A `surface = "claude.ai"` project is a claude.ai account and takes skills only. The project's settings are laid: common, then the project, then what nerve adds for plugins, hooks and autosync, then the local overlay `~/.config/nerve/overlays/<project>.json`, which never leaves the machine.
+A project entry lists `skills`, `agents`, `hooks`, `plugins` and `settings`. `common.settings` reach every project; nothing else does. A `surface = "claude.ai"` project is a claude.ai account and takes skills only. The project's settings are laid: common, then the project, then what nerve adds for plugins, hooks and autosync, then the local overlay, a file in nerve's config folder that never leaves the machine.
 
 Never edit what nerve writes: `settings.local.json` and the links. Change the Brain through the CLI, then sync.
 
@@ -34,8 +34,9 @@ Always add `--json`, then tell the user what happened in plain words. A command 
 | `nerve sync --here` | Carry the Brain to this project. `nerve sync` does every checkout on the machine and builds claude.ai zips. |
 | `nerve project add <name>` | List this checkout. A new entry records its existing settings: say what went where. |
 | `nerve skill add\|rm <name>`, `agent …`, `hook …`, `plugin add\|rm <plugin>@<marketplace>` | Change what the project lists. `rm --all` takes it out of every project. |
-| `nerve setting set <key> <value>` | Value is JSON or text. `--common` for every project. A sensitive value goes to the overlay on its own. |
-| `nerve setting rm <key>[=<item>]` | `--all` revokes it from common and every project. |
+| `nerve setting set <key> <value>` | Value is JSON or text. `--common` for every project. A sensitive value goes to the overlay on its own. A key that holds a dot goes in double quotes: `enabledPlugins."x@y.z"`. |
+| `nerve setting add <key> <value>` | Add one item to a list, such as `permissions.allow`. `--common` and the overlay as for `set`. |
+| `nerve setting rm <key>[=<value>]` | Remove a key, or one item of a list, from the project and its overlay. `--common` from common; `--all` revokes it from common and every project. |
 | `nerve setting ls` | Each setting and the layers that give it. |
 | `nerve project autosync on\|off` | Sync at each session start. `--all` sets the Brain's default. |
 | `nerve skill update <repo> [sha]` | Show upstream changes to a source's skills, then move its pin. |
@@ -43,7 +44,7 @@ Always add `--json`, then tell the user what happened in plain words. A command 
 
 ## Acting on what nerve reports
 
-- **`drift`**: Claude Code or the user changed a setting here, and nerve left it as is. For each key, ask: keep it for this project (`setting set`), for every project (`--common`), only on this machine (the overlay), or drop it (`nerve sync --here --discard`, after the user agrees to lose it).
+- **`drift`**: Claude Code or the user changed a setting here, and nerve left it as is. With `item`, it is one item of a list, such as an approval in `permissions.allow`. For each, ask: keep it for this project (`setting set`, or `setting add` for an item), for every project (`--common`), only on this machine (the overlay), or drop it (`nerve sync --here --discard`, after the user agrees to lose it). A value shown as `(hidden)` is sensitive: never ask the user to paste it.
 - **`wrote-back`**: a deleted link took its skill or agent out of the project in `brain.toml`. Offer to commit it.
 - **`problem`**: propose a fix for each.
 - **`diff`** from `skill update`: summarize what changed upstream, and call out anything that widens what a skill can do (new tools, scripts, network access) before the user commits the new pin.

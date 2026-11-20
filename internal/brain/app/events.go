@@ -16,7 +16,7 @@ type Event struct {
 	Project string `json:"project,omitempty"` // "" for common, where an event can be about either
 	Path    string `json:"path,omitempty"`
 	Target  string `json:"target,omitempty"`
-	Item    string `json:"item,omitempty"` // kind and name, such as "skill grilling"
+	Item    string `json:"item,omitempty"` // kind and name, such as "skill grilling"; for drift in a list, the item as JSON
 	Key     string `json:"key,omitempty"`
 	Local   string `json:"local,omitempty"` // a settings value as JSON, "unset" when absent
 	Brain   string `json:"brain,omitempty"` // likewise, as the Brain would write it
@@ -29,7 +29,7 @@ const (
 	EvRemoved        = "removed"         // a link or file at Path that nerve made
 	EvWrote          = "wrote"           // Path
 	EvSetting        = "setting"         // Key at Path went from Local to Brain
-	EvDrift          = "drift"           // Key at Path changed outside the Brain, from Brain to Local, and was left as is
+	EvDrift          = "drift"           // Key at Path changed outside the Brain, from Brain to Local, and was left as is; with Item, that item of the list
 	EvWroteBack      = "wrote-back"      // Item left Project in brain.toml, since its link was deleted
 	EvProblem        = "problem"         // Detail is wrong with Path (at Key)
 	EvOK             = "ok"              // Detail
@@ -43,7 +43,7 @@ const (
 	EvUpgradeSkipped = "upgrade-skipped" // a development build (Detail) ran instead of the pinned Target
 	EvBrain          = "brain"           // Path is the machine's Brain checkout; Detail its state
 	EvAdded          = "added"           // Item joined Project
-	EvDropped        = "dropped"         // Item left Project
+	EvDropped        = "dropped"         // Item left Project, or its local overlay when Detail says so
 	EvImported       = "imported"        // Key of Project's existing settings went where Detail says
 	EvOverlay        = "overlay"         // Key went to the local overlay at Path; Detail says why
 	EvProject        = "project"         // Project; Detail describes it
@@ -74,6 +74,12 @@ func (e Event) String() string {
 		}
 		return fmt.Sprintf("set      %s = %s (was %s)", e.Key, e.Brain, e.Local)
 	case EvDrift:
+		switch {
+		case e.Item != "" && e.Local != "unset":
+			return fmt.Sprintf("drift    %s has %s here, not in the Brain: left as is", e.Key, e.Item)
+		case e.Item != "":
+			return fmt.Sprintf("drift    %s lacks %s here, which the Brain has: left as is", e.Key, e.Item)
+		}
 		return fmt.Sprintf("drift    %s is %s here, %s in the Brain: left as is", e.Key, e.Local, e.Brain)
 	case EvWroteBack:
 		return fmt.Sprintf("dropped  %s from project %s in %s, since its link was deleted: commit it", e.Item, e.Project, domain.ManifestFile)
@@ -112,7 +118,10 @@ func (e Event) String() string {
 	case EvAdded:
 		return fmt.Sprintf("added    %s to project %s", e.Item, e.Project)
 	case EvDropped:
-		if e.Project == "" {
+		switch {
+		case e.Detail != "":
+			return fmt.Sprintf("dropped  %s from the %s of project %s", e.Item, e.Detail, e.Project)
+		case e.Project == "":
 			return fmt.Sprintf("dropped  %s from common", e.Item)
 		}
 		return fmt.Sprintf("dropped  %s from project %s", e.Item, e.Project)

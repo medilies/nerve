@@ -16,7 +16,7 @@ nerve was one `main` package. Its rules (what a project gets, how settings are l
 
 - **One bounded context, `internal/brain`**: carrying a Brain to the projects that list what they need. Its words are those of [GLOSSARY.md](../../GLOSSARY.md).
 - **`domain`**: the Brain and its rules: the manifest and projects, settings layering, reconciliation and drift, the import of a project's settings, sensitive values, frontmatter. It knows no file format, git or filesystem.
-- **`app`**: the use cases (sync, project, skill/agent/hook/plugin, setting, status, check, pin update), the events they report, and the ports they need: the Brain checkout, sources, this machine's files, the workspace, nerve itself, zips.
+- **`app`**: the use cases (sync, project, skill/agent/hook/plugin, setting, status, check, pin update), the events they report, and the ports they need: the Brain checkout, sources, this machine's files, the working trees, nerve itself, zips.
 - **`infra`**: every adapter: `brain.toml` and the machine file, JSON settings, git, the source and zip caches, links, the release upgrade, and the text, JSON and hook reports.
 - **`cmd/nerve`**: flags, usage, wiring, and the embedded skill. The end-to-end tests stay here, driving the CLI.
 - **depguard** in `.golangci.yml` allows `domain` only the standard library, and `app` only that and `domain`. CI runs it.

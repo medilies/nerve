@@ -96,14 +96,20 @@ func (b BrainCheckout) Load() (domain.Manifest, error) {
 		}
 	}
 	if f.Common != nil {
-		m.Common = normalize(f.Common.Settings)
+		if m.Common, err = normalize("common.settings", f.Common.Settings); err != nil {
+			return domain.Manifest{}, err
+		}
 	}
 	m.Projects = map[string]*domain.Project{}
 	for name, p := range f.Projects {
+		settings, err := normalize("project."+name+".settings", p.Settings)
+		if err != nil {
+			return domain.Manifest{}, err
+		}
 		m.Projects[name] = &domain.Project{
 			Surface: p.Surface, Autosync: p.Autosync,
 			Skills: p.Skills, Agents: p.Agents, Hooks: p.Hooks, Plugins: p.Plugins,
-			Settings: normalize(p.Settings),
+			Settings: settings,
 		}
 	}
 	return m, m.Validate()
@@ -160,20 +166,20 @@ func dropBareHeaders(b []byte) []byte {
 }
 
 // normalize turns decoded TOML into what decoded JSON looks like, so values
-// from both compare equal.
-func normalize(v map[string]any) map[string]any {
+// from both compare equal. It refuses what JSON cannot hold: inf and nan.
+func normalize(where string, v map[string]any) (map[string]any, error) {
 	if len(v) == 0 {
-		return nil
+		return nil, nil
 	}
 	b, err := json.Marshal(v)
 	if err != nil {
-		return v
+		return nil, fmt.Errorf("%s: %s: settings must be what a JSON file can hold, so no inf or nan: %w", domain.ManifestFile, where, err)
 	}
 	var out map[string]any
 	if err := json.Unmarshal(b, &out); err != nil {
-		return v
+		return nil, fmt.Errorf("%s: %s: %w", domain.ManifestFile, where, err)
 	}
-	return out
+	return out, nil
 }
 
 // forTOML turns decoded JSON into values TOML writes as people would: whole

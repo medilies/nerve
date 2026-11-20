@@ -30,6 +30,17 @@ A subagent definition (`agents/<name>.md`) kept in a Brain and linked into the p
 A Claude Code plugin from a marketplace, turned on in the projects that list it.
 _Avoid_: package, bundle
 
+**Source**:
+A third-party repo on GitHub, pinned to a commit, and the skills a Brain uses from it.
+_Avoid_: vendor, upstream
+
+**Hook**:
+A Claude Code hook defined once in a Brain by name, that projects take by listing it.
+
+**Link**:
+A symlink nerve makes in a project's `.claude/` to one skill folder or agent file; deleting it takes the item out of the project.
+_Avoid_: copy, install
+
 **Pin**:
 The exact commit a third-party skill, or the Nervous system itself, is used at.
 _Avoid_: version, lock
@@ -41,6 +52,10 @@ _Avoid_: repo, workspace
 **Checkout**:
 A project's working tree on one machine, linked to its project in the machine's own file, never in the Brain.
 _Avoid_: clone, path
+
+**Working tree**:
+Where nerve writes in a project: a checkout, or a git worktree of one, which shares the checkout's project and `info/exclude`.
+_Avoid_: workspace
 
 **Common settings**:
 Settings every listed project gets; the only thing a Brain gives to more than one project at once.
@@ -59,5 +74,5 @@ A project's settings kept on one machine and never in the Brain, for anything se
 _Avoid_: secrets file, private settings
 
 **Drift**:
-A setting changed in a project since nerve last wrote it, that the Brain disagrees with; nerve leaves it as is and reports it.
+A setting, or one item of a list, changed in a project since nerve last wrote it, that the Brain disagrees with; nerve leaves it as is and reports it.
 _Avoid_: out of sync, divergence

@@ -58,11 +58,12 @@ func TestStateAndOverlaysStayOnTheMachine(t *testing.T) {
 	if err != nil || st.Path != "/w/app" || st.Links == nil {
 		t.Fatalf("a new tree's state is %+v (%v)", st, err)
 	}
-	st.Project, st.Commit, st.Links[".claude/skills/x"] = "app", "abc", "skill:x"
+	link := domain.Link{Kind: "skill", Name: "x", Target: "/brain/skills/x"}
+	st.Project, st.Repo, st.Commit, st.Links[".claude/skills/x"] = "app", "/w/app/.git", "abc", link
 	if err := files.SaveState(st); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := files.State("/w/app"); got.Project != "app" || got.Links[".claude/skills/x"] != "skill:x" {
+	if got, _ := files.State("/w/app"); got.Project != "app" || got.Repo != "/w/app/.git" || got.Links[".claude/skills/x"] != link {
 		t.Errorf("read back %+v", got)
 	}
 	if all, _ := files.States(); len(all) != 1 || all[0].Path != "/w/app" {
@@ -93,5 +94,11 @@ func TestStateAndOverlaysStayOnTheMachine(t *testing.T) {
 	}
 	if o, _, err := files.Overlay("none"); o != nil || err != nil {
 		t.Errorf("a missing overlay reads %v (%v)", o, err)
+	}
+	if dropped, err := files.DropOverlay("app"); err != nil || dropped != path || fileExists(path) {
+		t.Errorf("dropped %q (%v)", dropped, err)
+	}
+	if dropped, err := files.DropOverlay("app"); err != nil || dropped != "" {
+		t.Errorf("dropping a missing overlay gives %q (%v)", dropped, err)
 	}
 }

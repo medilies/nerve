@@ -134,13 +134,51 @@ func (f MachineFiles) SaveOverlay(project string, settings map[string]any) (stri
 	return path, writeObject(path, settings)
 }
 
+func (f MachineFiles) DropOverlay(project string) (string, error) {
+	path := f.overlayPath(project)
+	err := os.Remove(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "", nil
+	case err != nil:
+		return "", err
+	}
+	return path, nil
+}
+
 // treeState is a working tree's state as kept on disk.
 type treeState struct {
-	Path     string            `json:"path"`
-	Project  string            `json:"project,omitempty"`
-	Links    map[string]string `json:"links,omitempty"`
-	Settings map[string]any    `json:"settings,omitempty"`
-	Commit   string            `json:"commit,omitempty"`
+	Path     string               `json:"path"`
+	Repo     string               `json:"repo,omitempty"`
+	Project  string               `json:"project,omitempty"`
+	Links    map[string]linkState `json:"links,omitempty"`
+	Settings map[string]any       `json:"settings,omitempty"`
+	Commit   string               `json:"commit,omitempty"`
+}
+
+type linkState struct {
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Target string `json:"target"`
+}
+
+func (st treeState) domain() domain.TreeState {
+	d := domain.TreeState{Path: st.Path, Repo: st.Repo, Project: st.Project, Settings: st.Settings, Commit: st.Commit, Links: map[string]domain.Link{}}
+	for rel, l := range st.Links {
+		d.Links[rel] = domain.Link(l)
+	}
+	return d
+}
+
+func fromDomain(d domain.TreeState) treeState {
+	st := treeState{Path: d.Path, Repo: d.Repo, Project: d.Project, Settings: d.Settings, Commit: d.Commit}
+	if len(d.Links) > 0 {
+		st.Links = map[string]linkState{}
+		for rel, l := range d.Links {
+			st.Links[rel] = linkState(l)
+		}
+	}
+	return st
 }
 
 func (f MachineFiles) statePath(dir string) string {
@@ -153,14 +191,11 @@ func (f MachineFiles) State(dir string) (domain.TreeState, error) {
 	if err := readJSON(f.statePath(dir), &st); err != nil {
 		return domain.TreeState{}, err
 	}
-	if st.Links == nil {
-		st.Links = map[string]string{}
-	}
-	return domain.TreeState(st), nil
+	return st.domain(), nil
 }
 
 func (f MachineFiles) SaveState(st domain.TreeState) error {
-	return writeJSON(f.statePath(st.Path), treeState(st))
+	return writeJSON(f.statePath(st.Path), fromDomain(st))
 }
 
 func (f MachineFiles) DropState(dir string) error {
@@ -179,7 +214,7 @@ func (f MachineFiles) States() ([]domain.TreeState, error) {
 	for _, file := range files {
 		var st treeState
 		if err := readJSON(file, &st); err == nil && st.Path != "" {
-			states = append(states, domain.TreeState(st))
+			states = append(states, st.domain())
 		}
 	}
 	return states, nil

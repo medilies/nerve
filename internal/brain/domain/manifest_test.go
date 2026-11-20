@@ -1,6 +1,7 @@
 package domain_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -20,6 +21,10 @@ func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 		`hook "Fmt" must be lowercase`:    {Hooks: map[string]domain.Hook{"Fmt": {Event: "Stop", Command: "x"}}},
 		`project "App" must be lowercase`: {Projects: map[string]*domain.Project{"App": {}}},
 		`surface must be "claude.ai"`:     {Projects: map[string]*domain.Project{"app": {Surface: "web"}}},
+		`skill "../x" must be lowercase`:  {Projects: map[string]*domain.Project{"app": {Skills: []string{"../x"}}}},
+		`agent "a/b" must be lowercase`:   {Projects: map[string]*domain.Project{"app": {Agents: []string{"a/b"}}}},
+		`hook "Fmt" must be lowercase w`:  {Projects: map[string]*domain.Project{"app": {Hooks: []string{"Fmt"}}}},
+		`up: skill ".." must be`:          {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{".."}}}},
 	} {
 		if err := m.Validate(); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("got %v, want %q", err, want)
@@ -86,6 +91,30 @@ func TestSensitiveValuesNameWhereEachIs(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("lacks %q:\n%s", want, text)
 		}
+	}
+}
+
+func TestSensitiveValuesLookEverywhereInTheManifest(t *testing.T) {
+	m := domain.Manifest{
+		Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{"x"}}},
+		Hooks:   map[string]domain.Hook{"guard": {Event: "PreToolUse", Matcher: "Bash(/home/bob/client-x/*)", Command: "x"}},
+		Common:  map[string]any{"enabledPlugins": map[string]any{"tool@bob@example.com": true}},
+		Projects: map[string]*domain.Project{"app": {
+			Plugins: []string{"tool@ops.example.com"},
+			Skills:  []string{"ok"},
+		}},
+	}
+	var got []string
+	for _, p := range m.SensitiveValues() {
+		got = append(got, p.Key+": "+p.Detail)
+	}
+	want := []string{
+		"hook.guard.matcher: holds a home path: use {{brain}} or ~",
+		`common.settings.enabledPlugins."tool@bob@example.com": the key holds an email address: move it to a local overlay`,
+		"project.app.plugins: holds an email address",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("problems are\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
 
