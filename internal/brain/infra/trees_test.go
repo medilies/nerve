@@ -196,7 +196,6 @@ func TestSettingsAreReadAndWrittenAsJSON(t *testing.T) {
 }
 
 func TestSettingsReadAnEmptyFileOrOneAfterAByteOrderMarkAsNoSettings(t *testing.T) {
-	openBug(t, "an empty or BOM-led settings file fails its tree")
 	e := newTestEnv(t)
 	path := e.path("app/.claude/settings.local.json")
 	for name, content := range map[string]string{"empty": "", "blank": " \n\t\n", "BOM": "\ufeff{}\n"} {

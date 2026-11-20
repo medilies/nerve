@@ -65,7 +65,6 @@ func TestStatesRefuseAStateFileTheyCannotRead(t *testing.T) {
 }
 
 func TestStatesReadOnlyFilesNamedLikeAState(t *testing.T) {
-	openBug(t, "a stray file in state/ stops every sync")
 	e := newTestEnv(t)
 	files, _ := NewMachineFiles()
 	if err := files.SaveState(domain.TreeState{Path: "/w/app", Project: "app"}); err != nil {

@@ -78,7 +78,9 @@ func linkEnd(path string) (string, error) {
 }
 
 // readObject reads a JSON object, or returns nil when the file is missing.
-// Numbers are read as domain.Numbers makes them, so they keep every digit.
+// People edit such files, so one that is blank, or starts with a byte order
+// mark, reads too. Numbers are read as domain.Numbers makes them, so they
+// keep every digit.
 func readObject(path string) (map[string]any, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -87,9 +89,12 @@ func readObject(path string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	b = bytes.TrimPrefix(b, []byte("\xef\xbb\xbf"))
 	var obj map[string]any
-	if err := decodeJSON(b, &obj); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+	if len(bytes.TrimSpace(b)) > 0 {
+		if err := decodeJSON(b, &obj); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
 	}
 	if obj == nil {
 		obj = map[string]any{}
