@@ -55,8 +55,8 @@ skills = ["research"]
   and the skills used from it. Skill, agent, hook and project names are
   lowercase words joined by hyphens. A skill is the folder of that name
   holding a `SKILL.md`, or the whole repo when its root `SKILL.md`
-  names it. `nerve skill update <repo> [sha]` shows the upstream diff,
-  then moves the pin.
+  names it. `nerve skill update <repo> [sha]` shows how the source's
+  skills changed, then moves the pin.
 - **`[hook.<name>]`** defines a Claude Code hook. `{{brain}}` in any
   value becomes the Brain's checkout path.
 - **`[common.settings]`** holds the only settings that reach more than
@@ -70,17 +70,25 @@ skills = ["research"]
 nerve rewrites `brain.toml` in this layout when a command changes it,
 so comments in it are not kept; `nerve skill update` only moves the pin.
 
-Settings hold only what a JSON file can, so nerve refuses `inf` and
-`nan` in them.
+nerve refuses `inf`, `nan` and dates in settings.
 
 ## Nothing sensitive
 
 A Brain may be public. `check` and `sync` refuse secret-bearing
 settings such as `env` and `apiKeyHelper`. They also refuse home paths,
 emails and token-like strings anywhere in `brain.toml`: in values,
-settings keys, hook matchers and commands, plugin IDs, and names. Nor
-does a Brain say where a project lives, or name a claude.ai account by
-its email.
+settings keys, hook matchers and commands, plugin IDs, and names. Each
+refusal names the commands that move the value to a local overlay.
+
+The commands that write the Brain keep them out:
+
+- `project add`, `setting set` and `setting add` put such a setting in
+  the local overlay instead, whether its value or its key is sensitive.
+- `plugin add` refuses such a plugin ID, and says how to enable it on
+  this machine only.
+
+Nor does a Brain say where a project lives, or name a claude.ai account
+by its email.
 
 ## This machine
 
@@ -105,9 +113,10 @@ project = "billing"
 ```
 
 - **Local overlays**, `overlays/<project>.json`, hold a project's
-  settings that are sensitive or identifying. nerve puts them there on
-  its own when it imports a project or sets a value. They never leave
-  the machine, so set them again on each one.
+  settings that are sensitive or identifying, or that `brain.toml`
+  cannot hold, such as `null`. nerve puts them there on its own when
+  it imports a project or sets a value. They never leave the machine,
+  so set them again on each one.
   - `nerve setting rm` removes a key from the overlay too.
   - `nerve project rm` deletes the project's overlay on this machine.
 - **State**, under `state/`, is what nerve last did to each working
@@ -117,7 +126,9 @@ project = "billing"
 
 `nerve check`, in the Brain or anywhere when this machine names one,
 validates own skills and agents, each pin, what each project lists, and
-the sensitive values above. In the Brain's CI, run the release it pins:
+the sensitive values above. In a listed checkout, it checks this
+machine's Brain, even when the project has a `brain.toml` of its own.
+In the Brain's CI, run the release it pins:
 
 ```sh
 go run github.com/medilies/nerve/cmd/nerve@$(sed -n 's/^nerve = "\(.*\)"$/\1/p' brain.toml) check

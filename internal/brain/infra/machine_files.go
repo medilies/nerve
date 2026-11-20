@@ -97,10 +97,27 @@ func absolute(path string) (string, error) {
 	return filepath.Clean(p), nil
 }
 
+// Save writes the machine file. A path it held already keeps how it was
+// written, such as through a link; a new one is written under ~ when it can.
 func (f MachineFiles) Save(m domain.Machine) error {
-	mf := machineFile{Brain: shortenHome(m.Brain)}
+	written := map[string]string{} // absolute path -> as written
+	var old machineFile
+	if _, err := toml.DecodeFile(f.path(), &old); err == nil {
+		for _, p := range append([]string{old.Brain}, checkoutPaths(old.Checkouts)...) {
+			if abs, err := absolute(p); err == nil {
+				written[abs] = p
+			}
+		}
+	}
+	spell := func(p string) string {
+		if w, ok := written[p]; ok {
+			return w
+		}
+		return shortenHome(p)
+	}
+	mf := machineFile{Brain: spell(m.Brain)}
 	for _, c := range m.Checkouts {
-		mf.Checkouts = append(mf.Checkouts, checkoutLine{Path: shortenHome(c.Path), Project: c.Project})
+		mf.Checkouts = append(mf.Checkouts, checkoutLine{Path: spell(c.Path), Project: c.Project})
 	}
 	var buf bytes.Buffer
 	enc := toml.NewEncoder(&buf)
@@ -109,6 +126,14 @@ func (f MachineFiles) Save(m domain.Machine) error {
 		return err
 	}
 	return writeFile(f.path(), buf.Bytes())
+}
+
+func checkoutPaths(lines []checkoutLine) []string {
+	paths := make([]string, len(lines))
+	for i, c := range lines {
+		paths[i] = c.Path
+	}
+	return paths
 }
 
 func (f MachineFiles) Create(m domain.Machine) (string, error) {
@@ -152,6 +177,7 @@ type treeState struct {
 	Repo     string               `json:"repo,omitempty"`
 	Project  string               `json:"project,omitempty"`
 	Links    map[string]linkState `json:"links,omitempty"`
+	Folders  []string             `json:"folders,omitempty"`
 	Settings map[string]any       `json:"settings,omitempty"`
 	Commit   string               `json:"commit,omitempty"`
 }
@@ -163,7 +189,8 @@ type linkState struct {
 }
 
 func (st treeState) domain() domain.TreeState {
-	d := domain.TreeState{Path: st.Path, Repo: st.Repo, Project: st.Project, Settings: st.Settings, Commit: st.Commit, Links: map[string]domain.Link{}}
+	domain.Numbers(st.Settings)
+	d := domain.TreeState{Path: st.Path, Repo: st.Repo, Project: st.Project, Folders: st.Folders, Settings: st.Settings, Commit: st.Commit, Links: map[string]domain.Link{}}
 	for rel, l := range st.Links {
 		d.Links[rel] = domain.Link(l)
 	}
@@ -171,7 +198,7 @@ func (st treeState) domain() domain.TreeState {
 }
 
 func fromDomain(d domain.TreeState) treeState {
-	st := treeState{Path: d.Path, Repo: d.Repo, Project: d.Project, Settings: d.Settings, Commit: d.Commit}
+	st := treeState{Path: d.Path, Repo: d.Repo, Project: d.Project, Folders: d.Folders, Settings: d.Settings, Commit: d.Commit}
 	if len(d.Links) > 0 {
 		st.Links = map[string]linkState{}
 		for rel, l := range d.Links {
@@ -212,10 +239,14 @@ func (f MachineFiles) States() ([]domain.TreeState, error) {
 	}
 	var states []domain.TreeState
 	for _, file := range files {
-		var st treeState
-		if err := readJSON(file, &st); err == nil && st.Path != "" {
-			states = append(states, st.domain())
+		if file == f.builtPath() {
+			continue
 		}
+		var st treeState
+		if err := readJSON(file, &st); err != nil || st.Path == "" {
+			return nil, fmt.Errorf("%s is not a state nerve can read: delete it, then sync the tree it was for (%v)", file, err)
+		}
+		states = append(states, st.domain())
 	}
 	return states, nil
 }

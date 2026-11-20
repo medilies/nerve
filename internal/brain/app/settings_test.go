@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -42,6 +43,32 @@ func TestSetSettingSendsASensitiveValueToTheOverlay(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "cannot go in common") {
 		t.Errorf("got %v, want common refused", err)
 	}
+}
+
+func TestSetSettingSendsAnIdentifyingKeyToTheOverlay(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	r := &recorder{}
+
+	e.must(r, e.app.SetSetting(target("/w/app"), `enabledPlugins."a@bob.io"`, true, false, r))
+
+	if e.project("app").Settings != nil || e.brain.saves != 0 {
+		t.Errorf("an identifying key reached the Brain")
+	}
+	if got := jsonText(e.machine.overlays["app"]); got != `{"enabledPlugins":{"a@bob.io":true}}` {
+		t.Errorf("overlay is %s", got)
+	}
+	contains(t, r, "overlay  enabledPlugins.(hidden) set in /cfg/nerve/overlays/app.json: the key holds an email address")
+}
+
+func TestSetSettingReportsTheObjectItSets(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	r := &recorder{}
+
+	e.must(r, e.app.SetSetting(target("/w/app"), "a.b", map[string]any{"x": int64(1)}, false, r))
+
+	contains(t, r, `set      a.b = {"x":1}`)
 }
 
 func TestSetSettingRefusesWhatBrainTomlCannotHold(t *testing.T) {
@@ -194,6 +221,42 @@ func TestRemoveSettingEverywhereRevokesIt(t *testing.T) {
 		if err := e.app.RemoveSetting(target("/w/app"), "model", c.common, c.all, &recorder{}); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("got %v, want %q", err, c.want)
 		}
+	}
+}
+
+func TestRemoveSettingNeverShowsASecretItem(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.machine.overlays["app"] = map[string]any{"permissions": map[string]any{"allow": []any{"Read(/home/bob/x)"}}}
+	r := &recorder{}
+
+	e.must(r, e.app.RemoveSetting(target("/w/app"), "permissions.allow=Read(/home/bob/x)", false, false, r))
+	err := e.app.RemoveSetting(target("/w/app"), "env.TOKEN=sk-abcdefghijklmnopqrstuvwxyz", false, false, r)
+
+	if out := r.String() + errText(err); strings.Contains(out, "/home/bob") || strings.Contains(out, "sk-") {
+		t.Errorf("a secret is shown: %s", out)
+	}
+	contains(t, r, "dropped  setting permissions.allow=(hidden) from the local overlay of project app")
+	if err == nil || err.Error() != "no project app holds env.TOKEN=(hidden)" {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestRemoveSettingReportsWhatItSavedBeforeAFailure(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
+	e.machine.overlays["app"] = map[string]any{"model": "haiku"}
+	e.machine.saveErr = errors.New("overlays: read-only")
+	r := &recorder{}
+
+	err := e.app.RemoveSetting(target("/w/app"), "model", false, false, r)
+
+	if err == nil || e.project("app").Settings != nil {
+		t.Errorf("got %v, project settings %v", err, e.project("app").Settings)
+	}
+	contains(t, r, "dropped  setting model from project app")
+	if strings.Contains(r.String(), "local overlay") {
+		t.Errorf("reports a removal it did not save:\n%s", r)
 	}
 }
 

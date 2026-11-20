@@ -15,6 +15,8 @@ func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 		"must be a release tag":           {Nerve: "latest"},
 		"nerve-checksums must be":         {Nerve: "v1.0.0", NerveChecksums: "abc"},
 		"is not owner/name":               {Sources: []domain.Source{{Repo: "acme", SHA: sha, Skills: []string{"x"}}}},
+		`"../x" is not owner/name`:        {Sources: []domain.Source{{Repo: "../x", SHA: sha, Skills: []string{"x"}}}},
+		`"acme/." is not owner/name`:      {Sources: []domain.Source{{Repo: "acme/.", SHA: sha, Skills: []string{"x"}}}},
 		"sha must be a full":              {Sources: []domain.Source{{Repo: "acme/up", SHA: "main", Skills: []string{"x"}}}},
 		"acme/up: no skills":              {Sources: []domain.Source{{Repo: "acme/up", SHA: sha}}},
 		"needs an event and a command":    {Hooks: map[string]domain.Hook{"fmt": {Event: "Stop"}}},
@@ -110,7 +112,7 @@ func TestSensitiveValuesLookEverywhereInTheManifest(t *testing.T) {
 	}
 	want := []string{
 		"hook.guard.matcher: holds a home path: use {{brain}} or ~",
-		`common.settings.enabledPlugins."tool@bob@example.com": the key holds an email address: move it to a local overlay`,
+		`common.settings.enabledPlugins."tool@bob@example.com": the key holds an email address: run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay`,
 		"project.app.plugins: holds an email address",
 	}
 	if !slices.Equal(got, want) {

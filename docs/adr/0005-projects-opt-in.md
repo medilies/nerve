@@ -40,6 +40,7 @@ nerve writes only in listed projects, and nothing at user level:
   - Own skills and agents link from the Brain checkout, so edits are live.
   - Third-party skills link from a cache at their pinned commit, and `nerve skill update` moves a pin after showing the upstream diff.
 - Deleting a link removes that skill or agent from the project's entry. It is the one change that flows from a project back to `brain.toml`. Every other change in `settings.local.json` is drift, as in ADR 0003.
+  - Links that are all gone at once, or gone with their folder, as after `git clean -x`, were not deleted one by one: nerve links them again and says so.
 - When one of your skills or agents has the same name as one the team committed, nerve keeps the team's and links yours as `<owner>-<name>`, where `<owner>` comes from the Brain's git remote at sync time and is never stored. The link's folder name is the name you invoke it by.
 
 ### Autosync is explicit
@@ -82,9 +83,10 @@ skills = ["research"]
 | --- | --- | --- |
 | has the same value as `common` | nothing: `common` already provides it | none |
 | has a different value from `common` | a project override | the project keeps its value |
-| is an array that shares items with `common` | the items `common` lacks | none |
+| is an array that shares items with `common` | the items `common` lacks | **`common`'s other items are added**: each is reported before it is written |
 | is not in `common` | a project key | none |
-| is sensitive or identifying | the project's local overlay, never the Brain | none |
+| is sensitive or identifying, in its value or its key | the project's local overlay, never the Brain | none |
+| is or holds null, which `brain.toml` cannot hold | the project's local overlay | none |
 | is missing, but `common` has it | nothing | **added to the project**: reported before it is written |
 
 `add` changes only `brain.toml` and the overlay. The project file is written by the next sync, after the change has been reviewed and committed. A value is never promoted into `common` automatically. `check` reports a project override that equals `common`, so the overrides that remain always mean something.

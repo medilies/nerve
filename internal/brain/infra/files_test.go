@@ -2,9 +2,15 @@ package infra
 
 import (
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/medilies/nerve/internal/brain/domain"
 )
 
 func TestWriteFileReplacesWhatALinkPointsTo(t *testing.T) {
@@ -33,6 +39,24 @@ func TestWriteFileCreatesTheFileADanglingLinkPointsTo(t *testing.T) {
 	}
 	if !isLink(link) || e.read(real) != "new" {
 		t.Errorf("the link was replaced by a file")
+	}
+}
+
+func TestWriteFileFollowsARelativeLinkFromWhereItReallyIs(t *testing.T) {
+	e := newTestEnv(t)
+	e.write(e.path("shared/x.json"), "old")
+	e.link(e.path("shared/claude/settings.local.json"), "../x.json")
+	e.link(e.path("proj/.claude"), e.path("shared/claude")) // .claude is itself a link
+
+	if err := writeFile(e.path("proj/.claude/settings.local.json"), []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := e.read(e.path("shared/x.json")); got != "new" {
+		t.Errorf("the link's target holds %q", got)
+	}
+	if _, err := os.Stat(e.path("proj/x.json")); err == nil {
+		t.Errorf("wrote proj/x.json, as if the link were relative to proj/.claude as written")
 	}
 }
 
@@ -82,6 +106,56 @@ func TestWriteObjectRefusesWhatJSONCannotHoldAndKeepsTheFile(t *testing.T) {
 	}
 	if got := e.read(path); got != `{"model": "opus"}` {
 		t.Errorf("the file holds %q", got)
+	}
+}
+
+func TestSettingsKeepTheirTextAndEveryDigit(t *testing.T) {
+	e := newTestEnv(t)
+	path := e.path("app/settings.json")
+	e.write(path, `{"command": "a && b > c", "big": 9007199254740993, "f": 1.5}`)
+
+	obj, err := readObject(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeObject(path, obj); err != nil {
+		t.Fatal(err)
+	}
+
+	got := e.read(path)
+	for _, want := range []string{`"a && b > c"`, `9007199254740993`, `1.5`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("lacks %s:\n%s", want, got)
+		}
+	}
+	if !reflect.DeepEqual(obj["big"], domain.ParseValue("9007199254740993")) {
+		t.Errorf("a number read from a file differs from the same number typed: %T", obj["big"])
+	}
+}
+
+func TestGitNeverRunsAnAskpassHelper(t *testing.T) {
+	e := newTestEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="x"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	asked := e.path("asked")
+	helper := e.path("askpass.sh")
+	e.write(helper, "#!/bin/sh\necho asked >> "+asked+"\necho secret\n")
+	if err := os.Chmod(helper, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_ASKPASS", helper) // as VS Code sets it
+	t.Setenv("SSH_ASKPASS", helper)
+
+	_, err := git(e.home, "ls-remote", srv.URL+"/private/repo.git")
+
+	if err == nil {
+		t.Errorf("ls-remote passed")
+	}
+	if _, serr := os.Stat(asked); serr == nil {
+		t.Errorf("git ran the askpass helper: %s", e.read(asked))
 	}
 }
 

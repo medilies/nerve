@@ -1,21 +1,22 @@
 # Syncing
 
-`nerve sync` carries the Brain to every checkout this machine lists;
-`nerve sync --here`, to the one around the working directory, a
-worktree included.
+`nerve sync` carries the Brain to every checkout this machine lists,
+and to the worktrees of them it reached before; `nerve sync --here`, to
+the one around the working directory, a worktree included.
 
 ## What sync does
 
-- **Pulls the Brain**, fast-forward only. It skips the pull while
-  tracked files have uncommitted changes or the checkout has no
-  upstream, and fails if the checkout has diverged.
+- **Pulls the Brain**, fast-forward only. It skips the pull, and says
+  why, while tracked files have uncommitted changes, the checkout has
+  no upstream or a detached HEAD, or its remote cannot be reached. It
+  fails if the checkout has diverged.
+  - It never asks for a password: a remote that needs one is skipped.
 - **Brings nerve to the Brain's pin**, then runs the new binary in its
   place. If it cannot replace its own binary, it fails and says so:
   install the pinned release by hand.
 - **Refuses a checkout** where git tracks `.claude/settings.local.json`,
-  or does not ignore it. Claude Code adds
-  `**/.claude/settings.local.json` to your global git ignore file the
-  first time it writes one; nerve never edits `.gitignore`.
+  or does not ignore it: add `**/.claude/settings.local.json` to your
+  global git ignore file. nerve never edits `.gitignore`.
 - **Refuses a checkout** whose project lists a skill, agent, hook or
   plugin the Brain does not offer, as `nerve check` reports it.
 - **Links** the project's skills into `.claude/skills/` and agents into
@@ -26,12 +27,15 @@ worktree included.
   - A repo's worktrees share its `info/exclude`, so the block lists the
     links of all of them.
   - If the block is damaged, say its end line is gone, sync refuses
-    the checkout until you fix it by hand.
+    the checkout, before it links anything, until you fix it by hand.
 - **Writes `.claude/settings.local.json`**: common settings, then the
   project's, then its plugins (`enabledPlugins`), hooks and autosync
   hook, then the local overlay. Objects merge key by key, arrays are
   joined without repeats, and anything else in a later layer wins.
-- **Reports what it did**, with sensitive values shown as `(hidden)`.
+- **Unlists a checkout that is gone**, on a full sync, and forgets a
+  worktree that is.
+- **Reports what it did**, with sensitive values and keys shown as
+  `(hidden)`.
 - **Builds the claude.ai zips**, on a full sync only. See
   [below](#claudeai).
 
@@ -63,6 +67,10 @@ A list is taken item by item. An approval Claude Code adds to
 `permissions.allow` is drift of that one item, and the Brain's other
 changes to the list still arrive.
 
+An empty object, such as `"permissions": {}`, holds no setting, so it
+never drifts. A key the project holds as a value, and the Brain as an
+object, or the other way round, drifts as a whole.
+
 To resolve drift:
 
 - Move a value into the Brain with `nerve setting set <key> <value>`,
@@ -77,17 +85,24 @@ To resolve drift:
 - Deleting a skill's or agent's link in `.claude/` takes it out of the
   project in `brain.toml`, at the next sync, which says to commit it.
   A link you point elsewhere becomes yours: nerve leaves it alone.
+  - Links that are all gone at once, or gone with `.claude/skills/` or
+    `.claude/agents/`, as after `git clean -x`, are linked again
+    instead, and a settings file that is gone is written again. Delete
+    one link at a time to drop its item.
 - A project dropped from the Brain, by `nerve project rm` here or on
   another machine, is cleaned out of its checkouts: nerve's links, its
-  exclude block, and the settings and list items it wrote that were not
-  changed since.
+  exclude block, the settings and list items it wrote that were not
+  changed since, and the folders it made that are left empty.
 
 ## The team's own
 
 nerve never touches what it did not make. Where the team already has a
-skill or agent of the same name, nerve links yours as `<owner>-<name>`,
-the owner taken from the Brain's git remote. `nerve skill ls` shows
-yours and the team's.
+skill or agent of the same name, nerve links yours as `<owner>-<name>`.
+The owner is the folder that holds the Brain's repo in its `origin`
+remote, such as `medilies` in `git@github.com:medilies/brain.git`. A
+remote with no such folder, such as `https://example.com/brain.git`,
+names no owner, and sync refuses the checkout that needs one.
+`nerve skill ls` shows yours and the team's.
 
 ## claude.ai
 
@@ -96,7 +111,9 @@ has no API for skills, so `nerve sync` builds a zip per skill in
 `claude.ai/<project>/` under nerve's [cache folder](brain.md#this-machine),
 and says which to upload, once each time one changes, and which skills
 to delete on the account. A skill it cannot build is reported, and
-never marked for deletion.
+never marked for deletion. A link in a skill is zipped as the file it
+points to in the skill; one to a folder, to nothing, or out of the
+skill is refused, so nothing outside the skill reaches a zip.
 
 Skills on claude.ai reach every Claude Code session signed into that
 account. `syncClaudeAiSkills: false`, in your user settings or

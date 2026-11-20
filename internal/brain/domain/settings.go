@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"math"
 	"reflect"
 	"slices"
 	"strings"
@@ -118,15 +119,28 @@ func FillBrain(v any, brain string) any {
 const Sep = "\x1f"
 
 // Dotted shows a leaf path the way a user writes it: keys joined by dots,
-// and a key that holds a dot, a quote or = in double quotes.
+// and a key that is empty or holds a dot, a quote or = in double quotes,
+// with \ before each quote or backslash in it.
 func Dotted(key string) string {
 	parts := strings.Split(key, Sep)
 	for i, p := range parts {
 		if p == "" || strings.ContainsAny(p, `."=`) {
-			parts[i] = `"` + p + `"`
+			parts[i] = `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(p) + `"`
 		}
 	}
 	return strings.Join(parts, ".")
+}
+
+// ShowKey shows a leaf path as Dotted does, with each key that is
+// identifying or secret shown as Hidden.
+func ShowKey(key string) string {
+	parts := strings.Split(key, Sep)
+	for i, p := range parts {
+		if SensitiveText(p) != "" {
+			parts[i] = Hidden
+		}
+	}
+	return Dotted(strings.Join(parts, Sep))
 }
 
 // ErrKey is a settings key a user wrote that nerve cannot read.
@@ -139,19 +153,28 @@ func ParseKey(s string) ([]string, error) {
 	for i := 0; ; i++ {
 		var seg string
 		if i < len(s) && s[i] == '"' {
-			j := strings.IndexByte(s[i+1:], '"')
-			if j < 0 {
+			var b strings.Builder
+			for i++; i < len(s) && s[i] != '"'; i++ {
+				if s[i] == '\\' && i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\\') {
+					i++
+				}
+				b.WriteByte(s[i])
+			}
+			if i == len(s) {
 				return nil, ErrKey
 			}
-			seg, i = s[i+1:i+1+j], i+j+2
+			seg, i = b.String(), i+1
 		} else {
 			j := strings.IndexAny(s[i:], `."`)
 			if j < 0 {
 				j = len(s) - i
 			}
+			if j == 0 {
+				return nil, ErrKey
+			}
 			seg, i = s[i:i+j], i+j
 		}
-		if seg == "" || (i < len(s) && s[i] != '.') {
+		if i < len(s) && (s[i] != '.' || i == len(s)-1) {
 			return nil, ErrKey
 		}
 		path = append(path, seg)
@@ -164,8 +187,10 @@ func ParseKey(s string) ([]string, error) {
 // CutItem splits key=value at the first = outside double quotes.
 func CutItem(arg string) (key, value string, ok bool) {
 	quoted := false
-	for i, c := range arg {
-		switch {
+	for i := 0; i < len(arg); i++ {
+		switch c := arg[i]; {
+		case quoted && c == '\\':
+			i++
 		case c == '"':
 			quoted = !quoted
 		case c == '=' && !quoted:
@@ -180,12 +205,16 @@ func LeafKey(path []string) string { return strings.Join(path, Sep) }
 
 // Leaves flattens an object to the paths of its non-object values; an empty
 // object is a value.
-func Leaves(obj map[string]any) map[string]any {
+func Leaves(obj map[string]any) map[string]any { return leavesUpTo(obj, nil) }
+
+// leavesUpTo flattens as Leaves does, but takes the value at each path in
+// whole as a leaf.
+func leavesUpTo(obj map[string]any, whole map[string]bool) map[string]any {
 	out := map[string]any{}
 	var walk func(map[string]any, string)
 	walk = func(o map[string]any, prefix string) {
 		for k, v := range o {
-			if sub, ok := v.(map[string]any); ok && len(sub) > 0 {
+			if sub, ok := v.(map[string]any); ok && len(sub) > 0 && !whole[prefix+k] {
 				walk(sub, prefix+k+Sep)
 				continue
 			}
@@ -196,7 +225,61 @@ func Leaves(obj map[string]any) map[string]any {
 	return out
 }
 
-// Unflatten is the inverse of Leaves.
+// leafLayers flattens layers of settings so that they agree on where each
+// leaf is. An empty object holds no setting, so it is left out. A key that
+// one layer holds as a value and another as an object is taken whole, as
+// one leaf.
+func leafLayers(layers ...map[string]any) []map[string]any {
+	flat := make([]map[string]any, len(layers))
+	for i, l := range layers {
+		flat[i] = settingLeaves(l, nil)
+	}
+	whole := map[string]bool{}
+	under := inner(flat)
+	for _, l := range flat {
+		for k := range l {
+			if under[k] {
+				whole[k] = true
+			}
+		}
+	}
+	if len(whole) > 0 {
+		for i, l := range layers {
+			flat[i] = settingLeaves(l, whole)
+		}
+	}
+	return flat
+}
+
+// settingLeaves flattens as leavesUpTo does, without empty objects.
+func settingLeaves(obj map[string]any, whole map[string]bool) map[string]any {
+	l := leavesUpTo(obj, whole)
+	maps.DeleteFunc(l, func(_ string, v any) bool { return emptyObject(v) })
+	return l
+}
+
+// inner lists the paths that some leaf of the layers sits under.
+func inner(flat []map[string]any) map[string]bool {
+	under := map[string]bool{}
+	for _, l := range flat {
+		for k := range l {
+			for i := range len(k) {
+				if k[i] == Sep[0] {
+					under[k[:i]] = true
+				}
+			}
+		}
+	}
+	return under
+}
+
+func emptyObject(v any) bool {
+	o, ok := v.(map[string]any)
+	return ok && len(o) == 0
+}
+
+// Unflatten is the inverse of Leaves. It copies the values, so the result
+// shares nothing with l.
 func Unflatten(l map[string]any) map[string]any {
 	out := map[string]any{}
 	for _, k := range SortedKeys(l) {
@@ -210,9 +293,28 @@ func Unflatten(l map[string]any) map[string]any {
 			}
 			o = sub
 		}
-		o[parts[len(parts)-1]] = l[k]
+		o[parts[len(parts)-1]] = clone(l[k])
 	}
 	return out
+}
+
+// clone deep-copies decoded JSON.
+func clone(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, x := range t {
+			out[k] = clone(x)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, x := range t {
+			out[i] = clone(x)
+		}
+		return out
+	}
+	return v
 }
 
 // Same reports whether a and b agree on key k, both lacking it included.
@@ -242,8 +344,11 @@ func ShowValue(k string, v any) string {
 	if Sensitive(k, v) != "" {
 		return Hidden
 	}
-	b, _ := json.Marshal(v)
-	return string(b)
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(v)
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 func setOrDelete(dst map[string]any, k string, from map[string]any) {
@@ -312,9 +417,14 @@ type Reconciliation struct {
 // changed there since, that want does not agree with, is drift and kept as
 // it is, unless discard is set. A list is reconciled item by item, so an
 // item added or removed there is drift on its own, and the Brain's other
-// items still arrive.
+// items still arrive. A file that is gone (current nil) holds nothing to
+// keep: it is written anew.
 func Reconcile(current, last, want map[string]any, discard bool) Reconciliation {
-	have, prev, goal := Leaves(current), Leaves(last), Leaves(want)
+	if current == nil {
+		last = nil
+	}
+	flat := leafLayers(current, last, want)
+	have, prev, goal := flat[0], flat[1], flat[2]
 	result, next := map[string]any{}, map[string]any{}
 	var rc Reconciliation
 	for _, k := range unionKeys(have, prev, goal) {
@@ -329,11 +439,11 @@ func Reconcile(current, last, want map[string]any, discard bool) Reconciliation 
 		}
 		setOrDelete(result, k, have)
 		setOrDelete(next, k, prev)
-		rc.Drift = append(rc.Drift, Change{Key: Dotted(k), Before: Show(goal, k), After: Show(have, k)})
+		rc.Drift = append(rc.Drift, Change{Key: ShowKey(k), Before: Show(goal, k), After: Show(have, k)})
 	}
 	for _, k := range unionKeys(have, result) {
 		if !Same(have, result, k) {
-			rc.Changes = append(rc.Changes, Change{Key: Dotted(k), Before: Show(have, k), After: Show(result, k)})
+			rc.Changes = append(rc.Changes, Change{Key: ShowKey(k), Before: Show(have, k), After: Show(result, k)})
 		}
 	}
 	rc.Result = Unflatten(result)
@@ -345,8 +455,9 @@ func Reconcile(current, last, want map[string]any, discard bool) Reconciliation 
 }
 
 // reconcileList reconciles the list at k item by item, as Reconcile does
-// keys, into result and next. It keeps the file's order, and adds the
-// Brain's new items after.
+// keys, into result and next. The result keeps the file's order, and adds
+// the Brain's new items after; next takes the Brain's order, so it does not
+// change with the file's.
 func reconcileList(k string, have, prev, goal map[string]any, discard bool, result, next map[string]any) []Change {
 	h, _ := have[k].([]any)
 	p, _ := prev[k].([]any)
@@ -360,27 +471,33 @@ func reconcileList(k string, have, prev, goal map[string]any, discard bool, resu
 			items = append(items, x)
 		}
 	}
-	kept, meant := []any{}, []any{}
+	kept, means := []any{}, []any{}
 	var drift []Change
 	for _, x := range items {
 		inH, inP, inG := hasItem(h, x), hasItem(p, x), hasItem(g, x)
 		if discard || inH == inP || inH == inG {
 			if inG {
-				kept, meant = append(kept, x), append(meant, x)
+				kept, means = append(kept, x), append(means, x)
 			}
 			continue
 		}
-		c := Change{Key: Dotted(k), Item: true, Before: "unset", After: "unset"}
+		c := Change{Key: ShowKey(k), Item: true, Before: "unset", After: "unset"}
 		if inH {
 			kept, c.After = append(kept, x), ShowValue(k, x)
 		}
 		if inP {
-			meant = append(meant, x)
+			means = append(means, x)
 		}
 		if inG {
 			c.Before = ShowValue(k, x)
 		}
 		drift = append(drift, c)
+	}
+	meant := []any{}
+	for _, x := range slices.Concat(g, p) {
+		if hasItem(means, x) && !hasItem(meant, x) {
+			meant = append(meant, x)
+		}
 	}
 	// The key itself is there or not as Reconcile decides for any key, so
 	// an empty list someone set stays.
@@ -438,12 +555,15 @@ type Fate struct {
 }
 
 // ImportSettings sorts a project's existing settings against common ones:
-// what the project's entry must record so the project behaves as before, and
-// what goes to the local overlay because it is sensitive.
+// what the project's entry must record so the project behaves as before,
+// and what goes to the local overlay because it is sensitive or null, which
+// brain.toml cannot hold. Each fate says where a key went, or what common
+// adds to it.
 func ImportSettings(existing, common map[string]any) (entry, overlay map[string]any, fates []Fate) {
-	have, base := Leaves(existing), Leaves(common)
+	flat := leafLayers(existing, common)
+	have, base := flat[0], flat[1]
 	entryL, overlayL := map[string]any{}, map[string]any{}
-	note := func(k, what string) { fates = append(fates, Fate{Key: Dotted(k), What: what}) }
+	note := func(k, what string) { fates = append(fates, Fate{Key: ShowKey(k), What: what}) }
 	for _, k := range SortedKeys(have) {
 		v := have[k]
 		cv, inCommon := base[k]
@@ -451,6 +571,9 @@ func ImportSettings(existing, common map[string]any) (entry, overlay map[string]
 		case Sensitive(k, v) != "":
 			overlayL[k] = v
 			note(k, "kept in the local overlay: "+Sensitive(k, v))
+		case HasNull(v):
+			overlayL[k] = v
+			note(k, "kept in the local overlay: brain.toml cannot hold null")
 		case !inCommon:
 			entryL[k] = v
 			note(k, "recorded in the project")
@@ -464,16 +587,18 @@ func ImportSettings(existing, common map[string]any) (entry, overlay map[string]
 				note(k, "recorded as an override of common")
 				continue
 			}
-			var extra []any
-			for _, x := range items {
-				if !slices.ContainsFunc(commonItems, func(y any) bool { return reflect.DeepEqual(x, y) }) {
-					extra = append(extra, x)
-				}
-			}
+			extra := slices.DeleteFunc(slices.Clone(items), func(x any) bool { return hasItem(commonItems, x) })
+			added := slices.DeleteFunc(slices.Clone(commonItems), func(x any) bool { return hasItem(items, x) })
 			if len(extra) > 0 {
 				entryL[k] = extra
+				note(k, "recorded as the items common lacks")
 			}
-			note(k, "recorded as the items common lacks")
+			for _, x := range added {
+				note(k, "common adds "+ShowValue(k, x)+" at the next sync")
+			}
+			if len(extra)+len(added) == 0 {
+				note(k, "already given by common")
+			}
 		}
 	}
 	for _, k := range SortedKeys(base) {
@@ -502,11 +627,44 @@ func OverridesOfCommon(p *Project, common map[string]any) []string {
 	return same
 }
 
-// ParseValue reads a value as JSON, else as text.
+// ParseValue reads a value as JSON, numbers as Numbers makes them, else
+// as text.
 func ParseValue(s string) any {
 	var v any
 	if err := json.Unmarshal([]byte(s), &v); err != nil {
 		return s
+	}
+	d := json.NewDecoder(strings.NewReader(s))
+	d.UseNumber()
+	_ = d.Decode(&v)
+	return Numbers(v)
+}
+
+// Numbers makes each number in decoded JSON, read as json.Number, one that
+// compares equal to the same number written another way: an int64 when it
+// is whole, so it keeps every digit, else a float64. It changes objects and
+// lists in place.
+func Numbers(v any) any {
+	switch t := v.(type) {
+	case json.Number:
+		if i, err := t.Int64(); err == nil {
+			return i
+		}
+		if f, err := t.Float64(); err == nil {
+			return Numbers(f)
+		}
+	case float64:
+		if t == math.Trunc(t) && math.Abs(t) < 1<<63 {
+			return int64(t)
+		}
+	case []any:
+		for i, x := range t {
+			t[i] = Numbers(x)
+		}
+	case map[string]any:
+		for k, x := range t {
+			t[k] = Numbers(x)
+		}
 	}
 	return v
 }

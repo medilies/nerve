@@ -66,6 +66,17 @@ func (LocalTrees) Link(path, target string) error {
 
 func (LocalTrees) Remove(path string) error { return os.Remove(path) }
 
+func (LocalTrees) RemoveEmptyFolder(path string) (bool, error) {
+	fi, err := os.Lstat(path)
+	if err != nil || !fi.IsDir() {
+		return false, nil
+	}
+	if entries, err := os.ReadDir(path); err != nil || len(entries) > 0 {
+		return false, err
+	}
+	return true, os.Remove(path)
+}
+
 func (LocalTrees) Entries(dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -80,13 +91,34 @@ func (LocalTrees) Entries(dir string) []string {
 
 func (LocalTrees) CheckIgnored(dir string) error {
 	rel := domain.LocalSettings
-	if _, err := git(dir, "ls-files", "--error-unmatch", "--", rel); err == nil {
+	_, err := git(dir, "ls-files", "--error-unmatch", "--", rel)
+	switch {
+	case err == nil:
 		return fmt.Errorf("git tracks %s, so the team shares it: untrack it before nerve writes it", rel)
+	case exitCode(err) != 1: // 1: git does not track it
+		return err
 	}
-	if _, err := git(dir, "check-ignore", "-q", "--", rel); err != nil {
-		return fmt.Errorf("git does not ignore %s: add **/%s to your global git ignore file (~/.config/git/ignore) or to the repo's .gitignore", rel, rel)
+	_, err = git(dir, "check-ignore", "-q", "--", rel)
+	switch {
+	case err == nil:
+		return nil
+	case exitCode(err) != 1: // 1: git does not ignore it
+		return err
 	}
-	return nil
+	return fmt.Errorf("git does not ignore %s: add **/%s to %s, your global git ignore file, or to the repo's .gitignore", rel, rel, globalIgnore(dir))
+}
+
+// globalIgnore is the global git ignore file git reads in dir.
+func globalIgnore(dir string) string {
+	if out, err := git(dir, "config", "--path", "core.excludesFile"); err == nil && trim(out) != "" {
+		return shortenHome(trim(out))
+	}
+	config := os.Getenv("XDG_CONFIG_HOME")
+	if config == "" {
+		home, _ := os.UserHomeDir()
+		config = filepath.Join(home, ".config")
+	}
+	return shortenHome(filepath.Join(config, "git", "ignore"))
 }
 
 const (

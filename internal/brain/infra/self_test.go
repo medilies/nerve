@@ -85,6 +85,19 @@ func TestUpgradeReplacesNerveWithThePinAndRunsItInstead(t *testing.T) {
 	}
 }
 
+func TestUpgradeDoesNotNeedATempFileAnotherRunMayHold(t *testing.T) {
+	e := newTestEnv(t)
+	n, self, _ := e.release("v0.1.0", "v0.2.0", []byte("new binary"), "")
+	e.write(self+".new", "another run's download")
+	if err := os.Chmod(self+".new", 0o400); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := n.Upgrade(domain.Manifest{Nerve: "v0.2.0"}, &events{}); err != nil || e.read(self) != "new binary" {
+		t.Errorf("got %v, binary %q", err, e.read(self))
+	}
+}
+
 func TestUpgradeHandsTheEventsSoFarToTheReRun(t *testing.T) {
 	e := newTestEnv(t)
 	n, _, reruns := e.release("v0.1.0", "v0.2.0", []byte("new binary"), "")

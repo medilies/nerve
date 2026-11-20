@@ -19,6 +19,24 @@ func TestParseFrontmatterReadsTopLevelKeys(t *testing.T) {
 	}
 }
 
+func TestParseFrontmatterLeavesCommentsOut(t *testing.T) {
+	meta, err := domain.ParseFrontmatter("SKILL.md", "---\nname: foo # the folder's name\ndescription: \"Does \\\"#\\\" things.\" # quoted\nlicense: # none yet\ncompatibility: 'it''s # fine'\n---\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]string{"name": "foo", "description": `Does \"#\" things.`, "license": "", "compatibility": "it''s # fine"} {
+		if meta[k] != want {
+			t.Errorf("%s is %q, want %q", k, meta[k], want)
+		}
+	}
+}
+
+func TestParseFrontmatterReadsAnEmptyOne(t *testing.T) {
+	if meta, err := domain.ParseFrontmatter("SKILL.md", "---\n---\n# Body\n"); err != nil || len(meta) != 0 {
+		t.Errorf("got %v, %v", meta, err)
+	}
+}
+
 func TestParseFrontmatterRefusesWhatIsNotFrontmatter(t *testing.T) {
 	for text, want := range map[string]string{
 		"# no frontmatter\n":     "SKILL.md has no frontmatter",

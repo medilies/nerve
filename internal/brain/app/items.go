@@ -27,6 +27,13 @@ func (a App) AddItem(ref ProjectRef, kind, name string, r Reporter) error {
 	if why := a.offers(l.m, kind, name); why != "" {
 		return errors.New(why)
 	}
+	if why := domain.SensitiveText(name); why != "" {
+		msg := fmt.Sprintf("%s %q %s, so it cannot go in the Brain", kind, name, why)
+		if kind == "plugin" {
+			msg += fmt.Sprintf(`: enable it on this machine only with nerve setting set 'enabledPlugins."%s"' true`, name)
+		}
+		return errors.New(msg)
+	}
 	list := p.List(kind)
 	if slices.Contains(*list, name) {
 		r.Add(Event{Kind: EvItem, Project: project, Item: kind + " " + name, Detail: "already in project " + project})
@@ -156,7 +163,7 @@ func (a App) teamItems(dir, kind string, st domain.TreeState) []string {
 }
 
 // UpdatePin prints how each skill used from repo differs between its pin and
-// sha (default: the upstream tip), then moves the pin.
+// sha (default: the tip of the source's default branch), then moves the pin.
 func (a App) UpdatePin(repo, sha string, r Reporter) error {
 	m, err := a.Brain.Load()
 	if err != nil {

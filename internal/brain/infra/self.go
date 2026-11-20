@@ -98,10 +98,7 @@ func (n Nerve) Skill() (domain.Skill, error) {
 	dir := filepath.Join(cache, "nerve", "skill", "nerve")
 	path := filepath.Join(dir, "SKILL.md")
 	if b, err := os.ReadFile(path); err != nil || !bytes.Equal(b, n.SkillMD) {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return domain.Skill{}, err
-		}
-		if err := os.WriteFile(path, n.SkillMD, 0o644); err != nil {
+		if err := writeFile(path, n.SkillMD); err != nil { // at once: another session may read it
 			return domain.Skill{}, err
 		}
 	}
@@ -146,11 +143,12 @@ func (n Nerve) Upgrade(m domain.Manifest, r app.Reporter) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".new"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+	// A file of its own: another session may be upgrading too.
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".new-*")
 	if err != nil {
 		return fmt.Errorf("cannot replace %s with nerve %s, the Brain's pin: %w; make its folder writable, or install %s by hand", path, pin, err, pin)
 	}
+	tmp := f.Name()
 	defer func() { _ = os.Remove(tmp) }() // a no-op once renamed
 	bin, err := n.fetchRelease(pin, m.NerveChecksums)
 	if err != nil {
@@ -158,6 +156,10 @@ func (n Nerve) Upgrade(m domain.Manifest, r app.Reporter) error {
 		return err
 	}
 	if _, err := f.Write(bin); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Chmod(0o755); err != nil {
 		_ = f.Close()
 		return err
 	}

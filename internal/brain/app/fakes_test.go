@@ -51,16 +51,16 @@ func copyManifest(m domain.Manifest) domain.Manifest {
 }
 
 type fakeBrain struct {
-	m       domain.Manifest
-	saves   int
-	saveErr error
-	pullErr error
-	own     map[string]domain.Skill
-	agents  map[string]bool
-	owner   string
-	head    string
-	pulls   int
-	moved   [][2]string
+	m         domain.Manifest
+	saves     int
+	failSaves int // how many saves fail from now on, as a read-only Brain does
+	pullErr   error
+	own       map[string]domain.Skill
+	agents    map[string]bool
+	owner     string
+	head      string
+	pulls     int
+	moved     [][2]string
 }
 
 func (b *fakeBrain) Root() string                   { return "/brain" }
@@ -68,8 +68,9 @@ func (b *fakeBrain) Load() (domain.Manifest, error) { return copyManifest(b.m), 
 func (b *fakeBrain) Pull(app.Reporter) error        { b.pulls++; return b.pullErr }
 
 func (b *fakeBrain) Save(m domain.Manifest) error {
-	if b.saveErr != nil {
-		return b.saveErr
+	if b.failSaves > 0 {
+		b.failSaves--
+		return errors.New("brain.toml: read-only")
 	}
 	b.m = copyManifest(m)
 	b.saves++
@@ -146,6 +147,7 @@ type fakeMachine struct {
 	machine  domain.Machine
 	missing  bool
 	saveErr  error // of the machine file and overlays
+	stateErr error // of tree states and claude.ai builds
 	overlays map[string]map[string]any
 	states   map[string]domain.TreeState
 	built    map[string]map[string]string
@@ -189,6 +191,9 @@ func (m *fakeMachine) SaveOverlay(project string, s map[string]any) (string, err
 }
 
 func (m *fakeMachine) DropOverlay(project string) (string, error) {
+	if m.saveErr != nil {
+		return "", m.saveErr
+	}
 	if _, ok := m.overlays[project]; !ok {
 		return "", nil
 	}
@@ -209,15 +214,25 @@ func copyState(st domain.TreeState) domain.TreeState {
 	for k, v := range st.Links {
 		links[k] = v
 	}
-	st.Links, st.Settings = links, copySettings(st.Settings)
+	st.Links, st.Settings, st.Folders = links, copySettings(st.Settings), slices.Clone(st.Folders)
 	return st
 }
 
 func (m *fakeMachine) SaveState(st domain.TreeState) error {
+	if m.stateErr != nil {
+		return m.stateErr
+	}
 	m.states[st.Path] = copyState(st)
 	return nil
 }
-func (m *fakeMachine) DropState(dir string) error { delete(m.states, dir); return nil }
+
+func (m *fakeMachine) DropState(dir string) error {
+	if m.stateErr != nil {
+		return m.stateErr
+	}
+	delete(m.states, dir)
+	return nil
+}
 
 func (m *fakeMachine) States() ([]domain.TreeState, error) {
 	var states []domain.TreeState
@@ -235,13 +250,19 @@ func (m *fakeMachine) Built() (map[string]map[string]string, error) {
 	return c, nil
 }
 
-func (m *fakeMachine) SaveBuilt(b map[string]map[string]string) error { m.built = b; return nil }
+func (m *fakeMachine) SaveBuilt(b map[string]map[string]string) error {
+	if m.stateErr != nil {
+		return m.stateErr
+	}
+	m.built = b
+	return nil
+}
 
-// fakeTrees is working trees in memory: links, the team's real files,
-// settings files, what git ignores, and one exclude block per repo.
+// fakeTrees is working trees in memory: folders, links, the team's real
+// files, settings files, what git ignores, and one exclude block per repo.
 type fakeTrees struct {
 	trees     []domain.Tree
-	dirs      map[string]bool // checkouts on disk
+	dirs      map[string]bool // folders: checkouts, and what Link and WriteSettings make on the way
 	links     map[string]string
 	dangling  map[string]bool // link targets that do not exist
 	files     map[string]bool
@@ -279,27 +300,49 @@ func (w *fakeTrees) LinkTarget(p string) (string, bool) {
 	return t, ok
 }
 
+// mkdirs makes dir and the folders above it, as os.MkdirAll does.
+func (w *fakeTrees) mkdirs(dir string) {
+	for ; dir != "/" && dir != "."; dir = path.Dir(dir) {
+		w.dirs[dir] = true
+	}
+}
+
 func (w *fakeTrees) Link(p, target string) error {
-	if w.files[p] {
+	if w.files[p] || w.dirs[p] {
 		return fmt.Errorf("%s is a real file", p)
 	}
+	w.mkdirs(path.Dir(p))
 	w.links[p] = target
 	return nil
 }
 
+// Remove removes a file or link, or a folder that is empty, as os.Remove
+// does.
 func (w *fakeTrees) Remove(p string) error {
-	if !w.Present(p) {
+	switch {
+	case !w.Present(p):
 		return fmt.Errorf("no %s", p)
+	case w.dirs[p] && len(w.Entries(p)) > 0:
+		return fmt.Errorf("%s is not empty", p)
 	}
 	delete(w.links, p)
 	delete(w.files, p)
 	delete(w.settings, p)
+	delete(w.dirs, p)
 	return nil
+}
+
+func (w *fakeTrees) RemoveEmptyFolder(p string) (bool, error) {
+	if !w.dirs[p] || len(w.Entries(p)) > 0 {
+		return false, nil
+	}
+	delete(w.dirs, p)
+	return true, nil
 }
 
 func (w *fakeTrees) Entries(dir string) []string {
 	var names []string
-	for _, set := range []map[string]bool{w.files, linkSet(w.links)} {
+	for _, set := range []map[string]bool{w.files, w.dirs, keySet(w.links), keySet(w.settings)} {
 		for p := range set {
 			if path.Dir(p) == dir {
 				names = append(names, path.Base(p))
@@ -310,9 +353,9 @@ func (w *fakeTrees) Entries(dir string) []string {
 	return names
 }
 
-func linkSet(links map[string]string) map[string]bool {
+func keySet[V any](m map[string]V) map[string]bool {
 	set := map[string]bool{}
-	for p := range links {
+	for p := range m {
 		set[p] = true
 	}
 	return set
@@ -349,6 +392,29 @@ func (w *fakeTrees) SyncExclude(dir string, rels []string) error {
 	return nil
 }
 
+// gitSees lists the links in the tree at top that its repo's exclude block
+// does not keep out of git.
+func (w *fakeTrees) gitSees(top string) []string {
+	t, err := w.Locate(top)
+	if err != nil {
+		return nil
+	}
+	var block []string
+	for _, other := range w.trees {
+		if other.Repo == t.Repo && w.excludes[other.Main] != nil {
+			block = w.excludes[other.Main]
+		}
+	}
+	var seen []string
+	for p := range w.links {
+		if rel, ok := strings.CutPrefix(p, top+"/"); ok && !slices.Contains(block, rel) {
+			seen = append(seen, rel)
+		}
+	}
+	slices.Sort(seen)
+	return seen
+}
+
 func (w *fakeTrees) ReadSettings(p string) (map[string]any, error) {
 	return copySettings(w.settings[p]), nil
 }
@@ -357,6 +423,7 @@ func (w *fakeTrees) WriteSettings(p string, s map[string]any) error {
 	if s == nil {
 		s = map[string]any{}
 	}
+	w.mkdirs(path.Dir(p))
 	w.settings[p] = copySettings(s)
 	return nil
 }
@@ -373,11 +440,14 @@ func (s *fakeSelf) Upgrade(domain.Manifest, app.Reporter) error { s.upgrades++; 
 // fakeZips zips a skill as its name and description, so a changed
 // description is a changed zip.
 type fakeZips struct {
-	written     map[string][]byte // project/name
-	folderLinks map[string]string // skill dir -> link
+	written map[string][]byte // project/name
+	refused map[string]string // skill dir -> why Zip refuses it
 }
 
 func (z *fakeZips) Zip(s domain.Skill) ([]byte, error) {
+	if why, ok := z.refused[s.Dir]; ok {
+		return nil, errors.New(why)
+	}
 	return []byte(s.Name + ":" + s.Meta["description"]), nil
 }
 
@@ -388,7 +458,6 @@ func (z *fakeZips) Write(project, name string, b []byte) (string, error) {
 
 func (z *fakeZips) Has(project, name string) bool { return z.written[project+"/"+name] != nil }
 func (z *fakeZips) Remove(project, name string)   { delete(z.written, project+"/"+name) }
-func (z *fakeZips) FolderLink(dir string) string  { return z.folderLinks[dir] }
 
 // recorder keeps a use case's events.
 type recorder struct{ events []app.Event }
@@ -426,7 +495,7 @@ func newEnv(t *testing.T) *env {
 			settings: map[string]map[string]any{}, unignored: map[string]bool{}, tracked: map[string]bool{},
 			excludes: map[string][]string{}, damaged: map[string]bool{}},
 		self: &fakeSelf{},
-		zips: &fakeZips{written: map[string][]byte{}, folderLinks: map[string]string{}},
+		zips: &fakeZips{written: map[string][]byte{}, refused: map[string]string{}},
 	}
 	e.brain.m.Projects = map[string]*domain.Project{}
 	e.app = app.App{Brain: e.brain, Sources: e.sources, Machine: e.machine, Trees: e.trees, Self: e.self, Zips: e.zips}

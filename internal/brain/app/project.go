@@ -38,7 +38,7 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 	case p != nil:
 		r.Add(Event{Kind: EvProject, Project: name, Detail: "already in the Brain: this checkout joins it"})
 	default:
-		existing, err := a.Trees.ReadSettings(settingsPath(t.Top))
+		existing, err := a.Trees.ReadSettings(settingsPath(t.Main))
 		if err != nil {
 			return err
 		}

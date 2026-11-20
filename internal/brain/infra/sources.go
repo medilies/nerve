@@ -1,14 +1,12 @@
 package infra
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/medilies/nerve/internal/brain/app"
 	"github.com/medilies/nerve/internal/brain/domain"
@@ -63,14 +61,18 @@ func (SourceCache) Diff(repo, name, from, to string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("at %s: %w; drop it from %s first", to[:7], err, domain.ManifestFile)
 	}
-	var out bytes.Buffer
-	cmd := exec.Command("git", "diff", "--no-index", "--no-color", "--", oldDir, newDir)
-	cmd.Stdout = &out
-	var exit *exec.ExitError
-	if err := cmd.Run(); err != nil && (!errors.As(err, &exit) || exit.ExitCode() != 1) { // 1: they differ
+	// The source's own text only: no diff tool or text conversion of the
+	// user's, and no control character that a terminal would act on.
+	out, err := git("", "diff", "--no-index", "--no-color", "--no-ext-diff", "--no-textconv", "--", oldDir, newDir)
+	if err != nil && exitCode(err) != 1 { // 1: they differ
 		return "", err
 	}
-	return out.String(), nil
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+		return r
+	}, out), nil
 }
 
 // fetch returns a checkout of repo at sha, cached under the user cache dir.

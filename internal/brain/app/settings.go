@@ -78,16 +78,17 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common bool, r Rep
 		return err
 	}
 	k := domain.LeafKey(path)
+	shown := domain.ShowKey(k)
 	why := domain.Sensitive(k, v)
 	report := func(where string, before, after map[string]any, err error) error {
 		if errors.Is(err, errAlready) {
-			r.Add(Event{Kind: EvOK, Detail: fmt.Sprintf("%s already holds %s in %s", key, domain.ShowValue(k, v), where)})
+			r.Add(Event{Kind: EvOK, Detail: fmt.Sprintf("%s already holds %s in %s", shown, domain.ShowValue(k, v), where)})
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		r.Add(Event{Kind: EvSetting, Path: where, Key: key, Local: domain.Show(domain.Leaves(before), k), Brain: domain.Show(domain.Leaves(after), k)})
+		r.Add(Event{Kind: EvSetting, Path: where, Key: shown, Local: showAt(before, path), Brain: showAt(after, path)})
 		return nil
 	}
 	if common {
@@ -121,7 +122,7 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common bool, r Rep
 		if err != nil {
 			return report(file, nil, nil, err)
 		}
-		r.Add(Event{Kind: EvOverlay, Project: project, Key: key, Path: file, Detail: why})
+		r.Add(Event{Kind: EvOverlay, Project: project, Key: shown, Path: file, Detail: why})
 		return nil
 	}
 	before := p.Settings
@@ -131,6 +132,21 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common bool, r Rep
 		err = a.Brain.Save(l.m)
 	}
 	return report(domain.ManifestFile+" (project "+project+")", before, after, err)
+}
+
+// showAt shows the value at a path of keys in settings, an object included,
+// as ShowValue does, or "unset".
+func showAt(settings map[string]any, path []string) string {
+	var v any = settings
+	for _, key := range path {
+		o, _ := v.(map[string]any)
+		x, ok := o[key]
+		if !ok {
+			return "unset"
+		}
+		v = x
+	}
+	return domain.ShowValue(domain.LeafKey(path), v)
 }
 
 // copySettings deep-copies settings, so a change that fails leaves them
@@ -155,8 +171,13 @@ func (a App) RemoveSetting(ref ProjectRef, arg string, common, all bool, r Repor
 		return err
 	}
 	var item any
+	shown := domain.ShowKey(domain.LeafKey(path)) // the argument, nothing sensitive in it
 	if hasValue {
 		item = domain.ParseValue(raw)
+		if domain.Sensitive(domain.LeafKey(path), item) != "" {
+			raw = domain.Hidden
+		}
+		shown += "=" + raw
 	}
 	l, err := a.load()
 	if err != nil {
@@ -200,8 +221,10 @@ func (a App) RemoveSetting(ref ProjectRef, arg string, common, all bool, r Repor
 			return err
 		}
 	}
-	inBrain, inOverlay := 0, map[string]bool{}
-	var events []Event
+	// Each change is reported once saved, so a save that fails leaves no
+	// change unreported.
+	var inBrain []Event
+	inOverlay := map[string]Event{}
 	for _, ly := range layers {
 		if *ly.settings == nil || !domain.RemovePath(*ly.settings, path, item, hasValue) {
 			continue
@@ -209,16 +232,15 @@ func (a App) RemoveSetting(ref ProjectRef, arg string, common, all bool, r Repor
 		if len(*ly.settings) == 0 {
 			*ly.settings = nil
 		}
-		e := Event{Kind: EvDropped, Project: ly.project, Item: "setting " + arg}
+		e := Event{Kind: EvDropped, Project: ly.project, Item: "setting " + shown}
 		if ly.overlay {
-			inOverlay[ly.project] = true
 			e.Detail = "local overlay"
+			inOverlay[ly.project] = e
 		} else {
-			inBrain++
+			inBrain = append(inBrain, e)
 		}
-		events = append(events, e)
 	}
-	if len(events) == 0 {
+	if len(inBrain)+len(inOverlay) == 0 {
 		where := "common"
 		switch {
 		case all:
@@ -226,11 +248,14 @@ func (a App) RemoveSetting(ref ProjectRef, arg string, common, all bool, r Repor
 		case !common:
 			where = "project " + layers[0].project
 		}
-		return fmt.Errorf("no %s holds %s", where, arg)
+		return fmt.Errorf("no %s holds %s", where, shown)
 	}
-	if inBrain > 0 {
+	if len(inBrain) > 0 {
 		if err := a.Brain.Save(l.m); err != nil {
 			return err
+		}
+		for _, e := range inBrain {
+			r.Add(e)
 		}
 	}
 	for _, name := range domain.SortedKeys(inOverlay) {
@@ -244,9 +269,7 @@ func (a App) RemoveSetting(ref ProjectRef, arg string, common, all bool, r Repor
 		if err != nil {
 			return err
 		}
-	}
-	for _, e := range events {
-		r.Add(e)
+		r.Add(inOverlay[name])
 	}
 	return nil
 }
@@ -287,7 +310,7 @@ func (a App) ListSettings(ref ProjectRef, r Reporter) error {
 				from = append(from, layer.name)
 			}
 		}
-		r.Add(Event{Kind: EvValue, Project: project, Key: domain.Dotted(k), Brain: domain.Show(final, k), Detail: strings.Join(from, " + ")})
+		r.Add(Event{Kind: EvValue, Project: project, Key: domain.ShowKey(k), Brain: domain.Show(final, k), Detail: strings.Join(from, " + ")})
 	}
 	if len(final) == 0 {
 		r.Add(Event{Kind: EvOK, Detail: "project " + project + " has no settings"})

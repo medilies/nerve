@@ -33,7 +33,7 @@ const usage = `usage: nerve <command>
 
   skill add|rm <name>          add a skill to the project, or take it out (rm --all: out of every project)
   skill ls                     the project's skills, and the team's
-  skill update <repo> [sha]    show the upstream diff of a source's skills, then move its pin
+  skill update <repo> [sha]    show how a source's skills changed since their pin, then move it
   agent add|rm <name>, agent ls                      the same for own agents
   hook add|rm <name>, hook ls                        the same for hooks defined in the Brain
   plugin add|rm <plugin>@<marketplace>, plugin ls    the same for Claude Code plugins
@@ -44,10 +44,12 @@ const usage = `usage: nerve <command>
                                (--common: from common; --all: from common, every project and their overlays)
   setting ls                   the project's settings, and where each comes from
 
-  help                         print this
+  help, --help, -h             print this
 
-A command acts on the project around the working directory; --project <name> names another.
+status, project autosync, and the skill, agent, hook, plugin and setting commands act on the
+project around the working directory; --project <name> names another.
 A key that holds a dot is written in double quotes: enabledPlugins."x@y.z".
+-- ends the flags, so a value after it may start with --.
 Commands that change the Brain edit brain.toml and never commit.
 --json, with any command, prints one JSON document of its events and error instead of text.
 `
@@ -61,7 +63,7 @@ var selfSkill []byte
 // version is set at release time.
 var version string
 
-// release is where nerve upgrades itself from; tests replace it.
+// release is where nerve upgrades itself from.
 var release = infra.GitHubRelease()
 
 // errUsage is a command line nerve does not know; it prints the usage.
@@ -72,9 +74,12 @@ type flags struct {
 	project                    string
 	all, common, here, discard bool
 	hook                       bool     // autosync: print the report as a hook's output
+	json                       bool     // print one JSON document
+	help                       bool     // print the usage
 	given                      []string // each flag given, as written
 }
 
+// parseFlags splits args into words and flags. -- ends the flags.
 func parseFlags(args []string) ([]string, flags, error) {
 	var f flags
 	var pos []string
@@ -82,6 +87,12 @@ func parseFlags(args []string) ([]string, flags, error) {
 		a := args[i]
 		name, _, _ := strings.Cut(a, "=")
 		switch {
+		case a == "--":
+			return append(pos, args[i+1:]...), f, nil
+		case a == "--help" || a == "-h":
+			f.help = true
+		case a == "--json":
+			f.json = true
 		case a == "--all":
 			f.all = true
 		case a == "--common":
@@ -92,11 +103,11 @@ func parseFlags(args []string) ([]string, flags, error) {
 			f.discard = true
 		case a == "--hook":
 			f.hook = true
-		case a == "--project" && i+1 < len(args):
+		case a == "--project" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-"):
 			i++
 			f.project = args[i]
-		case strings.HasPrefix(a, "--project="):
-			f.project = strings.TrimPrefix(a, "--project=")
+		case name == "--project": // with no name, or --project=<name>
+			f.project = strings.TrimPrefix(strings.TrimPrefix(a, "--project"), "=")
 		case strings.HasPrefix(a, "--"):
 			return nil, f, errUsage
 		default:
@@ -111,10 +122,10 @@ func parseFlags(args []string) ([]string, flags, error) {
 	return pos, f, nil
 }
 
-// only refuses a flag the command does not take.
+// only refuses a flag the command does not take; any command takes --json.
 func (f flags) only(allowed ...string) error {
 	for _, g := range f.given {
-		if !slices.Contains(allowed, g) {
+		if g != "--json" && !slices.Contains(allowed, g) {
 			return usageError(g + " does not go with this command")
 		}
 	}
@@ -130,16 +141,17 @@ func main() { os.Exit(cli(os.Args[1:], os.Stdout, os.Stderr)) }
 // cli runs nerve on args, printing to stdout and stderr, and returns its
 // exit code.
 func cli(args []string, stdout, stderr io.Writer) int {
-	plain := slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == "--json" })
 	mode := infra.AsText
-	switch {
-	case slices.Contains(plain, "--hook"):
-		mode = infra.AsHook
-	case len(plain) < len(args):
-		mode = infra.AsJSON
+	if pos, f, err := parseFlags(args); err == nil {
+		switch {
+		case f.hook && len(pos) > 0 && pos[0] == "sync": // only autosync's sync
+			mode = infra.AsHook
+		case f.json:
+			mode = infra.AsJSON
+		}
 	}
 	r := infra.NewReport(stdout, mode)
-	err := run(plain, r)
+	err := run(args, r)
 	switch {
 	case r.Finish(err) || err == nil:
 	case errors.Is(err, errUsage):
@@ -181,33 +193,56 @@ func onMachine() (app.App, error) {
 }
 
 // onBrainHere builds nerve on the Brain around the working directory, else
-// this machine's.
+// this machine's. Inside a checkout this machine lists, a brain.toml is the
+// project's own, so it is this machine's Brain.
 func onBrainHere(wd string) (app.App, error) {
 	machine, err := infra.NewMachineFiles()
 	if err != nil {
 		return app.App{}, err
 	}
-	for dir := wd; ; dir = filepath.Dir(dir) {
-		if _, err := os.Stat(filepath.Join(dir, domain.ManifestFile)); err == nil {
-			return wire(dir, machine)
-		}
-		if filepath.Dir(dir) == dir {
-			break
-		}
+	m, merr := machine.Load()
+	if dir, ok := brainAround(wd); ok && (merr != nil || !inCheckout(m, wd)) {
+		return wire(dir, machine)
 	}
-	m, err := machine.Load()
-	if err != nil {
-		return app.App{}, fmt.Errorf("no %s in this directory or above, and %w", domain.ManifestFile, err)
+	if merr != nil {
+		return app.App{}, fmt.Errorf("no %s in this directory or above, and %w", domain.ManifestFile, merr)
 	}
 	return wire(m.Brain, machine)
 }
 
+// brainAround finds the folder holding a brain.toml, from dir up.
+func brainAround(dir string) (string, bool) {
+	for ; ; dir = filepath.Dir(dir) {
+		if _, err := os.Stat(filepath.Join(dir, domain.ManifestFile)); err == nil {
+			return dir, true
+		}
+		if filepath.Dir(dir) == dir {
+			return "", false
+		}
+	}
+}
+
+// inCheckout says whether dir is in a checkout machine lists, or a
+// worktree of one.
+func inCheckout(m domain.Machine, dir string) bool {
+	t, err := infra.LocalTrees{}.Locate(dir)
+	if err != nil {
+		return false
+	}
+	_, top := m.CheckoutAt(t.Top)
+	_, main := m.CheckoutAt(t.Main)
+	return top || main
+}
+
 func run(args []string, r *infra.Report) error {
 	pos, f, err := parseFlags(args)
-	if err != nil {
+	switch {
+	case err != nil:
 		return err
-	}
-	if len(pos) == 0 {
+	case f.help:
+		r.Add(app.Event{Kind: app.EvUsage, Detail: strings.TrimSpace(usage)})
+		return nil
+	case len(pos) == 0:
 		return errUsage
 	}
 	wd, err := os.Getwd()
@@ -222,7 +257,7 @@ func run(args []string, r *infra.Report) error {
 	var do func(app.App) error
 	brainHere := false // run on the Brain around the working directory
 	switch {
-	case slices.Contains([]string{"help", "-h"}, cmd) && len(rest) == 0:
+	case cmd == "help" && len(rest) == 0:
 		if err := f.only(); err != nil {
 			return err
 		}

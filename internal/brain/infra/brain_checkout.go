@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io/fs"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -127,6 +129,15 @@ func (b BrainCheckout) Save(m domain.Manifest) error {
 			f.Hooks[name] = hookTable(h)
 		}
 	}
+	at := nullAt("common.settings", m.Common)
+	for _, name := range domain.SortedKeys(m.Projects) {
+		if at == "" {
+			at = nullAt("project."+name+".settings", m.Projects[name].Settings)
+		}
+	}
+	if at != "" {
+		return fmt.Errorf("%s: %s: settings cannot hold null", domain.ManifestFile, at)
+	}
 	if len(m.Common) > 0 {
 		f.Common = &commonTable{Settings: forTOML(m.Common).(map[string]any)}
 	}
@@ -166,20 +177,72 @@ func dropBareHeaders(b []byte) []byte {
 }
 
 // normalize turns decoded TOML into what decoded JSON looks like, so values
-// from both compare equal. It refuses what JSON cannot hold: inf and nan.
+// from both compare equal. It refuses what JSON cannot hold: inf, nan and
+// dates.
 func normalize(where string, v map[string]any) (map[string]any, error) {
 	if len(v) == 0 {
 		return nil, nil
 	}
+	if key := unfit(where, v); key != "" {
+		return nil, fmt.Errorf("%s: %s: settings cannot hold inf, nan or dates", domain.ManifestFile, key)
+	}
 	b, err := json.Marshal(v)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %s: settings must be what a JSON file can hold, so no inf or nan: %w", domain.ManifestFile, where, err)
-	}
-	var out map[string]any
-	if err := json.Unmarshal(b, &out); err != nil {
 		return nil, fmt.Errorf("%s: %s: %w", domain.ManifestFile, where, err)
 	}
+	var out map[string]any
+	if err := decodeJSON(b, &out); err != nil {
+		return nil, fmt.Errorf("%s: %s: %w", domain.ManifestFile, where, err)
+	}
+	domain.Numbers(out)
 	return out, nil
+}
+
+// unfit names the first value under key that JSON cannot hold, or "".
+func unfit(key string, v any) string {
+	switch t := v.(type) {
+	case float64:
+		if math.IsInf(t, 0) || math.IsNaN(t) {
+			return key
+		}
+	case time.Time:
+		return key
+	case []any:
+		for _, x := range t {
+			if k := unfit(key, x); k != "" {
+				return k
+			}
+		}
+	case []map[string]any:
+		for _, x := range t {
+			if k := unfit(key, x); k != "" {
+				return k
+			}
+		}
+	case map[string]any:
+		for _, k := range domain.SortedKeys(t) {
+			if k := unfit(key+"."+k, t[k]); k != "" {
+				return k
+			}
+		}
+	}
+	return ""
+}
+
+// nullAt names the first setting under key that holds null, which TOML
+// cannot, or "".
+func nullAt(key string, settings map[string]any) string {
+	for _, k := range domain.SortedKeys(settings) {
+		v := settings[k]
+		if sub, ok := v.(map[string]any); ok {
+			if at := nullAt(key+"."+k, sub); at != "" {
+				return at
+			}
+		} else if domain.HasNull(v) {
+			return key + "." + k
+		}
+	}
+	return ""
 }
 
 // forTOML turns decoded JSON into values TOML writes as people would: whole
@@ -221,25 +284,41 @@ func (b BrainCheckout) MovePin(old, new string) error {
 	return writeFile(path, bytes.Replace(content, []byte(old), []byte(new), 1))
 }
 
+// pullTimeout bounds the fetch of a pull, so autosync reports a network
+// that does not answer before Claude Code stops waiting for it.
+const pullTimeout = 30 * time.Second
+
 // Pull fast-forwards the checkout from its upstream. It skips a checkout
-// that is not a git repo, has no upstream, or has uncommitted changes to
-// tracked files, and fails when the checkout has diverged. Untracked files
-// never block a fast-forward; git refuses on its own if one would be
-// overwritten.
+// that is not a git repo, has a detached HEAD, no upstream, or uncommitted
+// changes to tracked files, or whose remote it cannot reach. It fails when
+// the checkout has diverged. Untracked files never block a fast-forward;
+// git refuses on its own if one would be overwritten.
 func (b BrainCheckout) Pull(r app.Reporter) error {
 	if _, err := os.Stat(filepath.Join(b.root, ".git")); err != nil {
 		return nil
 	}
-	if _, err := git(b.root, "rev-parse", "--abbrev-ref", "@{upstream}"); err != nil {
-		r.Add(app.Event{Kind: app.EvPullSkipped, Path: b.root, Detail: "no upstream branch"})
+	skip := func(why string) error {
+		r.Add(app.Event{Kind: app.EvPullSkipped, Path: b.root, Detail: why})
 		return nil
 	}
-	if out, err := git(b.root, "status", "--porcelain", "--untracked-files=no"); err != nil || trim(out) != "" {
-		r.Add(app.Event{Kind: app.EvPullSkipped, Path: b.root, Detail: "uncommitted changes"})
-		return nil
+	if _, err := git(b.root, "symbolic-ref", "-q", "HEAD"); err != nil {
+		return skip("detached HEAD")
+	}
+	if _, err := git(b.root, "rev-parse", "--abbrev-ref", "@{upstream}"); err != nil {
+		return skip("no upstream branch")
+	}
+	out, err := git(b.root, "status", "--porcelain", "--untracked-files=no")
+	switch {
+	case err != nil:
+		return skip("cannot read its git state: " + firstLine(err))
+	case trim(out) != "":
+		return skip("uncommitted changes")
+	}
+	if _, err := gitWithin(pullTimeout, b.root, "fetch", "-q"); err != nil {
+		return skip("could not reach its remote")
 	}
 	before := b.Head()
-	if _, err := git(b.root, "pull", "-q", "--ff-only"); err != nil {
+	if _, err := git(b.root, "merge", "-q", "--ff-only", "@{upstream}"); err != nil {
 		return fmt.Errorf("pull %s: %w", b.root, err)
 	}
 	if after := b.Head(); after != before {
@@ -257,28 +336,67 @@ func (b BrainCheckout) Head() string {
 }
 
 func (b BrainCheckout) State() string {
+	if _, err := os.Stat(filepath.Join(b.root, ".git")); err != nil {
+		return ""
+	}
+	out, err := git(b.root, "status", "--porcelain", "--untracked-files=no")
+	if err != nil {
+		return "cannot read its git state: " + firstLine(err)
+	}
 	var parts []string
-	if out, err := git(b.root, "status", "--porcelain", "--untracked-files=no"); err == nil && trim(out) != "" {
+	if trim(out) != "" {
 		parts = append(parts, "uncommitted changes")
 	}
-	if out, err := git(b.root, "rev-list", "--count", "@{upstream}..HEAD"); err == nil && trim(out) != "0" {
-		parts = append(parts, trim(out)+" commits not pushed")
+	if _, err := git(b.root, "rev-parse", "--abbrev-ref", "@{upstream}"); err == nil {
+		out, err := git(b.root, "rev-list", "--count", "@{upstream}..HEAD")
+		switch {
+		case err != nil:
+			parts = append(parts, "cannot count the commits not pushed: "+firstLine(err))
+		case trim(out) != "0":
+			parts = append(parts, trim(out)+" commits not pushed")
+		}
 	}
 	return strings.Join(parts, ", ")
 }
 
-var ownerPattern = regexp.MustCompile(`[/:]([A-Za-z0-9_.-]+)/[^/]+?(\.git)?/?$`)
+// ownerPattern is what nerve takes as an owner: a name that makes a plain
+// folder prefix.
+var ownerPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]*$`)
 
+// Owner is the owner of the origin remote: the folder that holds the
+// repo in the remote's path, such as medilies in
+// git@github.com:medilies/brain.git.
 func (b BrainCheckout) Owner() (string, error) {
-	url, err := git(b.root, "remote", "get-url", "origin")
+	out, err := git(b.root, "remote", "get-url", "origin")
 	if err != nil {
 		return "", errors.New("the Brain has no origin remote to name the prefix nerve links yours under")
 	}
-	match := ownerPattern.FindStringSubmatch(trim(url))
-	if match == nil {
-		return "", fmt.Errorf("cannot read an owner from the Brain's remote %s", trim(url))
+	remote := trim(out)
+	owner, ok := ownerOf(remote)
+	if !ok {
+		return "", fmt.Errorf("the Brain's remote %s names no owner/repo to name the prefix nerve links yours under", remote)
 	}
-	return strings.ToLower(match[1]), nil
+	return owner, nil
+}
+
+// ownerOf reads the owner from a remote URL, an scp-like one included.
+func ownerOf(remote string) (string, bool) {
+	path := remote
+	if scheme, _, ok := strings.Cut(remote, "://"); ok && !strings.Contains(scheme, "/") {
+		u, err := url.Parse(remote)
+		if err != nil {
+			return "", false
+		}
+		path = u.Path
+	} else if host, rest, ok := strings.Cut(remote, ":"); ok && !strings.Contains(host, "/") {
+		path = rest
+	}
+	parts := strings.FieldsFunc(path, func(r rune) bool { return r == '/' })
+	if len(parts) < 2 {
+		return "", false
+	}
+	owner := strings.ToLower(parts[len(parts)-2])
+	return owner, ownerPattern.MatchString(owner) && owner != ".."
 }
 
 func (b BrainCheckout) OwnSkill(name string) (domain.Skill, bool, error) {

@@ -16,12 +16,16 @@ var (
 	tokenPattern = regexp.MustCompile(`\b(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})`)
 )
 
-// Sensitive says why a setting must stay out of the Brain, or "". key is a
-// leaf path.
+// Sensitive says why a setting must stay out of the Brain, or "": it is
+// under a key that holds secrets, or its key or value is identifying or
+// secret. key is a leaf path.
 func Sensitive(key string, v any) string {
-	top, _, _ := strings.Cut(key, Sep)
-	if slices.Contains(SecretKeys, top) {
-		return top + " may hold secrets"
+	keys := strings.Split(key, Sep)
+	if slices.Contains(SecretKeys, keys[0]) {
+		return keys[0] + " may hold secrets"
+	}
+	if why := SensitiveText(keys); why != "" {
+		return "the key " + why
 	}
 	return SensitiveText(v)
 }

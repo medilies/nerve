@@ -26,7 +26,7 @@ nowhere else.
 - **Nothing lost.** A setting Claude Code changed is reported as drift,
   never overwritten. Delete a skill's link, and the Brain drops it too.
 - **Pinned and reviewed.** Third-party skills sit at a commit, and move
-  only after you read the upstream diff.
+  only after you read how they changed.
 - **Nothing sensitive in the Brain.** Secrets, home paths and emails
   are refused, and go to a local overlay that never leaves the machine.
 - **Ask Claude.** In a listed project, `/nerve` says where things stand,
@@ -34,33 +34,19 @@ nowhere else.
 
 ## A Brain
 
-```text
-brain.toml          # what each project gets
-skills/<name>/      # own skills
-agents/<name>.md    # own agents
-hooks/<script>      # scripts hooks run
-```
+A git repo you own: `brain.toml`, with your own skills, agents and hook
+scripts beside it. `brain.toml` says what each project gets:
 
 ```toml
-# ~/dev/brain/brain.toml (see docs/brain.md)
-nerve = "v0.3.0"
-
-[[source]]
-repo = "acme/skills"
-sha = "5863806dd4e15c63174bee4e7515a4256792ecfa"
-skills = ["grilling"]
-
-[common.settings.permissions]
-deny = ["NotebookEdit"]
-
 [project.billing]
-skills = ["go-stack", "grilling"]
-agents = ["reviewer"]
+skills = ["go-stack"]
 plugins = ["gopls-lsp@claude-plugins-official"]
 
 [project.billing.settings]
 model = "opus"
 ```
+
+[The Brain](docs/brain.md) has the whole layout and every key.
 
 ## Install
 
@@ -102,13 +88,14 @@ nerve sync --here                    # carry the Brain to it; autosync does this
 nerve status                         # where it stands: links, the team's skills, drift
 nerve skill rm grilling --all        # take a skill out of every project
 nerve setting rm permissions.deny=Cron --all   # revoke one denied tool everywhere
-nerve skill update acme/skills       # read the upstream diff, then move the pin
+nerve skill update acme/skills       # read how its skills changed, then move the pin
 nerve project autosync off           # no sync at session start for this project
 nerve sync                           # every checkout on this machine, and the claude.ai zips
 nerve check                          # validate the Brain, as its CI does
 ```
 
-A command acts on the project around the working directory;
+A command that acts on one project, such as `skill add` or
+`setting set`, acts on the one around the working directory;
 `--project <name>` names another. Commands that change the Brain edit
 `brain.toml` and never commit. `--json` prints one JSON document of
 what happened. A settings key that holds a dot goes in double quotes:

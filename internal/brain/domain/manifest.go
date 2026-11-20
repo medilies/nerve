@@ -6,6 +6,7 @@ package domain
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -78,7 +79,7 @@ func (m Manifest) Validate() error {
 		return fmt.Errorf("%s: nerve-checksums must be the lowercase SHA-256 of the pinned nerve release's checksums.txt", ManifestFile)
 	}
 	for _, s := range m.Sources {
-		if !RepoPattern.MatchString(s.Repo) {
+		if !RepoPattern.MatchString(s.Repo) || slices.ContainsFunc(strings.Split(s.Repo, "/"), func(p string) bool { return p == "." || p == ".." }) {
 			return fmt.Errorf("%s: repo %q is not owner/name", ManifestFile, s.Repo)
 		}
 		if !SHAPattern.MatchString(s.SHA) {
@@ -193,13 +194,11 @@ func (m Manifest) SensitiveValues() []Problem {
 	add := func(key, why string) {
 		p = append(p, Problem{Path: ManifestFile, Key: key, Detail: why})
 	}
-	settings := func(where string, s map[string]any) {
+	settings := func(where, fix string, s map[string]any) {
 		l := Leaves(s)
 		for _, k := range SortedKeys(l) {
 			if why := Sensitive(k, l[k]); why != "" {
-				add(where+Dotted(k), why+": move it to a local overlay")
-			} else if why := SensitiveText(strings.Split(k, Sep)); why != "" {
-				add(where+Dotted(k), "the key "+why+": move it to a local overlay")
+				add(where+Dotted(k), why+": "+fix)
 			}
 		}
 	}
@@ -218,14 +217,14 @@ func (m Manifest) SensitiveValues() []Problem {
 		text("hook."+name+".matcher", h.Matcher)
 		text("hook."+name+".command", h.Command)
 	}
-	settings("common.settings.", m.Common)
+	settings("common.settings.", "run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay", m.Common)
 	for _, name := range SortedKeys(m.Projects) {
 		pr := m.Projects[name]
 		text("project."+name, name)
 		for _, kind := range ItemKinds {
 			text("project."+name+"."+kind+"s", *pr.List(kind))
 		}
-		settings("project."+name+".settings.", pr.Settings)
+		settings("project."+name+".settings.", "run nerve setting rm on it, then nerve setting set, which keeps it in the local overlay", pr.Settings)
 	}
 	return p
 }

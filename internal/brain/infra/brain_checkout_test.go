@@ -1,12 +1,14 @@
 package infra
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/medilies/nerve/internal/brain/app"
+	"github.com/medilies/nerve/internal/brain/domain"
 )
 
 type events []app.Event
@@ -51,7 +53,7 @@ model = "opus"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Common["cleanupPeriodDays"] != float64(30) || m.Projects["app"].Settings["model"] != "opus" || m.Hooks["fmt"].Event != "PostToolUse" {
+	if m.Common["cleanupPeriodDays"] != int64(30) || m.Projects["app"].Settings["model"] != "opus" || m.Hooks["fmt"].Event != "PostToolUse" {
 		t.Errorf("loaded %+v", m)
 	}
 	if err := brain.Save(m); err != nil {
@@ -153,6 +155,55 @@ func TestPullSaysWhyItSkipped(t *testing.T) {
 	}
 }
 
+func TestPullSkipsABrainWhoseRemoteCannotBeReached(t *testing.T) {
+	e := newTestEnv(t)
+	e.published()
+	if err := os.Rename(e.path("brain.git"), e.path("moved.git")); err != nil {
+		t.Fatal(err)
+	}
+	var r events
+
+	err := NewBrainCheckout(e.path("brain")).Pull(&r)
+
+	if err != nil || r.String() != "no pull  "+e.path("brain")+": could not reach its remote" {
+		t.Errorf("got %v, events: %s", err, r)
+	}
+}
+
+func TestPullFailsOnADivergedBrain(t *testing.T) {
+	e := newTestEnv(t)
+	e.published()
+	e.write(e.path("brain/skills/x/SKILL.md"), "x")
+	e.commit(e.path("brain"))
+
+	err := NewBrainCheckout(e.path("brain")).Pull(&events{})
+
+	if err == nil || !strings.Contains(err.Error(), "pull "+e.path("brain")) {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestPullSaysWhenHeadIsDetached(t *testing.T) {
+	e := newTestEnv(t)
+	e.published()
+	e.git(e.path("brain"), "checkout", "-q", "--detach")
+	var r events
+
+	if err := NewBrainCheckout(e.path("brain")).Pull(&r); err != nil || !strings.HasSuffix(r.String(), ": detached HEAD") {
+		t.Errorf("got %v, events: %s", err, r)
+	}
+}
+
+func TestStateSaysWhenGitFails(t *testing.T) {
+	e := newTestEnv(t)
+	e.published()
+	e.write(e.path("brain/.git/index"), "garbage")
+
+	if got := NewBrainCheckout(e.path("brain")).State(); !strings.HasPrefix(got, "cannot read its git state: ") {
+		t.Errorf("state is %q", got)
+	}
+}
+
 func TestOwnerIsTheOriginRemotesOwner(t *testing.T) {
 	e := newTestEnv(t)
 	brain := e.repo(e.path("brain"))
@@ -165,10 +216,18 @@ func TestOwnerIsTheOriginRemotesOwner(t *testing.T) {
 		"git@github.com:Medilies/brain.git":     "medilies",
 		"https://github.com/medilies/brain.git": "medilies",
 		"ssh://git@host:22/team/brain":          "team",
+		"https://host:8443/team/brain.git":      "team",
+		"https://gitlab.com/group/sub/brain":    "sub",
 	} {
 		e.git(brain, "remote", "set-url", "origin", url)
 		if got, err := b.Owner(); got != want {
 			t.Errorf("%s: owner %q (%v), want %q", url, got, err, want)
+		}
+	}
+	for _, url := range []string{"https://host:8443/brain.git", "https://gitlab.example.com/brain.git", "git@host:brain.git", "https://host/../brain"} {
+		e.git(brain, "remote", "set-url", "origin", url)
+		if got, err := b.Owner(); err == nil || !strings.Contains(err.Error(), "names no owner") {
+			t.Errorf("%s: owner %q (%v)", url, got, err)
 		}
 	}
 }
@@ -214,10 +273,40 @@ func TestHeadAndStateOfAPlainFolderAreEmpty(t *testing.T) {
 
 func TestLoadRefusesSettingsJSONCannotHold(t *testing.T) {
 	e := newTestEnv(t)
-	for _, toml := range []string{"[common.settings]\nx = inf\n", "[project.app.settings]\nx = [nan]\n"} {
+	for toml, key := range map[string]string{
+		"[common.settings]\nx = inf\n":                  "common.settings.x",
+		"[project.app.settings]\nx = [nan]\n":           "project.app.settings.x",
+		"[project.app.settings.a]\nwhen = 2024-01-01\n": "project.app.settings.a.when",
+	} {
 		e.write(e.path("brain/brain.toml"), toml)
-		if _, err := NewBrainCheckout(e.path("brain")).Load(); err == nil || !strings.Contains(err.Error(), "no inf or nan") {
+		if _, err := NewBrainCheckout(e.path("brain")).Load(); err == nil || !strings.Contains(err.Error(), key+": settings cannot hold inf, nan or dates") {
 			t.Errorf("%s: got %v", toml, err)
 		}
+	}
+}
+
+func TestSettingsRoundTripBrainTomlWithEveryDigit(t *testing.T) {
+	e := newTestEnv(t)
+	b := NewBrainCheckout(e.path("brain"))
+	m := domain.Manifest{Common: map[string]any{"big": domain.ParseValue("9007199254740993"), "f": domain.ParseValue("1.5"), "n": domain.ParseValue("2.0")}}
+
+	if err := b.Save(m); err != nil {
+		t.Fatal(err)
+	}
+	got, err := b.Load()
+
+	if err != nil || !reflect.DeepEqual(got.Common, m.Common) {
+		t.Errorf("loaded %v (%v), want %v", got.Common, err, m.Common)
+	}
+}
+
+func TestSaveNamesASettingThatHoldsNull(t *testing.T) {
+	e := newTestEnv(t)
+	m := domain.Manifest{Projects: map[string]*domain.Project{"app": {Settings: map[string]any{"a": []any{nil, 1}}}}}
+
+	err := NewBrainCheckout(e.path("brain")).Save(m)
+
+	if err == nil || !strings.Contains(err.Error(), "project.app.settings.a: settings cannot hold null") {
+		t.Errorf("got %v", err)
 	}
 }

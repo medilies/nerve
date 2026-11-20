@@ -47,7 +47,7 @@ func (a App) here(machine domain.Machine, dir string) (domain.Tree, string, erro
 			return t, c.Project, nil
 		}
 	}
-	return t, "", fmt.Errorf("%s is not a listed checkout: run nerve project add <name> here, or pass --project", t.Top)
+	return t, "", fmt.Errorf("%s is not a listed checkout: run nerve project add <name> in it, or pass --project", t.Top)
 }
 
 // project returns the project ref names.

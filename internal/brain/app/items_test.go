@@ -59,6 +59,20 @@ func TestAddItemRefusesWhatTheBrainDoesNotOffer(t *testing.T) {
 	}
 }
 
+func TestAddItemRefusesAnIdentifyingName(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+
+	err := e.app.AddItem(target("/w/app"), "plugin", "tool@bob.io", &recorder{})
+
+	if err == nil || err.Error() != `plugin "tool@bob.io" holds an email address, so it cannot go in the Brain: enable it on this machine only with nerve setting set 'enabledPlugins."tool@bob.io"' true` {
+		t.Errorf("got %v", err)
+	}
+	if e.brain.saves != 0 {
+		t.Errorf("the Brain was saved")
+	}
+}
+
 func TestRemoveItemFromTheProjectOrEveryProject(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app").Skills = []string{"go-stack", "tdd"}
@@ -89,7 +103,7 @@ func TestListItemsShowsLinksAndTheTeamsOwn(t *testing.T) {
 	e.ownSkill("go-stack")
 	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
 	e.sources.skills["acme/up@"+pinA+"/grilling"] = domain.Skill{Name: "grilling", Dir: "/cache/grilling"}
-	e.trees.files["/w/app/.claude/skills/go-stack"] = true
+	e.trees.mkdirs("/w/app/.claude/skills/go-stack")
 	e.must(e.sync("/w/app", app.SyncOptions{}))
 	r := &recorder{}
 

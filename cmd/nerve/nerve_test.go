@@ -132,15 +132,20 @@ func TestFlagsACommandDoesNotTakeAreRefused(t *testing.T) {
 			t.Errorf("%v: got %v", args, err)
 		}
 	}
-	for _, args := range [][]string{
-		{"sync", "--project", "app"},
-		{"skill", "add", "a", "--common"},
-		{"status", "--all"},
-		{"check", "--here"},
-		{"status", "--project="},
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"sync", "--project", "app"}, "--project does not go with this command"},
+		{[]string{"skill", "add", "a", "--common"}, "--common does not go with this command"},
+		{[]string{"status", "--all"}, "--all does not go with this command"},
+		{[]string{"check", "--here"}, "--here does not go with this command"},
+		{[]string{"status", "--hook"}, "--hook does not go with this command"},
+		{[]string{"status", "--project="}, "--project needs a project name"},
+		{[]string{"skill", "rm", "a", "--project", "--all"}, "--project needs a project name"},
 	} {
-		if _, err := w.in(w.proj, infra.AsText, args...); !errors.Is(err, errUsage) {
-			t.Errorf("%v: got %v", args, err)
+		if _, err := w.in(w.proj, infra.AsText, c.args...); !errors.Is(err, errUsage) || !strings.HasPrefix(err.Error(), c.want+"\n") {
+			t.Errorf("%v: got %v", c.args, err)
 		}
 	}
 	if got := w.read(filepath.Join(w.brain, domain.ManifestFile)); got != "" {
@@ -173,6 +178,141 @@ func TestTheExitCodeSaysWhetherACommandFailed(t *testing.T) {
 	}
 }
 
+func TestHookOutputIsOnlyForSync(t *testing.T) {
+	w := newWorld(t)
+	w.nerve(w.home, "init", w.brain)
+
+	code, out, errOut := w.cliIn(w.proj, "status", "--hook")
+
+	if code != 1 || out != "" || !strings.HasPrefix(errOut, "--hook does not go with this command") {
+		t.Errorf("exits %d, prints %q and %q", code, out, errOut)
+	}
+}
+
+func TestHelpWorksAfterAnyWord(t *testing.T) {
+	w := newWorld(t)
+	for _, args := range [][]string{{"--help"}, {"skill", "-h"}, {"setting", "set", "--help"}} {
+		if code, out, _ := w.cliIn(w.home, args...); code != 0 || !strings.Contains(out, "usage: nerve") {
+			t.Errorf("%v exits %d", args, code)
+		}
+	}
+}
+
+func TestDoubleDashPassesAValueThatLooksLikeAFlag(t *testing.T) {
+	w := newWorld(t)
+	w.nerve(w.home, "init", w.brain)
+	w.nerve(w.proj, "project", "add", "app")
+
+	w.nerve(w.proj, "--json", "setting", "set", "outputStyle", "--", "--json")
+
+	if got := w.read(filepath.Join(w.brain, domain.ManifestFile)); !strings.Contains(got, `outputStyle = "--json"`) {
+		t.Errorf("brain.toml is:\n%s", got)
+	}
+}
+
+func TestProjectFlagNamesAnotherProject(t *testing.T) {
+	w := newWorld(t)
+	w.skill("go-stack")
+	w.nerve(w.home, "init", w.brain)
+	w.nerve(w.proj, "project", "add", "app")
+
+	w.nerve(w.home, "skill", "add", "go-stack", "--project", "app")
+	w.nerve(w.home, "setting", "set", "model", "opus", "--project=app")
+
+	if out := w.nerve(w.home, "skill", "ls", "--project", "app"); !strings.Contains(out, "skill go-stack own") {
+		t.Errorf("skill ls:\n%s", out)
+	}
+	if out := w.nerve(w.home, "setting", "ls", "--project", "app"); !strings.Contains(out, `model = "opus"  (project)`) {
+		t.Errorf("setting ls:\n%s", out)
+	}
+}
+
+func TestEveryUsageLineRuns(t *testing.T) {
+	w := newWorld(t)
+	w.skill("go-stack")
+	w.write(filepath.Join(w.brain, "agents", "reviewer.md"), "---\nname: reviewer\ndescription: Reviews.\n---\n")
+	w.write(filepath.Join(w.brain, domain.ManifestFile), "[hook.fmt]\nevent = \"Stop\"\ncommand = \"true\"\n")
+	w.nerve(w.home, "init", w.brain)
+	for _, c := range []struct {
+		args []string
+		want string // in the output, or in the error of a command that fails on its own terms
+	}{
+		{[]string{"project", "add", "app"}, "checkout " + w.proj + " (app): listed"},
+		{[]string{"project", "ls"}, "project  app: autosync on"},
+		{[]string{"project", "autosync", "off"}, "autosync off for app"},
+		{[]string{"project", "autosync", "on", "--all"}, "autosync on by default"},
+		{[]string{"skill", "add", "go-stack"}, "added    skill go-stack to project app"},
+		{[]string{"agent", "add", "reviewer"}, "added    agent reviewer to project app"},
+		{[]string{"hook", "add", "fmt"}, "added    hook fmt to project app"},
+		{[]string{"plugin", "add", "gopls@claude-plugins-official"}, "added    plugin gopls@claude-plugins-official"},
+		{[]string{"skill", "ls"}, "skill go-stack own, not linked yet: sync"},
+		{[]string{"agent", "ls"}, "agent reviewer own"},
+		{[]string{"hook", "ls"}, "hook fmt Stop"},
+		{[]string{"plugin", "ls"}, "plugin gopls@claude-plugins-official enabled"},
+		{[]string{"setting", "set", "model", "opus"}, `set      model = "opus"`},
+		{[]string{"setting", "add", "permissions.deny", "Cron"}, `set      permissions.deny = ["Cron"]`},
+		{[]string{"setting", "set", "outputStyle", "terse", "--common"}, `set      outputStyle = "terse"`},
+		{[]string{"setting", "ls"}, `model = "opus"  (project)`},
+		{[]string{"sync", "--here"}, "synced   app"},
+		{[]string{"sync", "--here", "--discard"}, "app is up to date"},
+		{[]string{"sync"}, "app is up to date"},
+		{[]string{"status"}, "project  app: autosync off"},
+		{[]string{"check"}, "no problems"},
+		{[]string{"setting", "rm", "permissions.deny=Cron", "--all"}, "dropped  setting permissions.deny=Cron from project app"},
+		{[]string{"setting", "rm", "outputStyle", "--common"}, "dropped  setting outputStyle from common"},
+		{[]string{"setting", "rm", "model"}, "dropped  setting model from project app"},
+		{[]string{"plugin", "rm", "gopls@claude-plugins-official"}, "dropped  plugin gopls@claude-plugins-official from project app"},
+		{[]string{"hook", "rm", "fmt", "--all"}, "dropped  hook fmt from project app"},
+		{[]string{"agent", "rm", "reviewer"}, "dropped  agent reviewer from project app"},
+		{[]string{"skill", "rm", "go-stack"}, "dropped  skill go-stack from project app"},
+		{[]string{"skill", "update", "acme/up"}, "acme/up is not a source in brain.toml"},
+		{[]string{"project", "rm", "app"}, "project  app: dropped from brain.toml"},
+		{[]string{"help"}, "usage: nerve"},
+	} {
+		out, err := w.in(w.proj, infra.AsText, c.args...)
+		if errors.Is(err, errUsage) || !strings.Contains(out+errText(err), c.want) {
+			t.Errorf("nerve %s: got %v:\n%s", strings.Join(c.args, " "), err, out)
+		}
+		if !strings.Contains(usage, "  "+c.args[0]) {
+			t.Errorf("the usage lacks %s", c.args[0])
+		}
+	}
+}
+
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func TestSyncRefusesASettingsFileGitDoesNotIgnore(t *testing.T) {
+	w := newWorld(t)
+	w.nerve(w.home, "init", w.brain)
+	w.nerve(w.proj, "project", "add", "app")
+	w.write(filepath.Join(w.home, ".config", "git", "ignore"), "")
+
+	out, err := w.in(w.proj, infra.AsText, "sync", "--here")
+
+	if err == nil || !strings.Contains(out, "git does not ignore .claude/settings.local.json: add **/.claude/settings.local.json to ~/.config/git/ignore") {
+		t.Errorf("got %v:\n%s", err, out)
+	}
+	if _, err := os.Lstat(filepath.Join(w.proj, ".claude")); err == nil {
+		t.Errorf("wrote in a refused checkout")
+	}
+}
+
+func TestCheckInAListedCheckoutUsesThisMachinesBrain(t *testing.T) {
+	w := newWorld(t)
+	w.nerve(w.home, "init", w.brain)
+	w.nerve(w.proj, "project", "add", "app")
+	w.write(filepath.Join(w.proj, "config", domain.ManifestFile), "unrelated = 1\n") // the project's own
+
+	if out, err := w.in(filepath.Join(w.proj, "config"), infra.AsText, "check"); err != nil {
+		t.Errorf("check read the project's brain.toml: %v\n%s", err, out)
+	}
+}
+
 func TestJSONFlagPrintsOneDocumentAndStillFails(t *testing.T) {
 	w := newWorld(t)
 	w.nerve(w.home, "init", w.brain)
@@ -200,7 +340,7 @@ func TestAutosyncNeverFailsTheSession(t *testing.T) {
 	if code != 0 || errOut != "" || json.Unmarshal([]byte(out), &doc) != nil {
 		t.Fatalf("exits %d, prints %q and %q", code, out, errOut)
 	}
-	if msg, _ := doc["systemMessage"].(string); !strings.Contains(msg, `defines no hook "ghost"`) || !strings.Contains(msg, "error: 1 of 1 checkouts did not sync") {
+	if msg, _ := doc["systemMessage"].(string); !strings.Contains(msg, `defines no hook "ghost"`) || !strings.Contains(msg, "error: 1 of 1 working trees did not sync") {
 		t.Errorf("message:\n%s", msg)
 	}
 }
@@ -404,8 +544,36 @@ func TestRemovingAProjectTakesOutEverythingNerveMade(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(w.home, ".config", "nerve", "overlays", "app.json")); err == nil {
 		t.Errorf("the local overlay is left")
 	}
+	if _, err := os.Stat(filepath.Join(w.proj, ".claude", "skills")); err == nil {
+		t.Errorf("the skills folder nerve made is left")
+	}
 	if got := w.read(filepath.Join(w.brain, domain.ManifestFile)); strings.Contains(got, "app") {
 		t.Errorf("brain.toml still has the project:\n%s", got)
+	}
+}
+
+func TestGitCleanKeepsWhatTheProjectLists(t *testing.T) {
+	w := newWorld(t)
+	w.skill("go-stack")
+	w.skill("py")
+	w.nerve(w.home, "init", w.brain)
+	w.nerve(w.proj, "project", "add", "app")
+	w.nerve(w.proj, "skill", "add", "go-stack")
+	w.nerve(w.proj, "skill", "add", "py")
+	w.nerve(w.proj, "setting", "set", "model", "opus")
+	w.nerve(w.proj, "sync", "--here")
+	w.git(w.proj, "clean", "-fdxq")
+
+	out := w.nerve(w.proj, "sync", "--here")
+
+	if got := w.read(filepath.Join(w.brain, domain.ManifestFile)); !strings.Contains(got, `skills = ["go-stack", "py"]`) {
+		t.Errorf("brain.toml lost the skills:\n%s\n%s", got, out)
+	}
+	if _, err := os.Readlink(filepath.Join(w.proj, ".claude", "skills", "py")); err != nil {
+		t.Errorf("py was not linked again: %v", err)
+	}
+	if strings.Contains(out, "drift") || !strings.Contains(out, "relinked "+w.proj) {
+		t.Errorf("sync after git clean:\n%s", out)
 	}
 }
 

@@ -30,6 +30,10 @@ A subagent definition (`agents/<name>.md`) kept in a Brain and linked into the p
 A Claude Code plugin from a marketplace, turned on in the projects that list it.
 _Avoid_: package, bundle
 
+**Marketplace**:
+Where a Claude Code plugin comes from; a plugin is named `<plugin>@<marketplace>`.
+_Avoid_: registry, store
+
 **Source**:
 A third-party repo on GitHub, pinned to a commit, and the skills a Brain uses from it.
 _Avoid_: vendor, upstream
@@ -69,8 +73,12 @@ _Avoid_: target, platform
 The session-start hook that brings a project in step with its Brain and hands the user a report.
 _Avoid_: auto-update
 
+**Report**:
+What a command says it did and found, one event at a time: links made or removed, settings set or revoked, drift, problems; autosync shows it to the user as one message.
+_Avoid_: log, output
+
 **Local overlay**:
-A project's settings kept on one machine and never in the Brain, for anything sensitive or identifying.
+A project's settings kept on one machine and never in the Brain, for anything sensitive or identifying, or that `brain.toml` cannot hold.
 _Avoid_: secrets file, private settings
 
 **Drift**:

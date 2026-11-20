@@ -31,6 +31,38 @@ func TestMachineFileRoundTripsWithPathsUnderHome(t *testing.T) {
 	}
 }
 
+func TestMachineFileKeepsAPathAsItIsWritten(t *testing.T) {
+	e := newTestEnv(t)
+	e.write(e.path("real-work/app/README"), "x")
+	e.link(e.path("work"), e.path("real-work"))
+	config := "brain = \"~/brain\"\n\n[[checkout]]\npath = \"~/work/app\"\nproject = \"app\"\n"
+	e.write(e.path(".config/nerve/config.toml"), config)
+	files, _ := NewMachineFiles()
+
+	m, err := files.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Checkouts = append(m.Checkouts, domain.Checkout{Path: e.path("other"), Project: "other"})
+	if err := files.Save(m); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := e.read(e.path(".config/nerve/config.toml")); !strings.HasPrefix(got, config) {
+		t.Errorf("machine file is:\n%s", got)
+	}
+}
+
+func TestStatesRefuseAStateFileTheyCannotRead(t *testing.T) {
+	e := newTestEnv(t)
+	files, _ := NewMachineFiles()
+	e.write(e.path(".config/nerve/state/0123456789abcdef.json"), "{broken")
+
+	if _, err := files.States(); err == nil || !strings.Contains(err.Error(), "0123456789abcdef.json") {
+		t.Errorf("got %v", err)
+	}
+}
+
 func TestMachineFileRefusesWhatItCannotHold(t *testing.T) {
 	e := newTestEnv(t)
 	files, _ := NewMachineFiles()

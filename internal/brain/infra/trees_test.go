@@ -50,6 +50,28 @@ func TestCheckIgnoredRefusesSettingsGitWouldSeeOrShares(t *testing.T) {
 	}
 }
 
+func TestCheckIgnoredTellsAGitFailureFromAFileGitSees(t *testing.T) {
+	e := newTestEnv(t)
+	err := LocalTrees{}.CheckIgnored(e.path("."))
+	if err == nil || strings.Contains(err.Error(), "does not ignore") || !strings.Contains(err.Error(), "not a git repository") {
+		t.Errorf("got %v outside a repo", err)
+	}
+}
+
+func TestCheckIgnoredNamesTheGlobalIgnoreFileGitReads(t *testing.T) {
+	e := newTestEnv(t)
+	app := e.repo(e.path("app"))
+	t.Setenv("GIT_CONFIG_COUNT", "2")
+	t.Setenv("GIT_CONFIG_KEY_1", "core.excludesFile")
+	t.Setenv("GIT_CONFIG_VALUE_1", "~/my-ignore")
+
+	err := LocalTrees{}.CheckIgnored(app)
+
+	if err == nil || !strings.Contains(err.Error(), "add **/.claude/settings.local.json to ~/my-ignore") {
+		t.Errorf("got %v", err)
+	}
+}
+
 func TestSyncExcludeKeepsOnlyItsOwnBlock(t *testing.T) {
 	e := newTestEnv(t)
 	app := e.repo(e.path("app"))

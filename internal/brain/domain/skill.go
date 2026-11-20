@@ -55,19 +55,19 @@ func (s Skill) ClaudeAIRejection() string {
 
 // ParseFrontmatter reads the top-level keys of a Markdown file's YAML
 // frontmatter; file names it in errors. Folded, literal and nested values,
-// and lists, are joined into one line.
+// and lists, are joined into one line. Comments are left out.
 func ParseFrontmatter(file, text string) (map[string]string, error) {
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	if !strings.HasPrefix(text, "---\n") {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	if lines[0] != "---" || len(lines) == 1 {
 		return nil, fmt.Errorf("%s has no frontmatter", file)
 	}
-	end := strings.Index(text[4:], "\n---")
+	end := slices.IndexFunc(lines[1:], func(l string) bool { return strings.TrimRight(l, " \t") == "---" })
 	if end < 0 {
 		return nil, fmt.Errorf("%s frontmatter is not closed", file)
 	}
 	meta := map[string]string{}
 	key := ""
-	for line := range strings.SplitSeq(text[4:4+end], "\n") {
+	for _, line := range lines[1 : 1+end] {
 		trimmed := strings.TrimSpace(line)
 		switch {
 		case trimmed == "" || strings.HasPrefix(trimmed, "#"):
@@ -79,11 +79,11 @@ func ParseFrontmatter(file, text string) (map[string]string, error) {
 				return nil, fmt.Errorf("frontmatter line %q is not key: value", line)
 			}
 			key = strings.TrimSpace(k)
-			v = strings.TrimSpace(v)
+			v = scalar(strings.TrimSpace(v))
 			if strings.HasPrefix(v, ">") || strings.HasPrefix(v, "|") {
 				v = ""
 			}
-			meta[key] = unquote(v)
+			meta[key] = v
 		case key != "":
 			meta[key] = strings.TrimSpace(meta[key] + " " + trimmed)
 		}
@@ -91,9 +91,25 @@ func ParseFrontmatter(file, text string) (map[string]string, error) {
 	return meta, nil
 }
 
-func unquote(v string) string {
-	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
-		return v[1 : len(v)-1]
+// scalar reads a YAML value on one line: a quoted one without its quotes,
+// and a plain one without the comment after it.
+func scalar(v string) string {
+	if len(v) > 0 && (v[0] == '"' || v[0] == '\'') {
+		for i := 1; i < len(v); i++ {
+			switch {
+			case v[0] == '"' && v[i] == '\\', v[0] == '\'' && v[i] == '\'' && i+1 < len(v) && v[i+1] == '\'':
+				i++ // an escaped character
+			case v[i] == v[0]:
+				return v[1:i]
+			}
+		}
+		return v
+	}
+	if strings.HasPrefix(v, "#") {
+		return ""
+	}
+	if i := strings.Index(v, " #"); i >= 0 {
+		v = strings.TrimSpace(v[:i])
 	}
 	return v
 }

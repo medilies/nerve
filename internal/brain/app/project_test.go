@@ -50,6 +50,20 @@ func TestAddProjectFromAWorktreeListsTheMainCheckout(t *testing.T) {
 	}
 }
 
+func TestAddProjectFromAWorktreeImportsTheMainCheckoutsSettings(t *testing.T) {
+	e := newEnv(t)
+	e.checkout("/w/app")
+	e.worktree("/w/app-feature", "/w/app")
+	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus"}
+	e.trees.settings["/w/app-feature/.claude/settings.local.json"] = map[string]any{"model": "sonnet"}
+
+	e.must(&recorder{}, e.app.AddProject("/w/app-feature", "app", &recorder{}))
+
+	if got := jsonText(e.project("app").Settings); got != `{"model":"opus"}` {
+		t.Errorf("recorded %s, want the settings of the checkout it lists", got)
+	}
+}
+
 func TestAddProjectJoinsAnExistingOneOrRefuses(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
@@ -139,6 +153,28 @@ func TestRemoveProjectCleansItsTreesAndDropsIt(t *testing.T) {
 	contains(t, r, "cleaned  /w/app: project app removed", "removed  /cfg/nerve/overlays/app.json", "project  app: dropped from brain.toml")
 	if err := e.app.RemoveProject("app", &recorder{}); err == nil {
 		t.Errorf("removing it again passed")
+	}
+}
+
+func TestRemoveProjectRemovesTheFoldersNerveMadeAndNoOthers(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go-stack")
+	e.listed("app", "/w/app").Skills = []string{"go-stack"}
+	e.trees.mkdirs("/w/app/.claude/agents") // the team's, before nerve
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+
+	e.must(&recorder{}, e.app.RemoveProject("app", &recorder{}))
+
+	for dir, want := range map[string]bool{"/w/app/.claude/skills": false, "/w/app/.claude/agents": true, "/w/app/.claude": true} {
+		if e.trees.dirs[dir] != want {
+			t.Errorf("%s is there: %v, want %v", dir, e.trees.dirs[dir], want)
+		}
+	}
+	e.listed("other", "/w/other")
+	e.must(e.sync("/w/other", app.SyncOptions{}))
+	e.must(&recorder{}, e.app.RemoveProject("other", &recorder{}))
+	if e.trees.dirs["/w/other/.claude"] {
+		t.Errorf(".claude is left, though nerve made it")
 	}
 }
 

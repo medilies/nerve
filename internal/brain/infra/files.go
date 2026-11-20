@@ -17,6 +17,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/medilies/nerve/internal/brain/domain"
 )
 
 // writeFile replaces path's content all at once, so Claude Code never reads
@@ -55,7 +57,8 @@ func writeFile(path string, b []byte) error {
 }
 
 // linkEnd follows path while it is a link, to the file it ends at, which
-// may not exist.
+// may not exist. A relative link is read from the folder it really is in,
+// its own folder's links followed.
 func linkEnd(path string) (string, error) {
 	for range 40 {
 		target, err := os.Readlink(path)
@@ -63,7 +66,11 @@ func linkEnd(path string) (string, error) {
 			return path, nil // not a link, or nothing there
 		}
 		if !filepath.IsAbs(target) {
-			target = filepath.Join(filepath.Dir(path), target)
+			dir := filepath.Dir(path)
+			if real, err := filepath.EvalSymlinks(dir); err == nil {
+				dir = real
+			}
+			target = filepath.Join(dir, target)
 		}
 		path = target
 	}
@@ -71,6 +78,7 @@ func linkEnd(path string) (string, error) {
 }
 
 // readObject reads a JSON object, or returns nil when the file is missing.
+// Numbers are read as domain.Numbers makes them, so they keep every digit.
 func readObject(path string) (map[string]any, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -80,24 +88,34 @@ func readObject(path string) (map[string]any, error) {
 		return nil, err
 	}
 	var obj map[string]any
-	if err := json.Unmarshal(b, &obj); err != nil {
+	if err := decodeJSON(b, &obj); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if obj == nil {
 		obj = map[string]any{}
 	}
+	domain.Numbers(obj)
 	return obj, nil
+}
+
+// decodeJSON reads one JSON value into v, numbers as json.Number.
+func decodeJSON(b []byte, v any) error {
+	if err := json.Unmarshal(b, new(json.RawMessage)); err != nil {
+		return err
+	}
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	return d.Decode(v)
 }
 
 func writeObject(path string, obj map[string]any) error {
 	if obj == nil {
 		obj = map[string]any{}
 	}
-	b, err := json.MarshalIndent(obj, "", "  ")
-	if err != nil {
+	if err := writeJSON(path, obj); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	return writeFile(path, append(b, '\n'))
+	return nil
 }
 
 // readJSON reads path into v, leaving v alone when the file is missing.
@@ -107,7 +125,7 @@ func readJSON(path string, v any) error {
 		return nil
 	}
 	if err == nil {
-		err = json.Unmarshal(b, v)
+		err = decodeJSON(b, v)
 	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
@@ -115,12 +133,16 @@ func readJSON(path string, v any) error {
 	return nil
 }
 
+// writeJSON writes v indented, with &, < and > as they are.
 func writeJSON(path string, v any) error {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
 		return err
 	}
-	return writeFile(path, append(b, '\n'))
+	return writeFile(path, buf.Bytes())
 }
 
 func fileExists(path string) bool {
@@ -157,7 +179,7 @@ func shortenHome(path string) string {
 }
 
 // gitTimeout bounds one git command, so a stalled network never holds a
-// session start.
+// session start for long.
 const gitTimeout = 2 * time.Minute
 
 // repoEnv are the variables that point git at one repo, as a git hook sets
@@ -168,18 +190,46 @@ var repoEnv = []string{
 	"GIT_REPLACE_REF_BASE", "GIT_SHALLOW_FILE", "GIT_WORK_TREE",
 }
 
-// git runs git in dir. It never prompts, since autosync runs it with no one
-// to answer: it has no terminal, so neither git nor ssh can ask for a
-// password, and it stops after gitTimeout.
-func git(dir string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+// askEnv are the variables that let git, ssh or a credential helper ask
+// for a password: a program to ask with, as an editor such as VS Code sets
+// one, or a display to open a dialog on.
+var askEnv = []string{"GIT_ASKPASS", "SSH_ASKPASS", "DISPLAY", "WAYLAND_DISPLAY"}
+
+// gitError is a git command that failed, with its exit code.
+type gitError struct {
+	code int
+	msg  string
+}
+
+func (e *gitError) Error() string { return e.msg }
+
+// exitCode is the exit code of a git command that failed, or -1 when it
+// did not run to its end.
+func exitCode(err error) int {
+	var ge *gitError
+	if errors.As(err, &ge) {
+		return ge.code
+	}
+	return -1
+}
+
+// git runs git in dir, and returns what it printed, even when it fails. It
+// never asks for a password, since autosync runs it with no one to answer:
+// it has no terminal or display, and runs no askpass helper, nor ssh's, so
+// a remote that needs one fails. The user's own ssh command is kept. It
+// stops after gitTimeout.
+func git(dir string, args ...string) (string, error) { return gitWithin(gitTimeout, dir, args...) }
+
+// gitWithin runs git as git does, stopping after timeout.
+func gitWithin(timeout time.Duration, dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.askPass="}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool {
 		name, _, _ := strings.Cut(kv, "=")
-		return slices.Contains(repoEnv, name)
-	}), "GIT_TERMINAL_PROMPT=0")
+		return slices.Contains(repoEnv, name) || slices.Contains(askEnv, name)
+	}), "GIT_TERMINAL_PROMPT=0", "SSH_ASKPASS_REQUIRE=never", "GCM_INTERACTIVE=never")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) } // ssh too
 	cmd.WaitDelay = time.Second
@@ -187,15 +237,25 @@ func git(dir string, args ...string) (string, error) {
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return "", fmt.Errorf("git %s: no answer after %s", args[0], gitTimeout)
+			return stdout.String(), fmt.Errorf("git %s: no answer after %s", args[0], timeout)
+		}
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) {
+			return stdout.String(), err
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
-			return "", err
+			msg = fmt.Sprintf("git %s: %v", args[0], err)
 		}
-		return "", errors.New(msg)
+		return stdout.String(), &gitError{code: exit.ExitCode(), msg: msg}
 	}
 	return stdout.String(), nil
+}
+
+// firstLine is the first line of an error, which for git says what failed.
+func firstLine(err error) string {
+	line, _, _ := strings.Cut(err.Error(), "\n")
+	return line
 }
 
 func trim(s string) string { return strings.TrimSpace(s) }

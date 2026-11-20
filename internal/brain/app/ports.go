@@ -78,9 +78,13 @@ type Trees interface {
 	// LinkTarget is where the link at path points, false when path is not
 	// a link.
 	LinkTarget(path string) (string, bool)
-	// Link makes path a link to target, replacing a link already there.
+	// Link makes path a link to target, replacing a link already there, and
+	// makes the folders on the way.
 	Link(path, target string) error
 	Remove(path string) error
+	// RemoveEmptyFolder removes path if it is an empty folder, and says
+	// whether it did.
+	RemoveEmptyFolder(path string) (bool, error)
 	Entries(dir string) []string
 	// CheckIgnored refuses a tree whose settings.local.json git tracks or
 	// does not ignore.
@@ -107,13 +111,12 @@ type Self interface {
 
 // Zips are the skill zips built for claude.ai accounts.
 type Zips interface {
+	// Zip zips a skill folder. It refuses a link that leads to a folder,
+	// to nothing, or out of the skill, which a zip cannot hold.
 	Zip(domain.Skill) ([]byte, error)
 	Write(project, name string, zip []byte) (path string, err error)
 	Has(project, name string) bool
 	Remove(project, name string)
-	// FolderLink returns the first link in a skill that leads to a folder
-	// or to nothing, which a zip cannot hold, or "".
-	FolderLink(dir string) string
 }
 
 // App carries a Brain through its ports.

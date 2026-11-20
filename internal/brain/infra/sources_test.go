@@ -1,6 +1,7 @@
 package infra
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -65,6 +66,26 @@ func TestDiffShowsHowASkillChangedUpstream(t *testing.T) {
 	gone := e.upstream(map[string]string{"skills/other/SKILL.md": skillMD("other", "")})
 	if _, err := src.Diff("acme/up", "grilling", old, gone); err == nil || !strings.Contains(err.Error(), "drop it from brain.toml first") {
 		t.Errorf("got %v", err)
+	}
+}
+
+func TestDiffShowsOnlyTheSourcesTextAsItIs(t *testing.T) {
+	e := newTestEnv(t)
+	old := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	next := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "") + "\x1b]0;owned\x07\x1b[2JGrill.\n"})
+	tool := e.path("difftool.sh")
+	e.write(tool, "#!/bin/sh\necho THE USER'S DIFF TOOL\n")
+	if err := os.Chmod(tool, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_COUNT", "2")
+	t.Setenv("GIT_CONFIG_KEY_1", "diff.external")
+	t.Setenv("GIT_CONFIG_VALUE_1", tool)
+
+	d, err := SourceCache{}.Diff("acme/up", "grilling", old, next)
+
+	if err != nil || strings.Contains(d, "DIFF TOOL") || strings.ContainsAny(d, "\x1b\x07") || !strings.Contains(d, "Grill.") {
+		t.Errorf("diff is %q (%v)", d, err)
 	}
 }
 
