@@ -5,11 +5,11 @@ A Brain, and the Nervous system that carries it to each place an agent runs.
 ## Language
 
 **Brain**:
-One person's repo of everything that shapes how their agents work: own skills, third-party pins, settings and standing instructions.
+One person's repo of everything that shapes how their agents work: own skills and agents, third-party pins, hooks, settings, and the projects that use them.
 _Avoid_: config, dotfiles, kit, agentic brain
 
 **Nervous system**:
-The tool and its skill that carry any Brain to its surfaces and write changes back into it; it knows nothing about whose Brain it carries.
+The tool and its skill that carry any Brain to the projects that list what they need from it, and write changes back into it; it knows nothing about whose Brain it carries.
 _Avoid_: sync tool, sync script, engine
 
 **Skill**:
@@ -23,26 +23,41 @@ _Avoid_: my skill, custom skill, local skill
 A skill written in someone else's repo and used in a Brain at a pinned commit.
 _Avoid_: external skill, vendored skill
 
+**Agent**:
+A subagent definition (`agents/<name>.md`) kept in a Brain and linked into the projects that list it.
+
 **Plugin**:
-A named set of skills that Claude installs from a Brain and invokes under the plugin's name; a Brain's own skills form one plugin, and each third-party skill is a plugin of its own.
+A Claude Code plugin from a marketplace, turned on in the projects that list it.
 _Avoid_: package, bundle
 
 **Pin**:
 The exact commit a third-party skill, or the Nervous system itself, is used at.
 _Avoid_: version, lock
 
-**Surface**:
-A place where skills are used: one Claude Code config, or one claude.ai account.
-_Avoid_: target, agent, platform
+**Project**:
+An entry in a Brain naming what one codebase, or one claude.ai account, gets from it; nothing reaches a project it does not list.
+_Avoid_: repo, workspace
 
-**Profile**:
-A named set of settings and instructions for one kind of use, such as work or personal; each Claude Code config on a machine follows one profile.
-_Avoid_: environment, flavour, account
+**Checkout**:
+A project's working tree on one machine, linked to its project in the machine's own file, never in the Brain.
+_Avoid_: clone, path
+
+**Common settings**:
+Settings every listed project gets; the only thing a Brain gives to more than one project at once.
+_Avoid_: base, defaults, global
+
+**Surface**:
+Where a project is used: a Claude Code checkout, or a claude.ai account.
+_Avoid_: target, platform
+
+**Autosync**:
+The session-start hook that brings a project in step with its Brain and hands the user a report.
+_Avoid_: auto-update
 
 **Local overlay**:
-Settings kept on one machine and never in the Brain, for anything sensitive or identifying.
+A project's settings kept on one machine and never in the Brain, for anything sensitive or identifying.
 _Avoid_: secrets file, private settings
 
 **Drift**:
-A difference between what a surface holds and what the Brain says it should hold.
+A setting changed in a project since nerve last wrote it, that the Brain disagrees with; nerve leaves it as is and reports it.
 _Avoid_: out of sync, divergence

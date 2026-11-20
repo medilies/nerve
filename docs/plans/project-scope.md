@@ -1,6 +1,6 @@
 # Plan: carry the Brain per project
 
-Status: proposed, 2026-11-20. Implements [ADR 0005](../adr/0005-projects-opt-in.md). Ideas left out are in the [backlog](../backlog.md).
+Status: implemented in v0.3.0, 2026-11-20. Implements [ADR 0005](../adr/0005-projects-opt-in.md). Ideas left out are in the [backlog](../backlog.md).
 
 ## Brain layout
 

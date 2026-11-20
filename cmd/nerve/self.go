@@ -30,5 +30,5 @@ func installSelf() (Skill, error) {
 			return Skill{}, err
 		}
 	}
-	return newSkill("nerve", dir)
+	return newSkill("nerve", dir, "nerve")
 }

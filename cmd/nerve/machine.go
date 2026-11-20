@@ -1,32 +1,31 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/BurntSushi/toml"
 )
 
-// Machine is this machine's own file, never part of a Brain: where the
-// Brain is checked out, and which profile each Claude Code config follows.
+// Machine is this machine's own file, never part of a Brain: where the Brain
+// is checked out, and which project each checkout belongs to.
 type Machine struct {
-	Brain   string   `toml:"brain"`
-	Configs []Config `toml:"config"`
+	Brain     string     `toml:"brain"`
+	Checkouts []Checkout `toml:"checkout,omitempty"`
 }
 
-// Config is one Claude Code config dir and the profile it follows ("" for
-// none).
-type Config struct {
-	Dir     string `toml:"dir"`
-	Profile string `toml:"profile,omitempty"`
+// Checkout is one project's working tree on this machine.
+type Checkout struct {
+	Path    string `toml:"path"`
+	Project string `toml:"project"`
 }
 
-// machineDir holds the machine file and the local overlays.
+// machineDir holds the machine file, the local overlays and the state.
 func machineDir() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -54,52 +53,85 @@ func loadMachine() (Machine, error) {
 	if err != nil {
 		return m, fmt.Errorf("%s: %w", path, err)
 	}
-	if keys := meta.Undecoded(); len(keys) > 0 {
-		return m, fmt.Errorf("%s: unknown keys %v", path, keys)
+	for _, k := range meta.Undecoded() {
+		if k[0] == "config" {
+			return m, fmt.Errorf("%s: [[config]] is gone since nerve v0.3, which carries nothing to user level: remove it", path)
+		}
+		return m, fmt.Errorf("%s: unknown key %v", path, k)
 	}
 	if m.Brain == "" {
 		return m, fmt.Errorf("%s: no brain", path)
 	}
-	if len(m.Configs) == 0 {
-		return m, fmt.Errorf("%s: no configs", path)
+	if m.Brain, err = absolute(m.Brain); err != nil {
+		return m, fmt.Errorf("%s: brain %w", path, err)
 	}
-	if m.Brain, err = expandHome(m.Brain); err != nil {
-		return m, err
-	}
-	if !filepath.IsAbs(m.Brain) {
-		return m, fmt.Errorf("%s: brain %q must be absolute or start with ~/", path, m.Brain)
-	}
-	for i := range m.Configs {
-		if m.Configs[i].Dir, err = expandHome(m.Configs[i].Dir); err != nil {
-			return m, err
+	for i := range m.Checkouts {
+		c := &m.Checkouts[i]
+		if c.Path, err = absolute(c.Path); err != nil {
+			return m, fmt.Errorf("%s: checkout %w", path, err)
 		}
-		if !filepath.IsAbs(m.Configs[i].Dir) {
-			return m, fmt.Errorf("%s: config dir %q must be absolute or start with ~/", path, m.Configs[i].Dir)
-		}
-		m.Configs[i].Dir = filepath.Clean(m.Configs[i].Dir)
-		for _, c := range m.Configs[:i] {
-			if c.Dir == m.Configs[i].Dir {
-				return m, fmt.Errorf("%s: config dir %s is listed twice", path, c.Dir)
-			}
+		if slices.ContainsFunc(m.Checkouts[:i], func(o Checkout) bool { return o.Path == c.Path }) {
+			return m, fmt.Errorf("%s: checkout %s is listed twice", path, c.Path)
 		}
 	}
 	return m, nil
 }
 
-// checkProfiles fails when a config follows a profile the Brain lacks.
-func (m Machine) checkProfiles(b Manifest) error {
-	for _, c := range m.Configs {
-		if c.Profile != "" && !slices.Contains(b.Profiles, c.Profile) {
-			return fmt.Errorf("%s follows profile %q, which %s does not list", c.Dir, c.Profile, manifestFile)
-		}
+// absolute expands ~ and refuses a relative path.
+func absolute(path string) (string, error) {
+	p, err := expandHome(path)
+	if err != nil {
+		return "", err
 	}
-	return nil
+	if !filepath.IsAbs(p) {
+		return "", fmt.Errorf("%q must be absolute or start with ~/", path)
+	}
+	return filepath.Clean(p), nil
 }
 
-// runInit writes the machine file: args are the Brain's checkout, then one
-// <config dir>[=<profile>] per Claude Code config.
+func saveMachine(m Machine) error {
+	path, err := machinePath()
+	if err != nil {
+		return err
+	}
+	out := Machine{Brain: shortenHome(m.Brain)}
+	for _, c := range m.Checkouts {
+		out.Checkouts = append(out.Checkouts, Checkout{Path: shortenHome(c.Path), Project: c.Project})
+	}
+	var buf bytes.Buffer
+	enc := toml.NewEncoder(&buf)
+	enc.Indent = ""
+	if err := enc.Encode(out); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return writeFile(path, buf.Bytes())
+}
+
+// checkout returns the checkout at path, if listed.
+func (m Machine) checkout(path string) (Checkout, bool) {
+	i := slices.IndexFunc(m.Checkouts, func(c Checkout) bool { return samePath(c.Path, path) })
+	if i < 0 {
+		return Checkout{}, false
+	}
+	return m.Checkouts[i], true
+}
+
+func samePath(a, b string) bool {
+	if ra, err := filepath.EvalSymlinks(a); err == nil {
+		a = ra
+	}
+	if rb, err := filepath.EvalSymlinks(b); err == nil {
+		b = rb
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
+}
+
+// runInit writes the machine file, naming the Brain's checkout.
 func runInit(args []string, r *report) error {
-	if len(args) < 2 {
+	if len(args) != 1 {
 		return errUsage
 	}
 	path, err := machinePath()
@@ -113,34 +145,62 @@ func runInit(args []string, r *report) error {
 	if err != nil {
 		return err
 	}
-	b, err := loadManifest(brain)
-	if err != nil {
+	if _, err := loadManifest(brain); err != nil {
 		return err
 	}
-	m := Machine{Brain: brain}
-	for _, arg := range args[1:] {
-		dir, profile, _ := strings.Cut(arg, "=")
-		if dir != "~" && !strings.HasPrefix(dir, "~/") {
-			if dir, err = filepath.Abs(dir); err != nil {
-				return err
-			}
-		}
-		m.Configs = append(m.Configs, Config{Dir: dir, Profile: profile})
-	}
-	if err := m.checkProfiles(b); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if err := toml.NewEncoder(f).Encode(m); err != nil {
+	if err := saveMachine(Machine{Brain: brain}); err != nil {
 		return err
 	}
 	r.add(Event{Kind: evWrote, Path: path})
-	return f.Close()
+	return nil
+}
+
+// tree is the git working tree around the working directory: where nerve
+// writes (Top), and the main checkout it belongs to (Main), which differs in
+// a linked worktree.
+type tree struct{ Top, Main string }
+
+func locateTree(dir string) (tree, error) {
+	top, err := git(dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return tree{}, fmt.Errorf("not in a git repo: %w", err)
+	}
+	common, err := git(dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return tree{}, err
+	}
+	t := tree{Top: filepath.Clean(trim(top)), Main: filepath.Clean(trim(top))}
+	if c := filepath.Clean(trim(common)); filepath.Base(c) == ".git" {
+		t.Main = filepath.Dir(c)
+	}
+	return t, nil
+}
+
+// here returns the tree around the working directory and the project its
+// checkout is listed under.
+func (m Machine) here() (tree, string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return tree{}, "", err
+	}
+	t, err := locateTree(wd)
+	if err != nil {
+		return t, "", err
+	}
+	for _, p := range []string{t.Top, t.Main} {
+		if c, ok := m.checkout(p); ok {
+			return t, c.Project, nil
+		}
+	}
+	return t, "", fmt.Errorf("%s is not a listed checkout: run nerve project add <name> here, or pass --project", t.Top)
+}
+
+// projectFor names the project a command acts on: the --project flag, else
+// the one around the working directory.
+func (m Machine) projectFor(f flags) (string, error) {
+	if f.project != "" {
+		return f.project, nil
+	}
+	_, name, err := m.here()
+	return name, err
 }

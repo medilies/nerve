@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -19,14 +21,15 @@ import (
 	"time"
 )
 
-// world is a temp HOME holding a Brain, a fake GitHub, and one config.
+// world is a temp HOME holding a Brain, a project checkout listed nowhere
+// yet, and a fake GitHub.
 type world struct {
 	t        *testing.T
 	home     string
-	root     string
+	brain    string
+	proj     string
 	upstream string // fake github.com/acme/up
-	config   string
-	rerunEnv []string // the environment of the last re-run after an upgrade
+	rerunEnv []string
 }
 
 func newWorld(t *testing.T) *world {
@@ -44,13 +47,19 @@ func newWorld(t *testing.T) *world {
 	w := &world{
 		t:        t,
 		home:     home,
-		root:     filepath.Join(home, "repo"),
+		brain:    filepath.Join(home, "brain"),
+		proj:     filepath.Join(home, "proj"),
 		upstream: filepath.Join(home, "github", "acme", "up.git"),
-		config:   filepath.Join(home, ".cfg"),
 	}
+	// As Claude Code does the first time it writes a settings.local.json.
+	w.write(filepath.Join(home, ".config", "git", "ignore"), "**/.claude/settings.local.json\n")
+	w.write(filepath.Join(w.brain, manifestFile), "")
+	w.gitIn(home, "init", "-q", "-b", "main", w.brain)
+	w.gitIn(w.brain, "remote", "add", "origin", "git@github.com:Medilies/brain.git")
 	w.gitIn(home, "init", "-q", w.upstream)
 	w.gitIn(w.upstream, "config", "uploadpack.allowAnySHA1InWant", "true")
-	w.write(filepath.Join(home, ".config", "nerve", "config.toml"), "brain = \"~/repo\"\n[[config]]\ndir = \"~/.cfg\"\n")
+	w.gitIn(home, "init", "-q", w.proj)
+	w.write(filepath.Join(home, ".config", "nerve", "config.toml"), "brain = \"~/brain\"\n")
 	return w
 }
 
@@ -75,8 +84,62 @@ func (w *world) write(path, content string) {
 	}
 }
 
+func (w *world) read(path string) string {
+	w.t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return string(b)
+}
+
+// in runs nerve in dir, as the given kind of report, and returns what it
+// printed.
+func (w *world) in(dir string, mode int, args ...string) (string, error) {
+	w.t.Helper()
+	w.t.Chdir(dir)
+	var out strings.Builder
+	r := newReport(&out, mode)
+	err := run(args, r)
+	r.finish(err)
+	return out.String(), err
+}
+
+// nerve runs nerve in the project, and fails the test if it fails.
+func (w *world) nerve(args ...string) string {
+	w.t.Helper()
+	out, err := w.in(w.proj, asText, args...)
+	if err != nil {
+		w.t.Fatalf("nerve %v: %v\n%s", args, err, out)
+	}
+	return out
+}
+
+// nerveFails runs nerve in the project, which must fail, and returns its
+// error and output.
+func (w *world) nerveFails(args ...string) string {
+	w.t.Helper()
+	out, err := w.in(w.proj, asText, args...)
+	if err == nil {
+		w.t.Fatalf("nerve %v passed:\n%s", args, out)
+	}
+	return err.Error() + "\n" + out
+}
+
+func (w *world) manifest(content string) {
+	w.write(filepath.Join(w.brain, manifestFile), content)
+}
+
 func skillMD(name, extra string) string {
 	return "---\nname: " + name + "\ndescription: Does " + name + ".\n" + extra + "---\n\n# " + name + "\n"
+}
+
+func (w *world) ownSkill(name string) {
+	w.write(filepath.Join(w.brain, "skills", name, "SKILL.md"), skillMD(name, ""))
+}
+
+func (w *world) agent(name string) {
+	w.write(filepath.Join(w.brain, "agents", name+".md"), skillMD(name, ""))
 }
 
 // commitUpstream writes skills/<name>/SKILL.md upstream and returns the commit.
@@ -90,51 +153,30 @@ func (w *world) commitUpstream(files map[string]string) string {
 	return w.gitIn(w.upstream, "rev-parse", "HEAD")
 }
 
-// brainPlugins makes the Brain a marketplace named brain that lists plugins,
-// a JSON array, and declares it in the base settings.
-func (w *world) brainPlugins(plugins string) {
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.root, marketplaceFile), `{"name": "brain", "owner": {"name": "t"}, "plugins": `+plugins+`}`)
-	w.write(filepath.Join(w.root, "settings", "base.json"), `{"extraKnownMarketplaces": {"brain": {"source": {"source": "directory", "path": "{{brain}}"}}}}`)
-}
-
-// ownSkill writes an own skill into the Brain's own plugin.
-func (w *world) ownSkill(name, content string) {
-	w.brainPlugins(`[{"name": "brain", "source": "./plugins/brain"}]`)
-	w.write(filepath.Join(w.root, "plugins", "brain", "skills", name, "SKILL.md"), content)
-}
-
-func pinnedPlugin(name, sha string) string {
-	return `{"name": "` + name + `", "source": {"source": "git-subdir", "url": "acme/up", "path": "skills/` + name + `", "sha": "` + sha + `"}}`
-}
-
-func checkCmd(root string, out *strings.Builder) error { return runCheck(root, newReport(out, false)) }
-
-// problems runs check, which must fail, and returns its output.
-func (w *world) problems() string {
+// local reads the project's settings.local.json.
+func (w *world) local() map[string]any {
 	w.t.Helper()
-	var out strings.Builder
-	if err := checkCmd(w.root, &out); err == nil {
-		w.t.Fatalf("check passed:\n%s", out.String())
-	}
-	return out.String()
-}
-
-func (w *world) run(cmd func(string, *strings.Builder) error) string {
-	w.t.Helper()
-	var out strings.Builder
-	if err := cmd(w.root, &out); err != nil {
-		w.t.Fatalf("%v\n%s", err, out.String())
-	}
-	return out.String()
-}
-
-func syncCmd(_ string, out *strings.Builder) error {
-	m, err := loadMachine()
+	obj, err := readObject(filepath.Join(w.proj, localSettings))
 	if err != nil {
-		return err
+		w.t.Fatal(err)
 	}
-	return runSync(m, false, newReport(out, false))
+	return obj
+}
+
+func (w *world) setLocal(obj map[string]any) {
+	w.t.Helper()
+	if err := writeObject(filepath.Join(w.proj, localSettings), obj); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+func (w *world) loadManifest() Manifest {
+	w.t.Helper()
+	m, err := loadManifest(w.brain)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return m
 }
 
 func linkTarget(t *testing.T, path string) string {
@@ -146,502 +188,680 @@ func linkTarget(t *testing.T, path string) string {
 	return target
 }
 
-func TestSyncRefusesToReplaceARealFolderWithNervesSkill(t *testing.T) {
-	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.config, "skills", "nerve", "SKILL.md"), "mine")
-
-	var out strings.Builder
-	err := syncCmd(w.root, &out)
-
-	if err == nil || !strings.Contains(err.Error(), "real folder") {
-		t.Fatalf("got %v, want a refusal to replace the real folder", err)
-	}
+func asJSONText(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
 }
 
-func TestSyncRemovesTheSkillLinksAnOlderNerveMade(t *testing.T) {
+func TestProjectAddImportsExistingSettingsAgainstCommon(t *testing.T) {
 	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	skills := filepath.Join(w.config, "skills")
-	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
-	if err := os.MkdirAll(skills, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(w.root, "skills", "grill"), filepath.Join(skills, "grill")); err != nil {
-		t.Fatal(err)
-	}
-	w.write(filepath.Join(w.config, stateFile), `{"links": ["grill", "nerve"]}`)
-	handMade := filepath.Join(skills, "hand-made", "SKILL.md")
-	w.write(handMade, skillMD("hand-made", ""))
-
-	w.run(syncCmd)
-
-	if _, err := os.Lstat(filepath.Join(skills, "grill")); !os.IsNotExist(err) {
-		t.Errorf("grill is still linked, though plugins carry the Brain's skills now")
-	}
-	if _, err := os.Stat(handMade); err != nil {
-		t.Errorf("sync touched a skill it did not link: %v", err)
-	}
-}
-
-func TestUpdateShowsUpstreamDiffAndMovesThePinsOfARepo(t *testing.T) {
-	w := newWorld(t)
-	grillSHA := w.commitUpstream(map[string]string{"grill": skillMD("grill", ""), "plan": skillMD("plan", "")})
-	planSHA := w.commitUpstream(map[string]string{"other": skillMD("other", "")})
-	w.brainPlugins(`[` + pinnedPlugin("grill", grillSHA) + `, ` + pinnedPlugin("plan", planSHA) + `]`)
-	before, _ := os.ReadFile(filepath.Join(w.root, marketplaceFile))
-	newSHA := w.commitUpstream(map[string]string{"grill": skillMD("grill", "") + "Ask harder.\n"})
-
-	out := w.run(func(root string, out *strings.Builder) error {
-		return runUpdate(root, "https://github.com/acme/up.git", "", newReport(out, false))
+	w.manifest(`
+[common.settings]
+model = "opus"
+effortLevel = "high"
+syncClaudeAiSkills = false
+[common.settings.permissions]
+deny = ["NotebookEdit"]
+`)
+	w.setLocal(map[string]any{
+		"model":               "opus",                                                                // the same as common
+		"effortLevel":         "low",                                                                 // differs from common
+		"permissions":         map[string]any{"deny": []any{"NotebookEdit", "Cron"}, "ask": []any{}}, // shares items with common
+		"outputStyle":         "terse",                                                               // not in common
+		"env":                 map[string]any{"TOKEN": "abc"},                                        // sensitive
+		"statusLine":          map[string]any{"command": "/home/someone/bin/line"},                   // identifying
+		"includeCoAuthoredBy": false,
 	})
 
-	if !strings.Contains(out, "+Ask harder.") || !strings.Contains(out, "no diff  plan") {
-		t.Errorf("output lacks the upstream change, or that plan is unchanged:\n%s", out)
+	out := w.nerve("project", "add", "app")
+
+	m := w.loadManifest()
+	got := m.Projects["app"].Settings
+	want := map[string]any{
+		"effortLevel":         "low",
+		"permissions":         map[string]any{"deny": []any{"Cron"}, "ask": []any{}},
+		"outputStyle":         "terse",
+		"includeCoAuthoredBy": false,
 	}
-	after, _ := os.ReadFile(filepath.Join(w.root, marketplaceFile))
-	if want := strings.NewReplacer(grillSHA, newSHA, planSHA, newSHA).Replace(string(before)); string(after) != want {
-		t.Errorf("marketplace.json is\n%s\nwant only the pins moved:\n%s", after, want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("project settings are %s, want %s", asJSONText(got), asJSONText(want))
+	}
+	overlay, _ := readObject(filepath.Join(w.home, ".config", "nerve", "overlays", "app.json"))
+	if wantOverlay := `{"env":{"TOKEN":"abc"},"statusLine":{"command":"/home/someone/bin/line"}}`; asJSONText(overlay) != wantOverlay {
+		t.Errorf("overlay is %s, want %s", asJSONText(overlay), wantOverlay)
+	}
+	for _, line := range []string{
+		"imported model: already given by common",
+		"imported effortLevel: recorded as an override of common",
+		"imported permissions.deny: recorded as the items common lacks",
+		"imported outputStyle: recorded in the project",
+		"imported env.TOKEN: kept in the local overlay: env may hold secrets",
+		"imported syncClaudeAiSkills: added by common at the next sync",
+	} {
+		if !strings.Contains(out, line) {
+			t.Errorf("output lacks %q:\n%s", line, out)
+		}
+	}
+	if strings.Contains(w.read(filepath.Join(w.brain, manifestFile)), "TOKEN") {
+		t.Errorf("a secret reached brain.toml")
+	}
+	if _, err := os.Stat(filepath.Join(w.proj, ".claude", "skills")); err == nil {
+		t.Errorf("project add wrote in the project before a sync")
+	}
+
+	// The first sync keeps everything the project had and adds what common gives.
+	before := w.local()
+	w.nerve("project", "autosync", "off")
+	w.nerve("sync", "--here")
+
+	after := w.local()
+	for k, v := range before {
+		if !reflect.DeepEqual(after[k], v) {
+			t.Errorf("%s went from %s to %s", k, asJSONText(v), asJSONText(after[k]))
+		}
+	}
+	if after["syncClaudeAiSkills"] != false {
+		t.Errorf("common's syncClaudeAiSkills was not added: %s", asJSONText(after))
 	}
 }
 
-func TestUpdateRefusesToPinAPluginUpstreamDropped(t *testing.T) {
+func TestSyncLinksSkillsAgentsAndNerveAndKeepsThemOutOfGit(t *testing.T) {
 	w := newWorld(t)
-	oldSHA := w.commitUpstream(map[string]string{"grill": skillMD("grill", ""), "plan": skillMD("plan", "")})
-	w.brainPlugins(`[` + pinnedPlugin("plan", oldSHA) + `]`)
-	w.gitIn(w.upstream, "rm", "-q", "-r", "skills/plan")
-	w.gitIn(w.upstream, "commit", "-q", "-m", "drop plan")
+	sha := w.commitUpstream(map[string]string{"grilling": skillMD("grilling", "")})
+	w.ownSkill("go-stack")
+	w.agent("reviewer")
+	w.manifest(fmt.Sprintf(`
+[[source]]
+repo = "acme/up"
+sha = %q
+skills = ["grilling"]
+`, sha))
+	w.nerve("project", "add", "app")
+	w.nerve("skill", "add", "go-stack")
+	w.nerve("skill", "add", "grilling")
+	w.nerve("agent", "add", "reviewer")
 
-	var out strings.Builder
-	err := runUpdate(w.root, "acme/up", "", newReport(&out, false))
+	w.nerve("sync")
 
-	if err == nil || !strings.Contains(err.Error(), "drop the plugin") {
-		t.Fatalf("got %v, want a refusal to pin a plugin that is gone upstream", err)
+	skills := filepath.Join(w.proj, ".claude", "skills")
+	if got := linkTarget(t, filepath.Join(skills, "go-stack")); got != filepath.Join(w.brain, "skills", "go-stack") {
+		t.Errorf("own skill links to %s, want the Brain checkout", got)
 	}
-	if b, _ := os.ReadFile(filepath.Join(w.root, marketplaceFile)); !strings.Contains(string(b), oldSHA) {
-		t.Errorf("the pin moved despite the refusal")
+	if got := linkTarget(t, filepath.Join(skills, "grilling")); !strings.Contains(got, filepath.Join("sources", "acme", "up", sha)) {
+		t.Errorf("third-party skill links to %s, want the cache at its pin", got)
+	}
+	if b, err := os.ReadFile(filepath.Join(skills, "nerve", "SKILL.md")); err != nil || !bytes.Equal(b, selfSkill) {
+		t.Errorf("the nerve skill is not linked: %v", err)
+	}
+	if got := linkTarget(t, filepath.Join(w.proj, ".claude", "agents", "reviewer.md")); got != filepath.Join(w.brain, "agents", "reviewer.md") {
+		t.Errorf("agent links to %s", got)
+	}
+	if out := w.gitIn(w.proj, "status", "--porcelain", "--untracked-files=all"); out != "" {
+		t.Errorf("git sees what nerve wrote:\n%s", out)
+	}
+	if exclude := w.read(filepath.Join(w.proj, ".git", "info", "exclude")); !strings.Contains(exclude, "# nerve: begin\n/.claude/agents/reviewer.md\n") {
+		t.Errorf("info/exclude lacks nerve's block:\n%s", exclude)
+	}
+
+	// Taking a skill out removes its link, and only its link.
+	w.nerve("skill", "rm", "grilling")
+	out := w.nerve("sync", "--here")
+
+	if _, err := os.Lstat(filepath.Join(skills, "grilling")); err == nil {
+		t.Errorf("the dropped skill is still linked")
+	}
+	if !strings.Contains(out, "removed  "+filepath.Join(skills, "grilling")) {
+		t.Errorf("output does not report the removal:\n%s", out)
+	}
+	if strings.Contains(w.read(filepath.Join(w.proj, ".git", "info", "exclude")), "grilling") {
+		t.Errorf("info/exclude still lists the dropped skill")
 	}
 }
 
-func TestUpdateDiffsAPluginWhoseFolderStartsWithDotSlash(t *testing.T) {
+func TestSyncRefusesASettingsFileGitDoesNotIgnoreOrTracks(t *testing.T) {
 	w := newWorld(t)
-	oldSHA := w.commitUpstream(map[string]string{"grill": skillMD("grill", "")})
-	w.brainPlugins(`[{"name": "grill", "source": {"source": "git-subdir", "url": "acme/up", "path": "./skills/grill/", "sha": "` + oldSHA + `"}}]`)
-	w.commitUpstream(map[string]string{"grill": skillMD("grill", "") + "Ask harder.\n"})
+	w.nerve("project", "add", "app")
+	os.Remove(filepath.Join(w.home, ".config", "git", "ignore"))
 
-	out := w.run(func(root string, out *strings.Builder) error {
-		return runUpdate(root, "acme/up", "", newReport(out, false))
-	})
+	if msg := w.nerveFails("sync", "--here"); !strings.Contains(msg, "git does not ignore .claude/settings.local.json") {
+		t.Errorf("got %s, want a refusal to write an unignored file", msg)
+	}
 
-	if !strings.Contains(out, "+Ask harder.") {
-		t.Errorf("output lacks the upstream change:\n%s", out)
+	w.write(filepath.Join(w.proj, ".gitignore"), ".claude/settings.local.json\n")
+	w.setLocal(map[string]any{})
+	w.gitIn(w.proj, "add", "-f", ".claude/settings.local.json")
+
+	if msg := w.nerveFails("sync", "--here"); !strings.Contains(msg, "git tracks .claude/settings.local.json") {
+		t.Errorf("got %s, want a refusal to write a tracked file", msg)
+	}
+	if _, err := os.Lstat(filepath.Join(w.proj, ".claude", "skills", "nerve")); err == nil {
+		t.Errorf("nerve linked its skill into a project it refused")
 	}
 }
 
-func TestUpdateDiffsAPluginThatIsAWholeRepo(t *testing.T) {
+func TestSyncWritesHooksPluginsAndAutosync(t *testing.T) {
 	w := newWorld(t)
-	oldSHA := w.commitUpstream(map[string]string{"grill": skillMD("grill", "")})
-	w.brainPlugins(`[{"name": "up", "source": {"source": "github", "repo": "acme/up", "sha": "` + oldSHA + `"}}]`)
-	w.commitUpstream(map[string]string{"plan": skillMD("plan", "")})
+	w.manifest(`
+[hook.fmt]
+event = "PostToolUse"
+matcher = "Edit|Write"
+command = "{{brain}}/hooks/fmt.sh"
+`)
+	w.nerve("project", "add", "app")
+	w.nerve("hook", "add", "fmt")
+	w.nerve("plugin", "add", "gopls@claude-plugins-official")
 
-	out := w.run(func(root string, out *strings.Builder) error {
-		return runUpdate(root, "acme/up", "", newReport(out, false))
-	})
+	w.nerve("sync", "--here")
 
-	if !strings.Contains(out, "+++ b/skills/plan/SKILL.md") {
-		t.Errorf("output lacks the skill added to the repo:\n%s", out)
+	hooks, _ := w.local()["hooks"].(map[string]any)
+	post := asJSONText(hooks["PostToolUse"])
+	if want := `[{"hooks":[{"command":"` + w.brain + `/hooks/fmt.sh","type":"command"}],"matcher":"Edit|Write"}]`; post != want {
+		t.Errorf("PostToolUse is %s, want %s", post, want)
+	}
+	if start := asJSONText(hooks["SessionStart"]); !strings.Contains(start, " sync --here --hook") {
+		t.Errorf("SessionStart is %s, want the autosync hook", start)
+	}
+	if got := asJSONText(w.local()["enabledPlugins"]); got != `{"gopls@claude-plugins-official":true}` {
+		t.Errorf("enabledPlugins is %s", got)
+	}
+
+	w.nerve("project", "autosync", "off")
+	w.nerve("sync", "--here")
+
+	hooks, _ = w.local()["hooks"].(map[string]any)
+	if _, ok := hooks["SessionStart"]; ok {
+		t.Errorf("autosync off left its hook: %s", asJSONText(hooks))
 	}
 }
 
-func TestUpdateRefusesAPinThatAppearsOutsideItsPlugins(t *testing.T) {
+func TestSyncKeepsDriftedKeysAndWritesTheRest(t *testing.T) {
 	w := newWorld(t)
-	oldSHA := w.commitUpstream(map[string]string{"grill": skillMD("grill", "")})
-	w.brainPlugins(`[` + pinnedPlugin("grill", oldSHA) + `], "metadata": {"reviewed": "` + oldSHA + `"}`)
-	before, _ := os.ReadFile(filepath.Join(w.root, marketplaceFile))
-	w.commitUpstream(map[string]string{"grill": skillMD("grill", "") + "Ask harder.\n"})
+	w.manifest("autosync = false\n[common.settings]\nmodel = \"opus\"\n")
+	w.nerve("project", "add", "app")
+	w.nerve("sync", "--here")
 
-	var out strings.Builder
-	err := runUpdate(w.root, "acme/up", "", newReport(&out, false))
+	// Claude Code changes one key and approves a command; the Brain changes another.
+	obj := w.local()
+	obj["model"] = "sonnet"
+	obj["permissions"] = map[string]any{"allow": []any{"Bash(make)"}}
+	w.setLocal(obj)
+	w.nerve("setting", "set", "effortLevel", "high")
 
-	if err == nil || !strings.Contains(err.Error(), "must appear once per plugin pinned at it") {
-		t.Fatalf("got %v, want a refusal to rewrite a pin found elsewhere", err)
+	msg := w.nerveFails("sync", "--here")
+
+	for _, line := range []string{
+		`drift    model is "sonnet" here, "opus" in the Brain: left as is`,
+		`drift    permissions.allow is ["Bash(make)"] here, unset in the Brain: left as is`,
+		`set      effortLevel = "high"`,
+		"settings drifted in 1 of 1 checkouts",
+	} {
+		if !strings.Contains(msg, line) {
+			t.Errorf("output lacks %q:\n%s", line, msg)
+		}
 	}
-	if after, _ := os.ReadFile(filepath.Join(w.root, marketplaceFile)); !bytes.Equal(after, before) {
-		t.Errorf("marketplace.json changed despite the refusal")
+	if got := asJSONText(w.local()); got != `{"effortLevel":"high","model":"sonnet","permissions":{"allow":["Bash(make)"]}}` {
+		t.Errorf("settings are %s, want the drift kept and the Brain's change written", got)
+	}
+
+	// Drift stays drift until it is moved or discarded.
+	if msg := w.nerveFails("sync", "--here"); !strings.Contains(msg, "drift    model") {
+		t.Errorf("drift was forgotten:\n%s", msg)
+	}
+	w.nerve("sync", "--here", "--discard")
+	if got := asJSONText(w.local()); got != `{"effortLevel":"high","model":"opus"}` {
+		t.Errorf("settings are %s after --discard, want the Brain's", got)
 	}
 }
 
-func TestCheckRefusesAPinThatLacksThePluginsFolder(t *testing.T) {
+func TestRemovingASettingEverywhereRevokesItAtTheNextSync(t *testing.T) {
 	w := newWorld(t)
-	sha := w.commitUpstream(map[string]string{"grill": skillMD("grill", "")})
-	w.brainPlugins(`[` + pinnedPlugin("grill", sha) + `, ` + pinnedPlugin("plan", sha) + `]`)
+	w.manifest(`
+autosync = false
+[common.settings.permissions]
+deny = ["NotebookEdit", "Cron"]
+`)
+	w.nerve("project", "add", "app")
+	w.nerve("setting", "set", "permissions.deny", `["NotebookEdit"]`)
+	w.nerve("setting", "set", "model", "opus")
+	w.nerve("sync", "--here")
 
-	out := w.problems()
+	out := w.nerve("setting", "rm", "permissions.deny=NotebookEdit", "--all")
 
-	if !strings.Contains(out, "plan: no skills/plan at "+sha[:7]) || strings.Contains(out, "grill:") {
-		t.Errorf("output does not refuse plan alone:\n%s", out)
+	for _, line := range []string{"dropped  setting permissions.deny=NotebookEdit from common", "dropped  setting permissions.deny=NotebookEdit from project app"} {
+		if !strings.Contains(out, line) {
+			t.Errorf("output lacks %q:\n%s", line, out)
+		}
+	}
+	w.nerve("setting", "rm", "model")
+	w.nerve("sync", "--here")
+
+	if got := asJSONText(w.local()); got != `{"permissions":{"deny":["Cron"]}}` {
+		t.Errorf("settings are %s, want NotebookEdit and model revoked", got)
 	}
 }
 
-func TestCheckRefusesAPinUpstreamDoesNotHave(t *testing.T) {
+func TestDeletingALinkDropsItFromTheProject(t *testing.T) {
 	w := newWorld(t)
-	w.commitUpstream(map[string]string{"grill": skillMD("grill", "")})
-	w.brainPlugins(`[` + pinnedPlugin("grill", strings.Repeat("0", 40)) + `]`)
+	w.ownSkill("go-stack")
+	w.ownSkill("tdd")
+	w.nerve("project", "add", "app")
+	w.nerve("skill", "add", "go-stack")
+	w.nerve("skill", "add", "tdd")
+	w.nerve("sync", "--here")
 
-	if out := w.problems(); !strings.Contains(out, "fetch https://github.com/acme/up.git") {
-		t.Errorf("output does not say the pin cannot be fetched:\n%s", out)
+	os.Remove(filepath.Join(w.proj, ".claude", "skills", "go-stack"))
+	os.Remove(filepath.Join(w.proj, ".claude", "skills", "nerve"))
+	out := w.nerve("sync", "--here")
+
+	if got := w.loadManifest().Projects["app"].Skills; !slices.Equal(got, []string{"tdd"}) {
+		t.Errorf("project skills are %v, want go-stack written back out", got)
+	}
+	if !strings.Contains(out, "dropped  skill go-stack from project app in brain.toml, since its link was deleted: commit it") {
+		t.Errorf("output does not report the write-back:\n%s", out)
+	}
+	if _, err := os.Lstat(filepath.Join(w.proj, ".claude", "skills", "go-stack")); err == nil {
+		t.Errorf("the deleted link came back")
+	}
+	if _, err := os.Lstat(filepath.Join(w.proj, ".claude", "skills", "nerve")); err != nil {
+		t.Errorf("nerve's own skill was not linked again: %v", err)
 	}
 }
 
-func TestCheckRefusesOwnSkillsOutsideAPlugin(t *testing.T) {
+func TestSyncLinksUnderTheOwnersPrefixWhereTheTeamHasTheName(t *testing.T) {
 	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.root, "skills", "grill", "SKILL.md"), skillMD("grill", ""))
+	w.ownSkill("go-stack")
+	w.nerve("project", "add", "app")
+	w.nerve("skill", "add", "go-stack")
+	team := filepath.Join(w.proj, ".claude", "skills", "go-stack", "SKILL.md")
+	w.write(team, skillMD("go-stack", ""))
 
-	if out := w.problems(); !strings.Contains(out, "problem  skills: no config gets skills from here") {
-		t.Errorf("output does not flag the skills folder:\n%s", out)
+	w.nerve("sync", "--here")
+
+	if got := linkTarget(t, filepath.Join(w.proj, ".claude", "skills", "medilies-go-stack")); got != filepath.Join(w.brain, "skills", "go-stack") {
+		t.Errorf("prefixed link points to %s", got)
+	}
+	if fi, err := os.Lstat(filepath.Dir(team)); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Errorf("the team's skill was touched")
+	}
+	if out := w.nerve("skill", "ls"); !strings.Contains(out, "skill go-stack own, linked as .claude/skills/medilies-go-stack") || !strings.Contains(out, "skill go-stack the team's") {
+		t.Errorf("skill ls does not show both:\n%s", out)
 	}
 }
 
-func TestCheckFlagsOwnSkillsThatBreakTheRules(t *testing.T) {
-	w := newWorld(t)
-	w.ownSkill("start-project", "---\nname: start\ndescription: Starts.\n---\n")
-
-	if out, want := w.problems(), `problem  plugins/brain/skills/start-project: frontmatter name "start" differs from folder name`; !strings.Contains(out, want) {
-		t.Errorf("output lacks %q:\n%s", want, out)
-	}
-}
-
-func TestCheckRefusesAThirdPartyPluginWithoutAFullCommit(t *testing.T) {
-	w := newWorld(t)
-	w.brainPlugins(`[` + pinnedPlugin("grill", "5863806") + `]`)
-
-	if out := w.problems(); !strings.Contains(out, "grill: a plugin from outside the Brain must be a git source pinned to a full 40-character lowercase commit sha") {
-		t.Errorf("output does not refuse the short pin:\n%s", out)
-	}
-}
-
-func TestCheckRefusesAnOwnPluginWithoutItsFolder(t *testing.T) {
-	w := newWorld(t)
-	w.brainPlugins(`[{"name": "brain", "source": "./plugins/brain"}]`)
-
-	if out := w.problems(); !strings.Contains(out, "brain: no folder ./plugins/brain") {
-		t.Errorf("output does not name the missing folder:\n%s", out)
-	}
-}
-
-func TestCheckRefusesEnablingAPluginTheMarketplaceDoesNotList(t *testing.T) {
-	w := newWorld(t)
-	w.ownSkill("grill", skillMD("grill", ""))
-	w.profiled()
-	w.write(filepath.Join(w.root, "settings", "work.json"),
-		`{"enabledPlugins": {"brain@brain": true, "ghost@brain": false, "gopls-lsp@claude-plugins-official": true}}`)
-
-	out := w.problems()
-
-	if !strings.Contains(out, "problem  settings/work.json: enables ghost@brain, which "+marketplaceFile+" does not list") {
-		t.Errorf("output does not refuse ghost@brain:\n%s", out)
-	}
-	if strings.Contains(out, "brain@brain,") || strings.Contains(out, "gopls-lsp") {
-		t.Errorf("a listed plugin, or one from another marketplace, was refused:\n%s", out)
-	}
-}
-
-func TestCheckRefusesAMarketplaceTheSettingsDoNotDeclare(t *testing.T) {
-	w := newWorld(t)
-	w.ownSkill("grill", skillMD("grill", ""))
-	w.write(filepath.Join(w.root, "settings", "base.json"), `{"enabledPlugins": {"brain@brain": true}}`)
-
-	if out := w.problems(); !strings.Contains(out, `problem  settings/base.json: declares no "brain"`) {
-		t.Errorf("output does not say the marketplace is undeclared:\n%s", out)
-	}
-}
-
-func TestInitWritesTheMachineFileThatSyncFollows(t *testing.T) {
-	w := newWorld(t)
-	os.Remove(filepath.Join(w.home, ".config", "nerve", "config.toml"))
-	w.write(filepath.Join(w.root, manifestFile), "profiles = [\"work\"]\n")
-	w.write(filepath.Join(w.root, "settings", "work.json"), `{"model": "opus"}`)
-
-	w.run(func(_ string, out *strings.Builder) error {
-		return runInit([]string{w.root, "~/.cfg=work"}, newReport(out, false))
-	})
-	w.run(syncCmd)
-
-	if got := w.settings()["model"]; got != "opus" {
-		t.Errorf("model is %v, want opus from the work profile", got)
-	}
-	var out strings.Builder
-	if err := runInit([]string{w.root, "~/.cfg"}, newReport(&out, false)); err == nil || !strings.Contains(err.Error(), "exists") {
-		t.Errorf("second init got %v, want a refusal to overwrite the machine file", err)
-	}
-}
-
-func TestSyncRefusesAProfileTheBrainLacks(t *testing.T) {
-	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "profiles = [\"work\"]\n")
-	w.write(filepath.Join(w.home, ".config", "nerve", "config.toml"), "brain = \"~/repo\"\n[[config]]\ndir = \"~/.cfg\"\nprofile = \"play\"\n")
-
-	var out strings.Builder
-	err := syncCmd(w.root, &out)
-
-	if err == nil || !strings.Contains(err.Error(), `profile "play"`) {
-		t.Fatalf("got %v, want an unknown-profile error", err)
-	}
-}
-
-// profiled points the machine's one config at profile work, and lists it in
-// the Brain.
-func (w *world) profiled() {
-	w.write(filepath.Join(w.root, manifestFile), "profiles = [\"work\"]\n")
-	w.write(filepath.Join(w.home, ".config", "nerve", "config.toml"), "brain = \"~/repo\"\n[[config]]\ndir = \"~/.cfg\"\nprofile = \"work\"\n")
-}
-
-func (w *world) settings() map[string]any {
+// hookRun runs autosync as Claude Code does, and returns its hook output.
+func (w *world) hookRun() map[string]any {
 	w.t.Helper()
-	obj, err := readObject(filepath.Join(w.config, "settings.json"))
-	if err != nil || obj == nil {
-		w.t.Fatalf("settings.json: %v, %v", obj, err)
+	out, _ := w.in(w.proj, asHook, "sync", "--here", "--hook")
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		w.t.Fatalf("hook output is not JSON: %v\n%s", err, out)
 	}
-	return obj
+	return doc
 }
 
-func TestSyncLaysBaseProfileAndLocalOverlayIntoSettings(t *testing.T) {
+func TestAutosyncHandsAReportAndRescansSkillsWhenItLinkedOne(t *testing.T) {
 	w := newWorld(t)
-	w.profiled()
-	w.write(filepath.Join(w.root, "settings", "base.json"), `{"theme": "dark", "model": "sonnet", "permissions": {"deny": ["NotebookEdit"]}}`)
-	w.write(filepath.Join(w.root, "settings", "work.json"), `{"model": "opus", "permissions": {"deny": ["CronCreate", "NotebookEdit"]}, "statusLine": {"command": "{{brain}}/hooks/status.sh"}}`)
-	w.write(filepath.Join(w.home, ".config", "nerve", "overlays", "work.json"), `{"env": {"TOKEN": "x"}}`)
+	w.ownSkill("go-stack")
+	w.nerve("project", "add", "app")
+	w.nerve("skill", "add", "go-stack")
 
-	w.run(syncCmd)
+	doc := w.hookRun()
 
-	got, _ := json.Marshal(w.settings())
-	want := `{"env":{"TOKEN":"x"},"model":"opus","permissions":{"deny":["NotebookEdit","CronCreate"]},"statusLine":{"command":"` + w.root + `/hooks/status.sh"},"theme":"dark"}`
-	if string(got) != want {
-		t.Errorf("settings.json is\n%s\nwant\n%s", got, want)
+	msg, _ := doc["systemMessage"].(string)
+	if !strings.HasPrefix(msg, "nerve: ") || !strings.Contains(msg, "linked   "+filepath.Join(w.proj, ".claude", "skills", "go-stack")) {
+		t.Errorf("message does not report the link:\n%s", msg)
 	}
-}
-
-func TestSyncHoldsBackSettingsChangedOutsideTheBrain(t *testing.T) {
-	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	base := filepath.Join(w.root, "settings", "base.json")
-	w.write(base, `{"model": "opus", "theme": "dark"}`)
-	w.run(syncCmd)
-	w.write(filepath.Join(w.config, "settings.json"), `{"model": "sonnet", "theme": "dark"}`) // as /model would
-	w.write(base, `{"model": "opus", "theme": "light"}`)
-
-	var out strings.Builder
-	err := syncCmd(w.root, &out)
-
-	if err == nil || !strings.Contains(out.String(), `model is "sonnet" here, "opus" in the Brain`) {
-		t.Fatalf("got %v, want model reported as drift:\n%s", err, out.String())
-	}
-	if got := w.settings()["theme"]; got != "dark" {
-		t.Errorf("a drifted settings.json was rewritten: theme %v", got)
+	if got := asJSONText(doc["hookSpecificOutput"]); got != `{"hookEventName":"SessionStart","reloadSkills":true}` {
+		t.Errorf("hookSpecificOutput is %s, want a skill rescan", got)
 	}
 
-	w.write(base, `{"model": "sonnet", "theme": "light"}`) // the change moved into the Brain
-	w.run(syncCmd)
-	if got := w.settings()["theme"]; got != "light" {
-		t.Errorf("theme is %v once the Brain agrees, want light", got)
+	doc = w.hookRun()
+
+	if msg, _ := doc["systemMessage"].(string); !strings.Contains(msg, "app is up to date at an uncommitted Brain") {
+		t.Errorf("a run that changed nothing says:\n%s", msg)
+	}
+	if _, ok := doc["hookSpecificOutput"]; ok {
+		t.Errorf("a run that linked nothing asked for a rescan")
+	}
+
+	// A failure is reported to the user, not swallowed.
+	os.Remove(filepath.Join(w.home, ".config", "git", "ignore"))
+	if msg, _ := w.hookRun()["systemMessage"].(string); !strings.Contains(msg, "git does not ignore") {
+		t.Errorf("the failure is not in the message:\n%s", msg)
 	}
 }
 
-func TestSyncDiscardOverwritesDrift(t *testing.T) {
+func TestProjectRmCleansTheCheckoutAndKeepsWhatTheUserChanged(t *testing.T) {
 	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.root, "settings", "base.json"), `{"model": "opus"}`)
-	w.write(filepath.Join(w.config, "settings.json"), `{"model": "sonnet", "hand": true}`) // never written by sync
+	w.ownSkill("go-stack")
+	w.manifest("autosync = false\n")
+	w.nerve("project", "add", "app")
+	w.nerve("skill", "add", "go-stack")
+	w.nerve("setting", "set", "model", "opus")
+	w.nerve("sync", "--here")
+	obj := w.local()
+	obj["outputStyle"] = "terse" // the user's own
+	w.setLocal(obj)
 
-	var out strings.Builder
-	if err := syncCmd(w.root, &out); err == nil || !strings.Contains(err.Error(), "drifted") {
-		t.Fatalf("got %v, want drift: sync must not write over settings it never wrote:\n%s", err, out.String())
+	w.nerve("project", "rm", "app")
+
+	if _, ok := w.loadManifest().Projects["app"]; ok {
+		t.Errorf("the project is still in the Brain")
 	}
-	m, err := loadMachine()
+	if got := asJSONText(w.local()); got != `{"outputStyle":"terse"}` {
+		t.Errorf("settings are %s, want only the user's own", got)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(w.proj, ".claude", "skills")); len(entries) > 0 {
+		t.Errorf("links are left: %v", entries)
+	}
+	if strings.Contains(w.read(filepath.Join(w.proj, ".git", "info", "exclude")), "nerve") {
+		t.Errorf("the exclude block is left")
+	}
+	if strings.Contains(w.read(filepath.Join(w.home, ".config", "nerve", "config.toml")), "checkout") {
+		t.Errorf("the machine file still lists the checkout")
+	}
+}
+
+func TestSyncCleansACheckoutWhoseProjectLeftTheBrain(t *testing.T) {
+	w := newWorld(t)
+	w.nerve("project", "add", "app")
+	w.nerve("sync")
+	w.manifest("") // another machine removed it
+
+	out := w.nerve("sync")
+
+	if !strings.Contains(out, "cleaned  "+w.proj+": project app left the Brain") {
+		t.Errorf("output does not report the cleanup:\n%s", out)
+	}
+	if _, err := os.Lstat(filepath.Join(w.proj, ".claude", "skills", "nerve")); err == nil {
+		t.Errorf("nerve's skill link is left")
+	}
+	if _, err := os.Stat(filepath.Join(w.proj, localSettings)); err == nil {
+		t.Errorf("settings.local.json, all nerve's, is left")
+	}
+}
+
+func TestClaudeAIProjectReportsEachZipOnceAndSkillsToDelete(t *testing.T) {
+	w := newWorld(t)
+	w.ownSkill("research")
+	w.ownSkill("notes")
+	w.manifest(`
+[project.claude-ai-work]
+surface = "claude.ai"
+skills = ["research", "notes"]
+`)
+
+	out := w.nerve("sync")
+
+	zipPath := filepath.Join(w.home, ".cache", "nerve", "claude.ai", "claude-ai-work", "research.zip")
+	if !strings.Contains(out, "upload   "+zipPath+" to claude.ai account claude-ai-work (skill research)") {
+		t.Errorf("output does not name the zip to upload:\n%s", out)
+	}
+	zr, err := zip.OpenReader(zipPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runSync(m, true, newReport(&out, false)); err != nil {
-		t.Fatal(err)
+	if zr.File[0].Name != "research/SKILL.md" {
+		t.Errorf("zip holds %s, want research/SKILL.md", zr.File[0].Name)
+	}
+	zr.Close()
+
+	if out := w.nerve("sync"); strings.Contains(out, "upload") {
+		t.Errorf("an unchanged skill was reported again:\n%s", out)
 	}
 
-	if got, _ := json.Marshal(w.settings()); string(got) != `{"model":"opus"}` {
-		t.Errorf("settings.json after --discard is %s", got)
+	w.write(filepath.Join(w.brain, "skills", "research", "extra.md"), "more")
+	w.nerve("skill", "rm", "notes", "--project", "claude-ai-work")
+	out = w.nerve("sync")
+
+	if !strings.Contains(out, "upload   "+zipPath) || !strings.Contains(out, "delete   skill notes from claude.ai account claude-ai-work") {
+		t.Errorf("output does not report the change and the removal:\n%s", out)
+	}
+	if strings.Contains(out, "notes.zip") {
+		t.Errorf("a dropped skill was zipped:\n%s", out)
 	}
 }
 
-func TestCheckRefusesSecretsAndUnknownProfilesInSettings(t *testing.T) {
-	w := newWorld(t)
-	w.profiled()
-	w.write(filepath.Join(w.root, "settings", "base.json"), `{"apiKeyHelper": "pass show anthropic"}`)
-	w.write(filepath.Join(w.root, "settings", "play.json"), `{}`)
-
-	var out strings.Builder
-	err := runCheck(w.root, newReport(&out, false))
-
+func (w *world) problems() string {
+	w.t.Helper()
+	out, err := w.in(w.brain, asText, "check")
 	if err == nil {
-		t.Fatalf("check passed:\n%s", out.String())
+		w.t.Fatalf("check passed:\n%s", out)
 	}
+	return out
+}
+
+func TestCheckRefusesWhatAProjectCannotGet(t *testing.T) {
+	w := newWorld(t)
+	w.ownSkill("go-stack")
+	w.manifest(`
+[common.settings]
+model = "opus"
+
+[project.app]
+skills = ["go-stack", "ghost"]
+agents = ["nobody"]
+hooks = ["fmt"]
+plugins = ["no-marketplace"]
+[project.app.settings]
+model = "opus"
+
+[project.claude-ai-work]
+surface = "claude.ai"
+skills = ["go-stack"]
+plugins = ["x@y"]
+`)
+
+	out := w.problems()
+
 	for _, want := range []string{
-		"problem  settings/base.json: apiKeyHelper may hold secrets",
-		`problem  settings/play.json: "play" is neither base nor a profile`,
+		`project.app: the Brain has no skill "ghost"`,
+		`project.app: the Brain has no agent "nobody"`,
+		`project.app: brain.toml defines no hook "fmt"`,
+		`project.app: plugin "no-marketplace" must be <plugin>@<marketplace>`,
+		"project.app.settings.model: equals common: drop it from the project",
+		"project.claude-ai-work: a claude.ai account takes skills only",
 	} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("output lacks %q:\n%s", want, out.String())
+		if !strings.Contains(out, want) {
+			t.Errorf("check output lacks %q:\n%s", want, out)
 		}
 	}
 }
 
-func TestSyncTakesOverLinksRecordedByTheOldStateFile(t *testing.T) {
+func TestCheckAndSyncRefuseSensitiveValuesInTheBrain(t *testing.T) {
 	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	old := filepath.Join(w.config, "skills", "gone")
-	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(w.home, old); err != nil {
-		t.Fatal(err)
-	}
-	w.write(filepath.Join(w.config, legacyStateFile), `["gone"]`)
+	w.manifest(`
+[common.settings]
+apiKeyHelper = "get-key"
+[common.settings.statusLine]
+command = "/home/someone/bin/line"
 
-	w.run(syncCmd)
+[hook.notify]
+event = "Stop"
+command = "notify me@example.com"
 
-	if _, err := os.Lstat(old); !os.IsNotExist(err) {
-		t.Errorf("a link recorded in the old state file was left behind")
+[project.app.settings.permissions]
+allow = ["WebFetch(domain:ghp_abcdefghijklmnopqrstuvwxyz0123)"]
+`)
+
+	out := w.problems()
+
+	for _, want := range []string{
+		"common.settings.apiKeyHelper: apiKeyHelper may hold secrets",
+		"common.settings.statusLine.command: holds a home path",
+		"hook.notify.command: holds an email address",
+		"project.app.settings.permissions.allow: looks like a token",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("check output lacks %q:\n%s", want, out)
+		}
 	}
-	if _, err := os.Stat(filepath.Join(w.config, legacyStateFile)); !os.IsNotExist(err) {
-		t.Errorf("the old state file is still there")
+	if msg := w.nerveFails("sync"); !strings.Contains(msg, "values in brain.toml are sensitive") {
+		t.Errorf("sync carried sensitive values: %s", msg)
 	}
 }
 
-func TestSyncKeepsCLAUDEmdImportingTheBrainsInstructions(t *testing.T) {
+func TestSettingSetSendsASensitiveValueToTheOverlay(t *testing.T) {
 	w := newWorld(t)
-	w.profiled()
-	w.write(filepath.Join(w.root, "instructions", "base.md"), "Be brief.\n")
-	w.write(filepath.Join(w.root, "instructions", "work.md"), "Use the VPN.\n")
-	claude := filepath.Join(w.config, "CLAUDE.md")
-	w.write(claude, "Written on this machine.\n")
+	w.nerve("project", "add", "app")
 
-	w.run(syncCmd)
-	w.run(syncCmd)
+	out := w.nerve("setting", "set", "env", `{"TOKEN": "abc"}`)
 
-	b, _ := os.ReadFile(claude)
-	want := blockStart + "\n@" + w.root + "/instructions/base.md\n@" + w.root + "/instructions/work.md\n" + blockEnd + "\n\nWritten on this machine.\n"
-	if string(b) != want {
-		t.Errorf("CLAUDE.md is\n%s\nwant\n%s", b, want)
+	overlay := filepath.Join(w.home, ".config", "nerve", "overlays", "app.json")
+	if !strings.Contains(out, "overlay  env set in "+overlay+": env may hold secrets") {
+		t.Errorf("output does not say where it went:\n%s", out)
 	}
-
-	os.RemoveAll(filepath.Join(w.root, "instructions"))
-	w.run(syncCmd)
-
-	if b, _ := os.ReadFile(claude); string(b) != "Written on this machine.\n" {
-		t.Errorf("CLAUDE.md is %q once the Brain has no instructions, want only the machine's own text", b)
+	if strings.Contains(w.read(filepath.Join(w.brain, manifestFile)), "TOKEN") {
+		t.Errorf("a secret reached brain.toml")
+	}
+	if msg := w.nerveFails("setting", "set", "env", `{"TOKEN": "abc"}`, "--common"); !strings.Contains(msg, "cannot go in common") {
+		t.Errorf("got %s, want common refused", msg)
+	}
+	if out := w.nerve("setting", "ls"); !strings.Contains(out, `env.TOKEN = "abc"  (local overlay)`) {
+		t.Errorf("setting ls does not show the overlay:\n%s", out)
 	}
 }
 
-func TestSyncLeavesCLAUDEmdAloneWhenTheBrainHasNoInstructions(t *testing.T) {
+func TestCommandsFindTheProjectFromAWorktree(t *testing.T) {
 	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
+	w.ownSkill("go-stack")
+	w.write(filepath.Join(w.proj, "README"), "x")
+	w.gitIn(w.proj, "add", "-A")
+	w.gitIn(w.proj, "commit", "-q", "-m", "a")
+	w.nerve("project", "add", "app")
+	tree := filepath.Join(w.home, "proj-feature")
+	w.gitIn(w.proj, "worktree", "add", "-q", "-b", "feature", tree)
 
-	w.run(syncCmd)
+	if out, err := w.in(tree, asText, "skill", "add", "go-stack"); err != nil {
+		t.Fatalf("skill add from a worktree: %v\n%s", err, out)
+	}
+	if out, err := w.in(tree, asText, "sync", "--here"); err != nil {
+		t.Fatalf("sync from a worktree: %v\n%s", err, out)
+	}
 
-	if _, err := os.Stat(filepath.Join(w.config, "CLAUDE.md")); !os.IsNotExist(err) {
-		t.Errorf("sync made a CLAUDE.md with nothing to import")
+	if got := linkTarget(t, filepath.Join(tree, ".claude", "skills", "go-stack")); got != filepath.Join(w.brain, "skills", "go-stack") {
+		t.Errorf("worktree link points to %s", got)
+	}
+	if _, err := os.Lstat(filepath.Join(w.proj, ".claude", "skills", "go-stack")); err == nil {
+		t.Errorf("sync --here in a worktree wrote into the main checkout")
+	}
+	if out := w.gitIn(tree, "status", "--porcelain", "--untracked-files=all"); out != "" {
+		t.Errorf("git sees what nerve wrote in the worktree:\n%s", out)
 	}
 }
 
-func TestSyncLinksKeybindingsAndUnlinksThemWhenTheBrainDropsThem(t *testing.T) {
+func TestCommandsOutsideAListedCheckoutSayHowToAddIt(t *testing.T) {
 	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	src := filepath.Join(w.root, "keybindings.json")
-	w.write(src, `[]`)
-	dst := filepath.Join(w.config, "keybindings.json")
-
-	w.run(syncCmd)
-
-	if got := linkTarget(t, dst); got != src {
-		t.Errorf("keybindings.json links to %s, want %s", got, src)
-	}
-
-	os.Remove(src)
-	w.run(syncCmd)
-
-	if _, err := os.Lstat(dst); !os.IsNotExist(err) {
-		t.Errorf("keybindings.json is still linked after the Brain dropped it")
+	if msg := w.nerveFails("skill", "add", "go-stack"); !strings.Contains(msg, "is not a listed checkout: run nerve project add <name> here, or pass --project") {
+		t.Errorf("got %s", msg)
 	}
 }
 
-func TestSyncRefusesToReplaceRealKeybindings(t *testing.T) {
+func TestSkillUpdateShowsUpstreamDiffAndMovesThePin(t *testing.T) {
 	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.root, "keybindings.json"), `[]`)
-	w.write(filepath.Join(w.config, "keybindings.json"), `["mine"]`)
+	old := w.commitUpstream(map[string]string{"grilling": skillMD("grilling", "")})
+	w.manifest(fmt.Sprintf("# pins\n[[source]]\nrepo = \"acme/up\"\nsha = %q\nskills = [\"grilling\"]\n", old))
+	next := w.commitUpstream(map[string]string{"grilling": skillMD("grilling", "") + "Grill harder.\n"})
 
-	var out strings.Builder
-	err := syncCmd(w.root, &out)
+	out, err := w.in(w.brain, asText, "skill", "update", "acme/up")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
 
-	if err == nil || !strings.Contains(err.Error(), "real file") {
-		t.Fatalf("got %v, want a refusal to replace the real keybindings.json", err)
+	if !strings.Contains(out, "+Grill harder.") {
+		t.Errorf("output lacks the upstream diff:\n%s", out)
+	}
+	if got := w.read(filepath.Join(w.brain, manifestFile)); !strings.Contains(got, next) || !strings.HasPrefix(got, "# pins\n") {
+		t.Errorf("brain.toml is not moved in place:\n%s", got)
 	}
 }
 
-func TestInitStoresConfigDirsThatDoNotDependOnTheWorkingDirectory(t *testing.T) {
+func TestSaveManifestKeepsValuesAsWritten(t *testing.T) {
+	w := newWorld(t)
+	w.manifest("[common.settings]\ncleanupPeriodDays = 30\nmodel = \"opus\"\n")
+	w.nerve("project", "add", "app")
+
+	got := w.read(filepath.Join(w.brain, manifestFile))
+
+	if !strings.Contains(got, "cleanupPeriodDays = 30\n") || strings.Contains(got, "[project]\n") || strings.Contains(got, "[common]\n") {
+		t.Errorf("brain.toml is not written as a person would:\n%s", got)
+	}
+	if m := w.loadManifest(); m.Common.Settings["cleanupPeriodDays"] != float64(30) {
+		t.Errorf("cleanupPeriodDays reads back as %#v", m.Common.Settings["cleanupPeriodDays"])
+	}
+}
+
+func TestInitWritesTheMachineFile(t *testing.T) {
 	w := newWorld(t)
 	os.Remove(filepath.Join(w.home, ".config", "nerve", "config.toml"))
-	w.write(filepath.Join(w.root, manifestFile), "")
-	t.Chdir(w.home)
 
-	w.run(func(_ string, out *strings.Builder) error {
-		return runInit([]string{"repo", ".cfg"}, newReport(out, false))
-	})
-	t.Chdir(w.root)
+	w.nerve("init", w.brain)
+
 	m, err := loadMachine()
+	if err != nil || m.Brain != w.brain {
+		t.Errorf("machine file names %q (%v), want %s", m.Brain, err, w.brain)
+	}
+	if got := w.read(filepath.Join(w.home, ".config", "nerve", "config.toml")); got != "brain = \"~/brain\"\n" {
+		t.Errorf("machine file is %q", got)
+	}
+}
 
-	if err != nil || m.Configs[0].Dir != w.config {
-		t.Errorf("config dir is %v (%v), want %s", m.Configs, err, w.config)
+func TestMachineFileRefusesTheOldConfigs(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.home, ".config", "nerve", "config.toml"), "brain = \"~/brain\"\n[[config]]\ndir = \"~/.claude\"\n")
+	if _, err := loadMachine(); err == nil || !strings.Contains(err.Error(), "[[config]] is gone since nerve v0.3") {
+		t.Errorf("got %v, want the old configs refused", err)
+	}
+}
+
+func TestStatusShowsTheProjectItsLinksAndDrift(t *testing.T) {
+	w := newWorld(t)
+	w.nerve("project", "add", "app")
+	w.nerve("setting", "set", "model", "opus")
+	w.nerve("sync", "--here")
+	obj := w.local()
+	obj["model"] = "sonnet"
+	w.setLocal(obj)
+
+	out := w.nerve("status")
+
+	for _, want := range []string{
+		"brain    " + w.brain,
+		"project  app: autosync on, 1 setting",
+		"skill nerve linked as .claude/skills/nerve",
+		`drift    model is "sonnet" here, "opus" in the Brain`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("status lacks %q:\n%s", want, out)
+		}
+	}
+	if w.local()["model"] != "sonnet" {
+		t.Errorf("status changed the settings")
 	}
 }
 
 func TestJSONReportCarriesEventsAndTheError(t *testing.T) {
 	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.root, "settings", "base.json"), `{"model": "opus"}`)
-	w.write(filepath.Join(w.config, "settings.json"), `{"model": "sonnet"}`)
-	m, err := loadMachine()
-	if err != nil {
-		t.Fatal(err)
+	out, err := w.in(w.proj, asJSON, "skill", "add", "ghost")
+	if err == nil {
+		t.Fatal("skill add outside a listed checkout passed")
 	}
-	var out strings.Builder
-	r := newReport(&out, true)
-
-	r.finish(runSync(m, false, r))
-
 	var doc struct {
 		Events []Event
 		Error  string
 	}
-	if err := json.Unmarshal([]byte(out.String()), &doc); err != nil {
-		t.Fatalf("not JSON: %v\n%s", err, out.String())
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
 	}
-	if !slices.Contains(doc.Events, Event{Kind: evDrift, Path: filepath.Join(w.config, "settings.json"), Key: "model", Local: `"sonnet"`, Brain: `"opus"`}) {
-		t.Errorf("no drift event for model in %+v", doc.Events)
-	}
-	if !strings.Contains(doc.Error, "drifted") {
-		t.Errorf("error is %q, want the drift error", doc.Error)
+	if !strings.Contains(doc.Error, "not a listed checkout") || doc.Events == nil {
+		t.Errorf("document is %+v", doc)
 	}
 }
 
-func TestStatusNamesTheBrainAndEachConfigsProfile(t *testing.T) {
+func TestHelpPrintsUsage(t *testing.T) {
 	w := newWorld(t)
-	w.profiled()
-
-	out := w.run(func(_ string, out *strings.Builder) error { return runStatus(newReport(out, false)) })
-
-	for _, want := range []string{"brain    " + w.root, "config   " + w.config + " (profile work)", "nerve    "} {
-		if !strings.Contains(out, want) {
-			t.Errorf("status lacks %q:\n%s", want, out)
-		}
+	if out := w.nerve("help"); !strings.Contains(out, "usage: nerve <command>") {
+		t.Errorf("help prints:\n%s", out)
 	}
 }
 
@@ -650,17 +870,15 @@ func TestStatusNamesTheBrainAndEachConfigsProfile(t *testing.T) {
 func (w *world) published() string {
 	w.t.Helper()
 	remote := filepath.Join(w.home, "brain.git")
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.gitIn(w.root, "init", "-q", "-b", "main")
-	w.gitIn(w.root, "add", "-A")
-	w.gitIn(w.root, "commit", "-q", "-m", "a")
-	w.gitIn(w.home, "clone", "-q", "--bare", w.root, remote)
-	w.gitIn(w.root, "remote", "add", "origin", remote)
-	w.gitIn(w.root, "fetch", "-q", "origin")
-	w.gitIn(w.root, "branch", "-q", "-u", "origin/main")
+	w.gitIn(w.brain, "add", "-A")
+	w.gitIn(w.brain, "commit", "-q", "-m", "a")
+	w.gitIn(w.home, "clone", "-q", "--bare", w.brain, remote)
+	w.gitIn(w.brain, "remote", "set-url", "origin", remote)
+	w.gitIn(w.brain, "fetch", "-q", "origin")
+	w.gitIn(w.brain, "branch", "-q", "-u", "origin/main")
 	other := filepath.Join(w.home, "other")
 	w.gitIn(w.home, "clone", "-q", remote, other)
-	w.write(filepath.Join(other, "settings", "base.json"), `{"model": "opus"}`)
+	w.write(filepath.Join(other, manifestFile), "[common.settings]\nmodel = \"opus\"\n")
 	w.gitIn(other, "add", "-A")
 	w.gitIn(other, "commit", "-q", "-m", "b")
 	w.gitIn(other, "push", "-q")
@@ -671,39 +889,25 @@ func TestSyncPullsTheBrainBeforeCarryingIt(t *testing.T) {
 	w := newWorld(t)
 	head := w.published()
 
-	w.run(syncCmd)
+	w.nerve("sync")
 
-	if got := w.gitIn(w.root, "rev-parse", "HEAD"); got != head {
+	if got := w.gitIn(w.brain, "rev-parse", "HEAD"); got != head {
 		t.Errorf("Brain is at %s, want the pushed %s", got, head)
-	}
-	if got := w.settings()["model"]; got != "opus" {
-		t.Errorf("model is %v, want opus from the pulled settings", got)
 	}
 }
 
 func TestSyncSkipsThePullWhileTheBrainHasUncommittedChanges(t *testing.T) {
 	w := newWorld(t)
 	head := w.published()
-	w.write(filepath.Join(w.root, manifestFile), "profiles = []\n") // a tracked file, edited
+	w.manifest("autosync = false\n") // a tracked file, edited
 
-	out := w.run(syncCmd)
+	out := w.nerve("sync")
 
-	if got := w.gitIn(w.root, "rev-parse", "HEAD"); got == head {
+	if got := w.gitIn(w.brain, "rev-parse", "HEAD"); got == head {
 		t.Errorf("a Brain with uncommitted changes was pulled")
 	}
-	if !strings.Contains(out, "no pull  "+w.root+": uncommitted changes") {
+	if !strings.Contains(out, "no pull  "+w.brain+": uncommitted changes") {
 		t.Errorf("output does not say the pull was skipped:\n%s", out)
-	}
-}
-
-func TestSyncInstallsNervesOwnSkill(t *testing.T) {
-	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-
-	w.run(syncCmd)
-
-	if b, err := os.ReadFile(filepath.Join(w.config, "skills", "nerve", "SKILL.md")); err != nil || !bytes.Equal(b, selfSkill) {
-		t.Fatalf("the nerve skill is not installed: %v", err)
 	}
 }
 
@@ -715,6 +919,26 @@ func TestNervesOwnSkillMeetsTheSkillRules(t *testing.T) {
 	}
 	if p := s.problems(); len(p) > 0 {
 		t.Errorf("the nerve skill breaks the rules: %v", p)
+	}
+}
+
+func TestCheckAcceptsAFrontmatterListAtColumnZero(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.brain, "skills", "go-stack", "SKILL.md"), "---\nname: go-stack\ndescription: Go.\nallowed-tools:\n- Bash\n- Read\n---\n")
+	if out, err := w.in(w.brain, asText, "check"); err != nil {
+		t.Errorf("check refused a valid list: %v\n%s", err, out)
+	}
+}
+
+func TestCheckCountsDescriptionLengthInCharacters(t *testing.T) {
+	w := newWorld(t)
+	w.write(filepath.Join(w.brain, "skills", "go-stack", "SKILL.md"), "---\nname: go-stack\ndescription: "+strings.Repeat("é", 1024)+"\n---\n")
+	if out, err := w.in(w.brain, asText, "check"); err != nil {
+		t.Errorf("check counted bytes: %v\n%s", err, out)
+	}
+	w.write(filepath.Join(w.brain, "skills", "tdd", "SKILL.md"), "---\nname: other\ndescription: x\n---\n")
+	if out := w.problems(); !strings.Contains(out, `skills/tdd: frontmatter name "other" differs from folder name`) {
+		t.Errorf("check output:\n%s", out)
 	}
 }
 
@@ -753,7 +977,7 @@ func (w *world) fakeRelease(running, tag string, bin []byte, sum string) (string
 	w.t.Cleanup(func() {
 		releaseURL, selfPath, reexec, version, httpClient = oldURL, oldSelf, oldExec, oldVersion, oldClient
 	})
-	w.write(filepath.Join(w.root, manifestFile), "nerve = \""+tag+"\"\n")
+	w.manifest("nerve = \"" + tag + "\"\n")
 	return self, &reruns
 }
 
@@ -761,7 +985,7 @@ func TestSyncUpgradesNerveToTheBrainsPinAndRunsItInstead(t *testing.T) {
 	w := newWorld(t)
 	self, reruns := w.fakeRelease("v0.1.0", "v0.2.0", []byte("new binary"), "")
 
-	w.run(syncCmd)
+	w.nerve("sync")
 
 	if b, _ := os.ReadFile(self); string(b) != "new binary" {
 		t.Errorf("binary is %q, want the pinned release", b)
@@ -774,7 +998,7 @@ func TestSyncUpgradesNerveToTheBrainsPinAndRunsItInstead(t *testing.T) {
 	version = "v0.2.0"
 	t.Setenv(upgradedFromEnv, "v0.1.0")
 	t.Setenv(upgradedEnv, "v0.2.0")
-	out := w.run(syncCmd)
+	out := w.nerve("sync")
 
 	if !strings.Contains(out, "upgraded "+self+" from v0.1.0 to v0.2.0") {
 		t.Errorf("the re-run does not report the upgrade:\n%s", out)
@@ -788,11 +1012,8 @@ func TestSyncRefusesAReleaseThatFailsItsChecksum(t *testing.T) {
 	w := newWorld(t)
 	self, reruns := w.fakeRelease("v0.1.0", "v0.2.0", []byte("tampered"), strings.Repeat("0", 64))
 
-	var out strings.Builder
-	err := syncCmd(w.root, &out)
-
-	if err == nil || !strings.Contains(err.Error(), "does not match checksums.txt") {
-		t.Fatalf("got %v, want a checksum error", err)
+	if msg := w.nerveFails("sync"); !strings.Contains(msg, "does not match checksums.txt") {
+		t.Fatalf("got %s, want a checksum error", msg)
 	}
 	if b, _ := os.ReadFile(self); string(b) != "old binary" || len(*reruns) > 0 {
 		t.Errorf("binary %q replaced or re-run %v despite a bad checksum", b, *reruns)
@@ -803,7 +1024,7 @@ func TestSyncLeavesADevelopmentBuildInPlace(t *testing.T) {
 	w := newWorld(t)
 	self, reruns := w.fakeRelease("(devel)", "v0.2.0", []byte("new binary"), "")
 
-	out := w.run(syncCmd)
+	out := w.nerve("sync")
 
 	if b, _ := os.ReadFile(self); string(b) != "old binary" || len(*reruns) > 0 {
 		t.Errorf("a development build was replaced")
@@ -823,11 +1044,8 @@ func TestSyncGivesUpOnAStalledDownload(t *testing.T) {
 	releaseURL = stalled.URL
 	httpClient = &http.Client{Timeout: 100 * time.Millisecond}
 
-	var out strings.Builder
-	err := syncCmd(w.root, &out)
-
-	if err == nil || !strings.Contains(err.Error(), "Timeout") {
-		t.Fatalf("got %v, want a timeout", err)
+	if msg := w.nerveFails("sync"); !strings.Contains(msg, "Timeout") {
+		t.Fatalf("got %s, want a timeout", msg)
 	}
 	if b, _ := os.ReadFile(self); string(b) != "old binary" {
 		t.Errorf("binary is %q after a failed download", b)
@@ -843,20 +1061,12 @@ func TestSyncSaysHowToUpgradeABinaryItCannotReplace(t *testing.T) {
 	os.Chmod(filepath.Dir(self), 0o555)
 	t.Cleanup(func() { os.Chmod(filepath.Dir(self), 0o755) })
 
-	var out strings.Builder
-	err := syncCmd(w.root, &out)
-
-	if err == nil || !strings.Contains(err.Error(), "cannot replace "+self+" with nerve v0.2.0") || !strings.Contains(err.Error(), "install v0.2.0 by hand") {
-		t.Fatalf("got %v, want an error saying how to upgrade", err)
+	if msg := w.nerveFails("sync"); !strings.Contains(msg, "cannot replace "+self+" with nerve v0.2.0") || !strings.Contains(msg, "install v0.2.0 by hand") {
+		t.Fatalf("got %s, want an error saying how to upgrade", msg)
 	}
 	if len(*reruns) > 0 {
 		t.Errorf("re-ran %v without replacing the binary", *reruns)
 	}
-}
-
-// pinChecksums pins sum as the release's checksums.txt in the Brain.
-func (w *world) pinChecksums(tag, sum string) {
-	w.write(filepath.Join(w.root, manifestFile), "nerve = \""+tag+"\"\nnerve-checksums = \""+sum+"\"\n")
 }
 
 func TestSyncUpgradesWhenTheReleaseMatchesThePinnedChecksums(t *testing.T) {
@@ -865,9 +1075,9 @@ func TestSyncUpgradesWhenTheReleaseMatchesThePinnedChecksums(t *testing.T) {
 	self, _ := w.fakeRelease("v0.1.0", "v0.2.0", bin, "")
 	h := sha256.Sum256(bin)
 	list := sha256.Sum256([]byte(hex.EncodeToString(h[:]) + "  nerve_" + runtime.GOOS + "_" + runtime.GOARCH + "\n"))
-	w.pinChecksums("v0.2.0", hex.EncodeToString(list[:]))
+	w.manifest("nerve = \"v0.2.0\"\nnerve-checksums = \"" + hex.EncodeToString(list[:]) + "\"\n")
 
-	w.run(syncCmd)
+	w.nerve("sync")
 
 	if b, _ := os.ReadFile(self); string(b) != "new binary" {
 		t.Errorf("binary is %q, want the pinned release", b)
@@ -877,13 +1087,10 @@ func TestSyncUpgradesWhenTheReleaseMatchesThePinnedChecksums(t *testing.T) {
 func TestSyncRefusesAReleaseWhoseChecksumsTheBrainDoesNotPin(t *testing.T) {
 	w := newWorld(t)
 	self, reruns := w.fakeRelease("v0.1.0", "v0.2.0", []byte("new binary"), "")
-	w.pinChecksums("v0.2.0", strings.Repeat("0", 64))
+	w.manifest("nerve = \"v0.2.0\"\nnerve-checksums = \"" + strings.Repeat("0", 64) + "\"\n")
 
-	var out strings.Builder
-	err := syncCmd(w.root, &out)
-
-	if err == nil || !strings.Contains(err.Error(), "does not match nerve-checksums") {
-		t.Fatalf("got %v, want a pinned checksums error", err)
+	if msg := w.nerveFails("sync"); !strings.Contains(msg, "does not match nerve-checksums") {
+		t.Fatalf("got %s, want a pinned checksums error", msg)
 	}
 	if b, _ := os.ReadFile(self); string(b) != "old binary" || len(*reruns) > 0 {
 		t.Errorf("binary %q replaced or re-run %v despite unpinned checksums", b, *reruns)
@@ -898,7 +1105,7 @@ func TestJSONSyncKeepsWhatHappenedBeforeAnUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runSync(m, false, newReport(io.Discard, true)); err != nil {
+	if err := runSync(m, flags{}, newReport(io.Discard, asJSON)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -910,8 +1117,8 @@ func TestJSONSyncKeepsWhatHappenedBeforeAnUpgrade(t *testing.T) {
 		}
 	}
 	var out strings.Builder
-	r := newReport(&out, true)
-	r.finish(runSync(m, false, r))
+	r := newReport(&out, asJSON)
+	r.finish(runSync(m, flags{}, r))
 
 	var doc struct{ Events []Event }
 	if err := json.Unmarshal([]byte(out.String()), &doc); err != nil {
@@ -923,93 +1130,5 @@ func TestJSONSyncKeepsWhatHappenedBeforeAnUpgrade(t *testing.T) {
 	}
 	if !slices.Contains(kinds, evUpgraded) || slices.Index(kinds, evPullSkipped) != 0 || slices.Contains(kinds[1:], evPullSkipped) {
 		t.Errorf("events are %v, want the first run's one pull-skipped, then the upgrade", kinds)
-	}
-}
-
-func TestCheckAcceptsAFrontmatterListAtColumnZero(t *testing.T) {
-	w := newWorld(t)
-	w.ownSkill("grill", skillMD("grill", "allowed-tools:\n- Read\n- Bash\n"))
-
-	var out strings.Builder
-	if err := checkCmd(w.root, &out); err != nil {
-		t.Fatalf("check failed on valid YAML: %v\n%s", err, out.String())
-	}
-}
-
-func TestCheckCountsDescriptionLengthInCharacters(t *testing.T) {
-	w := newWorld(t)
-	w.ownSkill("grill", "---\nname: grill\ndescription: "+strings.Repeat("é", 1000)+"\n---\n") // 2000 bytes
-
-	var out strings.Builder
-	if err := checkCmd(w.root, &out); err != nil {
-		t.Fatalf("check refused a 1000-character description: %v\n%s", err, out.String())
-	}
-}
-
-func TestSyncWritesThroughALinkedCLAUDEmd(t *testing.T) {
-	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.root, "instructions", "base.md"), "Be brief.\n")
-	dotfile := filepath.Join(w.home, "dotfiles", "CLAUDE.md")
-	w.write(dotfile, "Mine.\n")
-	os.MkdirAll(w.config, 0o755)
-	if err := os.Symlink(dotfile, filepath.Join(w.config, "CLAUDE.md")); err != nil {
-		t.Fatal(err)
-	}
-
-	w.run(syncCmd)
-
-	if got := linkTarget(t, filepath.Join(w.config, "CLAUDE.md")); got != dotfile {
-		t.Errorf("CLAUDE.md links to %s, want %s", got, dotfile)
-	}
-	if b, _ := os.ReadFile(dotfile); !strings.Contains(string(b), blockStart) || !strings.HasSuffix(string(b), "Mine.\n") {
-		t.Errorf("the linked file is %q, want the nerve block over its own text", b)
-	}
-}
-
-func TestSyncRefusesSecretsInTheBrain(t *testing.T) {
-	w := newWorld(t)
-	w.write(filepath.Join(w.root, manifestFile), "")
-	w.write(filepath.Join(w.root, "settings", "base.json"), `{"env": {"TOKEN": "x"}}`)
-
-	var out strings.Builder
-	err := syncCmd(w.root, &out)
-
-	if err == nil || !strings.Contains(err.Error(), "may hold secrets") {
-		t.Fatalf("got %v, want a refusal of secrets", err)
-	}
-	if _, err := os.Stat(filepath.Join(w.config, "settings.json")); !os.IsNotExist(err) {
-		t.Errorf("settings.json was written from a Brain holding secrets")
-	}
-}
-
-func TestMachineFileRefusesARelativeBrain(t *testing.T) {
-	w := newWorld(t)
-	w.write(filepath.Join(w.home, ".config", "nerve", "config.toml"), "brain = \"repo\"\n[[config]]\ndir = \"~/.cfg\"\n")
-
-	if _, err := loadMachine(); err == nil || !strings.Contains(err.Error(), "must be absolute") {
-		t.Fatalf("got %v, want a relative brain refused", err)
-	}
-}
-
-func TestMachineFileRefusesAConfigListedTwice(t *testing.T) {
-	w := newWorld(t)
-	w.write(filepath.Join(w.home, ".config", "nerve", "config.toml"),
-		"brain = \"~/repo\"\n[[config]]\ndir = \"~/.cfg\"\n[[config]]\ndir = \""+w.config+"/\"\n")
-
-	if _, err := loadMachine(); err == nil || !strings.Contains(err.Error(), "listed twice") {
-		t.Fatalf("got %v, want the second listing refused", err)
-	}
-}
-
-func TestHelpPrintsUsage(t *testing.T) {
-	var out strings.Builder
-
-	if err := run([]string{"help"}, newReport(&out, false)); err != nil {
-		t.Fatal(err)
-	}
-
-	if !strings.HasPrefix(out.String(), "usage: nerve <command>") {
-		t.Errorf("help printed %q", out.String())
 	}
 }

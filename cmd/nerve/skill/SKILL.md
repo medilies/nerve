@@ -1,89 +1,64 @@
 ---
 name: nerve
-description: Run nerve and tend this machine's Brain, the repo of skills, settings and standing instructions that nerve carries to every Claude Code config. Use for /nerve, "sync my brain", "remember that I always…", "add this to my brain", settings drift, moving a skill pin, or changing agent settings, instructions or skills everywhere at once.
+description: Tend this project's place in the user's Brain, the git repo of skills, agents, hooks, plugins and settings that nerve carries to the projects that list them. Use for /nerve, "use my <skill> here", "stop <setting> everywhere", "remember that in this project…", settings drift, the autosync report, or moving a skill pin.
 ---
 
 # nerve
 
-A **Brain** is one person's git repo of own skills, third-party skill pins, Claude Code settings and standing instructions. The `nerve` CLI carries it to every Claude Code config on this machine; skills travel as Claude Code plugins, from the Brain's plugin marketplace. You are its front end: run `nerve`, `git` and `claude plugin`, read what they report, and make every decision with the user. The CLI never asks; you do.
+A **Brain** is one person's git repo: own skills and agents, third-party skills pinned to a commit, hooks, and settings. `brain.toml` lists the projects, and what each one gets; a project gets nothing it does not list. The `nerve` CLI carries that into each project's `.claude/settings.local.json` and links in `.claude/skills/` and `.claude/agents/`, all kept out of git. You are its front end: run `nerve` and `git`, read what they report, and make every decision with the user. The CLI never asks; you do.
 
-## First, find the Brain
+## /nerve on its own
 
-Run `nerve status --json`. Its events give the running `version`, the `brain` checkout path, and each `config` with its profile.
+Run `nerve status --json` and summarize it in a few lines: the project, autosync, what is linked, the team's own skills, drift, and Brain changes not yet committed or pushed. Change nothing. Outside a listed project, say in a few lines what nerve can do here, starting with `nerve project add <name>`.
 
-- `nerve` not found: tell the user to install it with `go install github.com/medilies/nerve/cmd/nerve@latest`, or with a release binary from github.com/medilies/nerve/releases.
-- "no machine file": this machine is not set up yet. Ask where the Brain is checked out and which Claude Code config dirs to carry it to (with their profiles, if the Brain lists any in `brain.toml`), then run `nerve init <brain> <config>[=<profile>]...`.
+## The Brain
 
-Then read the Brain's own `README.md`, `GLOSSARY.md`, `CLAUDE.md` or `AGENTS.md` if present. Where they say how this Brain is organized or how commits are written, they win over this skill.
-
-## The Brain's layout
-
-```
-brain.toml                             # nerve = "vX.Y.Z" release, profiles = [...]
-.claude-plugin/marketplace.json        # the plugins: own ones by path, third-party ones pinned to a full commit sha
-plugins/brain/skills/<name>/SKILL.md   # own skills, the plugin brain (invoked as /brain:<name>)
-settings/base.json                     # Claude Code settings for every config; declares the marketplace in extraKnownMarketplaces
-settings/<profile>.json                # added for configs that follow that profile; enabledPlugins chooses plugins
-instructions/base.md                   # standing instructions, imported into every config's CLAUDE.md
-instructions/<profile>.md
-keybindings.json                       # linked into every config
-hooks/                                 # scripts settings run, referenced as {{brain}}/hooks/<script>
+```text
+brain.toml          # nerve pin, autosync, [[source]] pins, [hook.<name>], [common.settings], [project.<name>]
+skills/<name>/      # own skills
+agents/<name>.md    # own agents
+hooks/<script>      # scripts hooks run, as {{brain}}/hooks/<script>
 ```
 
-A third-party skill is one plugin: a `git-subdir` entry with the repo `url`, the skill's folder as `path`, and a full `sha`. A plugin reaches a config only when a settings layer enables it, as `"<plugin>@<marketplace>": true` under `enabledPlugins`.
+A project entry lists `skills`, `agents`, `hooks`, `plugins` and `settings`. `common.settings` reach every project; nothing else does. A `surface = "claude.ai"` project is a claude.ai account and takes skills only. The project's settings are laid: common, then the project, then what nerve adds for plugins, hooks and autosync, then the local overlay `~/.config/nerve/overlays/<project>.json`, which never leaves the machine.
 
-A **local overlay**, `~/.config/nerve/overlays/<profile>.json` (`default.json` with no profile), holds settings that stay on this machine. Settings are laid base, then profile, then overlay: objects merge, arrays join, later values win.
-
-Never edit what nerve generates: `<config>/settings.json` and the nerve block at the top of `<config>/CLAUDE.md`. Edit the Brain or the overlay, then sync.
+Never edit what nerve writes: `settings.local.json` and the links. Change the Brain through the CLI, then sync.
 
 ## Commands
 
-Always add `--json`, then tell the user what happened in plain words.
+Always add `--json`, then tell the user what happened in plain words. A command acts on the project around the working directory; `--project <name>` names another.
 
 | Command | Use |
 | --- | --- |
-| `nerve sync` | Pull the Brain and carry it to every config. Run it after any change to the Brain. |
-| `nerve check` | Validate the Brain. Run it before committing. |
-| `nerve update <repo> [sha]` | Move the pins of every plugin from `repo` to `sha` (default: upstream tip). |
-| `claude plugin update <plugin>@<marketplace>` | Install a moved pin now, rather than at Claude Code's background update. Then `/reload-plugins` or a new session. |
-| `nerve status` | Find the Brain and the configs. |
-| `nerve sync --discard` | Overwrite settings changed outside the Brain. Only after the user agrees to lose them. |
+| `nerve status` | Where things stand. |
+| `nerve sync --here` | Carry the Brain to this project. `nerve sync` does every checkout on the machine and builds claude.ai zips. |
+| `nerve project add <name>` | List this checkout. A new entry records its existing settings: say what went where. |
+| `nerve skill add\|rm <name>`, `agent …`, `hook …`, `plugin add\|rm <plugin>@<marketplace>` | Change what the project lists. `rm --all` takes it out of every project. |
+| `nerve setting set <key> <value>` | Value is JSON or text. `--common` for every project. A sensitive value goes to the overlay on its own. |
+| `nerve setting rm <key>[=<item>]` | `--all` revokes it from common and every project. |
+| `nerve setting ls` | Each setting and the layers that give it. |
+| `nerve project autosync on\|off` | Sync at each session start. `--all` sets the Brain's default. |
+| `nerve skill update <repo> [sha]` | Show upstream changes to a source's skills, then move its pin. |
+| `nerve check` | Validate the Brain before committing. |
 
-Events to act on:
+## Acting on what nerve reports
 
-- **`drift`**: a setting was changed outside the Brain (by `/model` or `/config`, say), and sync left that `settings.json` alone. For each key, ask whether to keep it, and where: `settings/base.json` for every config, `settings/<profile>.json` for one kind of use, or the local overlay if it is sensitive or only for this machine. Or drop it with `--discard`. Make the edits, then sync again.
-- **`problem`** from `check`: propose a fix for each.
-- **`diff`** from `update`, one per plugin (no `detail` when it did not change): summarize what changed upstream, and call out anything that widens what the skill can do (new tools, scripts, network access) before the user commits the new pin.
+- **`drift`**: Claude Code or the user changed a setting here, and nerve left it as is. For each key, ask: keep it for this project (`setting set`), for every project (`--common`), only on this machine (the overlay), or drop it (`nerve sync --here --discard`, after the user agrees to lose it).
+- **`wrote-back`**: a deleted link took its skill or agent out of the project in `brain.toml`. Offer to commit it.
+- **`problem`**: propose a fix for each.
+- **`diff`** from `skill update`: summarize what changed upstream, and call out anything that widens what a skill can do (new tools, scripts, network access) before the user commits the new pin.
+- **`upload`** and **`unload`**: tell the user which zip to upload to which claude.ai account, or which skill to delete there. Neither you nor nerve can do it.
 - **`pull-skipped`**: the Brain was not pulled. Say why, and offer to commit or pull.
 
-## Capturing into the Brain
+## Changing the Brain
 
-When the user wants something remembered or changed everywhere, put it in exactly one home:
-
-| What | Home |
-| --- | --- |
-| A habit or rule that always applies | `instructions/base.md`, or `instructions/<profile>.md` for one kind of use |
-| How to do one kind of task | the own skill for it; a new `plugins/brain/skills/<name>/SKILL.md` only when none fits |
-| A Claude Code setting | `settings/base.json` or `settings/<profile>.json` |
-| Anything secret or identifying (tokens, `env`, employer or client names) | the local overlay, never the Brain |
-| A keybinding | `keybindings.json` |
-| A script a hook or status line runs | `hooks/<name>`, referenced from settings as `{{brain}}/hooks/<name>` |
-| Someone else's skill | a `git-subdir` entry in `.claude-plugin/marketplace.json`, pinned to a full commit SHA, enabled in `settings/base.json` or `settings/<profile>.json` |
-
-- Prefer extending an existing file over adding one. Keep the Brain's existing voice and structure.
-- Ask which profile when it is unclear whether something applies everywhere.
-- A Brain may be public: before writing, check the change carries no secret or personal detail.
-- Text the user wrote directly into a config's `CLAUDE.md`, outside the nerve block, belongs to that machine. Offer to move it into `instructions/` when it should apply everywhere.
-
-Then:
-
-1. Run `nerve check --json` and `claude plugin validate <brain>`, and fix what they report.
-2. Show the diff and ask to commit and push.
-3. On yes, commit following the Brain's own rules, push, and run `nerve sync --json`.
+1. Prefer the CLI. Write a new own skill or agent in the Brain's `skills/` or `agents/`, then `nerve skill add` it.
+2. Ask whether a change is for this project or every project, when it is unclear. Default to this project: nothing should reach a project that does not need it.
+3. Nothing sensitive enters the Brain: no secrets, home paths, emails, client or employer names, or hosts that identify them. Show the user each value before it goes in; send anything identifying to the overlay.
+4. Run `nerve check --json`, show the diff of the Brain, and ask to commit and push. On yes, follow the Brain's own commit rules (its README, CLAUDE.md or AGENTS.md win over this skill), push, and `nerve sync --here --json`.
 
 ## Left to the user
 
-Say what to do, and never do it for them:
-
-- Installing `nerve` on a new machine.
-- On claude.ai, once per account: adding the Brain's GitHub repo as a marketplace and installing its plugins. Never edit a skill on claude.ai: change the Brain, push, and claude.ai picks it up.
+- Installing `nerve` on a machine, and `nerve init <brain>`.
+- Uploading and deleting skills on claude.ai.
+- Setting `syncClaudeAiSkills: false` in their user `settings.json`, if claude.ai's skills should not reach every project.

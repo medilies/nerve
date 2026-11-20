@@ -92,7 +92,7 @@ func upgradeToPin(m Manifest, r *report) error {
 		return err
 	}
 	env := os.Environ()
-	if r.json {
+	if r.mode != asText {
 		// The re-run starts a new report: hand it the events so far.
 		b, _ := json.Marshal(r.events)
 		env = append(env, earlierEventsEnv+"="+string(b))

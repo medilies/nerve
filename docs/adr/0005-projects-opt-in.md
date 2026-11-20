@@ -1,6 +1,6 @@
 # Projects opt in; nothing is carried everywhere
 
-Status: proposed, 2026-11-20. Supersedes [ADR 0004](0004-skills-as-plugins.md), and the user-level carrying of [ADR 0003](0003-generated-layered-settings.md).
+Status: accepted, 2026-11-20. Supersedes [ADR 0004](0004-skills-as-plugins.md), and the user-level carrying of [ADR 0003](0003-generated-layered-settings.md).
 
 ## Context
 

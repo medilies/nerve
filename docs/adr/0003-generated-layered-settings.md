@@ -1,6 +1,6 @@
 # Generated, layered settings
 
-Status: accepted, 2026-11-16
+Status: accepted, 2026-11-16; its user-level carrying is superseded by [ADR 0005](0005-projects-opt-in.md), 2026-11-20, which keeps the layers and drift per project
 
 ## Context
 

@@ -1,6 +1,6 @@
 # Skills travel as Claude plugins
 
-Status: accepted, 2026-11-17. Supersedes [ADR 0001](0001-own-sync-tool.md).
+Status: accepted, 2026-11-17. Supersedes [ADR 0001](0001-own-sync-tool.md); superseded by [ADR 0005](0005-projects-opt-in.md), 2026-11-20.
 
 ## Context
 
