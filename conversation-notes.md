@@ -2,6 +2,8 @@
 
 Notes from a conversation on 2026-11-16, checked against the code at commit `505eba1`.
 
+> Historical: these notes describe nerve v0.1.0. ADRs 0004 to 0006 have since replaced most of what they describe, and their links to code point at files that no longer exist. For how nerve works now, read the [README](README.md) and [ADR 0005](docs/adr/0005-projects-opt-in.md).
+
 ## 1. What is this project?
 
 **nerve** is a small Go command-line tool that keeps one person's Claude setup the same everywhere they use Claude: skills, settings, standing instructions and keybindings.

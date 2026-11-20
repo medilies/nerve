@@ -1,6 +1,6 @@
 # Plan: carry skills through a Claude plugin marketplace
 
-Status: proposed, 2026-11-17. If the spike passes, an ADR replaces [ADR 0001](../adr/0001-own-sync-tool.md).
+Status: implemented in v0.2.0 as [ADR 0004](../adr/0004-skills-as-plugins.md), 2026-11-17; superseded by [ADR 0005](../adr/0005-projects-opt-in.md), 2026-11-20. Kept as a record.
 
 ## Goal
 
