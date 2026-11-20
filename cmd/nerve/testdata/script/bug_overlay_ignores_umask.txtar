@@ -1,0 +1,12 @@
+[!bugs] skip 'open bug: an overlay is written world-readable under umask 077'
+[!exec:sh] skip 'needs sh for umask'
+
+# An overlay, which holds secrets, is written as the umask says.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+
+exec sh -c 'umask 077 && nerve setting set env.T x'
+
+perm $HOME/.config/nerve/overlays/app.json 600

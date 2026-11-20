@@ -194,3 +194,18 @@ func TestSettingsAreReadAndWrittenAsJSON(t *testing.T) {
 		t.Errorf("a broken file reads")
 	}
 }
+
+func TestSettingsReadAnEmptyFileOrOneAfterAByteOrderMarkAsNoSettings(t *testing.T) {
+	openBug(t, "an empty or BOM-led settings file fails its tree")
+	e := newTestEnv(t)
+	path := e.path("app/.claude/settings.local.json")
+	for name, content := range map[string]string{"empty": "", "blank": " \n\t\n", "BOM": "\ufeff{}\n"} {
+		t.Run(name, func(t *testing.T) {
+			e.write(path, content)
+
+			if s, err := (LocalTrees{}).ReadSettings(path); err != nil || s == nil || len(s) != 0 {
+				t.Errorf("reads %v (%v), want {}", s, err)
+			}
+		})
+	}
+}

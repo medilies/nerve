@@ -210,11 +210,40 @@ func TestReconcileTakesAnEmptyObjectForNoSetting(t *testing.T) {
 // Brain made of a few values, as a property: it is idempotent, discard
 // writes what a fresh file gets, and Strip leaves only drift.
 func TestReconcileProperties(t *testing.T) {
+	checkReconcile(t,
+		[]string{"", `1`, `2`, `["p"]`, `["p","q"]`, `{}`, `{"c":1}`},
+		[]string{"", `["p"]`, `["q","p"]`})
+}
+
+// TestReconcilePropertiesWithNestedKeys checks the same properties on
+// settings nested a level or two, as permissions and hooks are.
+func TestReconcilePropertiesWithNestedKeys(t *testing.T) {
+	checkReconcile(t,
+		[]string{"", `1`, `{"c":1}`, `{"c":2}`, `{"c":["p"]}`, `{"c":["q","p"]}`, `{"c":{"d":1}}`, `{"c":1,"e":["p"]}`},
+		[]string{"", `{"c":["p"]}`, `{"c":{"d":["p","q"]}}`})
+}
+
+func TestReconcileDiscardWritesNoEmptyObjectAFreshFileLacks(t *testing.T) {
+	openBug(t, "discard writes an empty object nested in a key taken whole")
+	want := obj(t, `{"a": {"c": {}}}`)
+
+	discard := domain.Reconcile(obj(t, `{"a": 1}`), obj(t, `{"a": {"c": 1}}`), want, true)
+
+	if fresh := domain.Reconcile(nil, nil, want, false); text(discard.Result) != text(fresh.Result) {
+		t.Errorf("discard wrote %s, a fresh file gets %s", text(discard.Result), text(fresh.Result))
+	}
+}
+
+// checkReconcile checks the properties of TestReconcileProperties on every
+// triple of layers that hold a, b, both or neither, with a and b taking each
+// of their values.
+func checkReconcile(t *testing.T, aValues, bValues []string) {
+	t.Helper()
 	var as, bs []any
-	for _, v := range []string{"", `1`, `2`, `["p"]`, `["p","q"]`, `{}`, `{"c":1}`} {
+	for _, v := range aValues {
 		as = append(as, value(t, v))
 	}
-	for _, v := range []string{"", `["p"]`, `["q","p"]`} {
+	for _, v := range bValues {
 		bs = append(bs, value(t, v))
 	}
 	var layers []map[string]any
@@ -391,6 +420,15 @@ func TestSetPathMakesObjectsOnTheWay(t *testing.T) {
 	}
 }
 
+func TestSetPathKeepsAValueOnTheWay(t *testing.T) {
+	openBug(t, "SetPath under a value replaces it")
+	got := domain.SetPath(obj(t, `{"k": {"a": 2}}`), []string{"k", "a", "b"}, int64(2))
+
+	if text(got) != `{"k":{"a":2}}` {
+		t.Errorf("set %s, want k.a kept, as AddPath refuses a path through a value", text(got))
+	}
+}
+
 func TestLeafPathsKeepDottedKeysWhole(t *testing.T) {
 	l := domain.Leaves(obj(t, `{"enabledPlugins": {"x.y@z": true}}`))
 	for k := range l {
@@ -424,6 +462,35 @@ func TestParseValueReadsJSONElseText(t *testing.T) {
 func TestShowValueKeepsWhatJSONNeedNotEscape(t *testing.T) {
 	if got := domain.ShowValue("x", "a && b > c"); got != `"a && b > c"` {
 		t.Errorf("shows %s", got)
+	}
+}
+
+func TestShowValueShowsThePathsNerveFillsIn(t *testing.T) {
+	openBug(t, "nerve's own filled paths show as (hidden)")
+	m := domain.Manifest{Hooks: map[string]domain.Hook{"fmt": {Event: "PostToolUse", Command: "{{brain}}/hooks/fmt.sh"}}}
+	p := &domain.Project{Hooks: []string{"fmt"}}
+
+	want := domain.Leaves(domain.Want(m, p, "/home/u/.local/bin/nerve sync --here --hook", nil, "/home/u/brain"))
+
+	for _, k := range domain.SortedKeys(want) {
+		if got := domain.ShowValue(k, want[k]); got == domain.Hidden {
+			t.Errorf("%s shows as %s", domain.Dotted(k), got)
+		}
+	}
+}
+
+func TestShowValueHidesTokensAndEmails(t *testing.T) {
+	for _, v := range []string{"/home/u/bin/line --token ghp_abcdefghijklmnopqrstuvwxyz0123", "/home/u/bin/notify me@example.com"} {
+		if got := domain.ShowValue(domain.LeafKey([]string{"statusLine", "command"}), v); got != domain.Hidden {
+			t.Errorf("%s shows as %s", v, got)
+		}
+	}
+}
+
+func TestParseValueKeepsEveryDigitOfAWholeNumberBeyondInt64(t *testing.T) {
+	openBug(t, "whole numbers above int64 lose digits")
+	if got := text(domain.ParseValue("12345678901234567890")); got != "12345678901234567890" {
+		t.Errorf("reads as %s", got)
 	}
 }
 

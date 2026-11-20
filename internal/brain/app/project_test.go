@@ -237,3 +237,66 @@ func TestInitNamesTheBrainOnce(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 }
+
+func TestRemovingAProjectWhoseBrainSaveFailsKeepsItsOverlay(t *testing.T) {
+	openBug(t, "project rm deletes the overlay before the Brain is saved")
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.machine.overlays["app"] = map[string]any{"env": map[string]any{"TOKEN": "x"}}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	e.brain.failSaves = 1
+	r := &recorder{}
+
+	if err := e.app.RemoveProject("app", r); err == nil {
+		t.Fatal("remove passed")
+	}
+
+	if _, ok := e.machine.overlays["app"]; !ok || strings.Contains(r.String(), "overlays/app.json") {
+		t.Errorf("the overlay of a project still in the Brain is gone or reported removed:\n%s", r)
+	}
+}
+
+func TestRemovingAProjectWhoseBrainSaveFailsKeepsItsCheckoutListed(t *testing.T) {
+	openBug(t, "project rm unlists the checkout before the Brain is saved")
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	e.brain.failSaves = 1
+
+	if err := e.app.RemoveProject("app", &recorder{}); err == nil {
+		t.Fatal("remove passed")
+	}
+
+	if got := e.machine.machine.Checkouts; len(got) != 1 {
+		t.Errorf("checkouts are %v, want /w/app kept while app is in the Brain", got)
+	}
+}
+
+func TestRemoveProjectRefusesANameThatIsAPath(t *testing.T) {
+	openBug(t, "project rm takes a path as the project's name")
+	e := newEnv(t)
+	e.machine.overlays["../../victim"] = map[string]any{"x": "y"} // a file of the user's that the name reaches
+
+	err := e.app.RemoveProject("../../victim", &recorder{})
+
+	if _, kept := e.machine.overlays["../../victim"]; err == nil || !kept {
+		t.Errorf("got %v, and the file the name reaches was removed: %v", err, !kept)
+	}
+}
+
+func TestAddProjectWhoseBrainSaveFailsReportsNothingImported(t *testing.T) {
+	openBug(t, "project add reports imported settings before the Brain is saved")
+	e := newEnv(t)
+	e.checkout("/w/app")
+	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus"}
+	e.brain.failSaves = 1
+	r := &recorder{}
+
+	if err := e.app.AddProject("/w/app", "app", r); err == nil {
+		t.Fatal("add passed")
+	}
+
+	if strings.Contains(r.String(), "imported") {
+		t.Errorf("reports an import the Brain did not save:\n%s", r)
+	}
+}

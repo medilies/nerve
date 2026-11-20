@@ -61,6 +61,14 @@ func TestDescribeSumsUpAProject(t *testing.T) {
 	}
 }
 
+func TestDescribeCountsNoSettingInAnEmptyObject(t *testing.T) {
+	openBug(t, "Describe counts an empty object as a setting")
+	p := &domain.Project{Settings: map[string]any{"x": map[string]any{}}}
+	if got := (domain.Manifest{}).Describe(p); got != "autosync on" {
+		t.Errorf("described as %q", got)
+	}
+}
+
 func TestSourceOfFindsTheSourceListingASkill(t *testing.T) {
 	m := domain.Manifest{Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{"grilling"}}}}
 	if src, ok := m.SourceOf("grilling"); !ok || src.Repo != "acme/up" {
@@ -125,6 +133,34 @@ func TestSensitiveLeavesOrdinaryValuesAlone(t *testing.T) {
 		if why := domain.Sensitive("x", v); why != "" {
 			t.Errorf("%v flagged: %s", v, why)
 		}
+	}
+}
+
+func TestSensitiveLeavesAProjectFolderNamedHomeAlone(t *testing.T) {
+	openBug(t, "the home-path rule refuses a project folder named home or Users")
+	for _, v := range []string{"Edit(app/home/page.tsx)", "Read(./src/home/**)", "Read(src/Users/list.ts)"} {
+		t.Run(v, func(t *testing.T) {
+			if why := domain.Sensitive(domain.LeafKey([]string{"permissions", "allow"}), []any{v}); why != "" {
+				t.Errorf("flagged: %s", why)
+			}
+		})
+	}
+}
+
+func TestSensitiveFindsRootPathsKeysAndCredentials(t *testing.T) {
+	openBug(t, "the sensitive check misses /root, JWTs, private keys, URL credentials and Google keys")
+	for _, v := range []string{
+		"Read(/root/.ssh/id_rsa)",
+		"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+		"-----BEGIN PRIVATE KEY-----",
+		"postgres://u:pw@db:5432/app",
+		"AIzaSyA1234567890abcdefghijklmnopqrstuv",
+	} {
+		t.Run(v, func(t *testing.T) {
+			if why := domain.Sensitive("x", v); why == "" {
+				t.Errorf("not flagged")
+			}
+		})
 	}
 }
 

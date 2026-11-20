@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -290,6 +291,34 @@ func TestCommandQuotesAPathTheShellWouldSplit(t *testing.T) {
 		if got, _ := n.Command(); got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
+	}
+}
+
+// printCommandEnv makes TestCommandKeepsTheLinkNerveRunsThrough, run again
+// through a link, print the command and stop.
+const printCommandEnv = "NERVE_TEST_PRINT_COMMAND"
+
+func TestCommandKeepsTheLinkNerveRunsThrough(t *testing.T) {
+	openBug(t, "the hook command is the binary's resolved path")
+	if os.Getenv(printCommandEnv) != "" {
+		command, err := Nerve{Release: GitHubRelease()}.Command()
+		fmt.Printf("command: %s (%v)\n", command, err)
+		return
+	}
+	e := newTestEnv(t)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := e.path("bin/nerve") // as bin/nerve -> v1/nerve
+	e.link(link, self)
+	run := exec.Command(link, "-test.run=^TestCommandKeepsTheLinkNerveRunsThrough$")
+	run.Env = append(os.Environ(), printCommandEnv+"=1")
+
+	out, err := run.Output()
+
+	if want := "command: " + link + " sync --here --hook (<nil>)\n"; err != nil || !strings.Contains(string(out), want) {
+		t.Errorf("got %q (%v), want %q", out, err, want)
 	}
 }
 

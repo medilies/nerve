@@ -49,6 +49,43 @@ func TestSkillTakesAWholeRepoWhoseRootIsTheSkill(t *testing.T) {
 	}
 }
 
+func TestSkillThatIsTheWholeRepoHoldsNoGitFolder(t *testing.T) {
+	openBug(t, "a skill that is the whole repo carries .git")
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"SKILL.md": skillMD("tui-test", "")})
+
+	s, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, "tui-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if fileExists(filepath.Join(s.Dir, ".git")) {
+		t.Errorf("%s holds .git", s.Dir)
+	}
+}
+
+func TestDiffOfASkillThatIsTheWholeRepoNamesNoGitFile(t *testing.T) {
+	openBug(t, "the diff of a skill that is the whole repo shows .git")
+	e := newTestEnv(t)
+	old := e.upstream(map[string]string{"SKILL.md": skillMD("tui-test", "")})
+	next := e.upstream(map[string]string{"SKILL.md": skillMD("tui-test", "") + "Test harder.\n"})
+
+	d, err := SourceCache{}.Diff("acme/up", "tui-test", old, next)
+	if err != nil || !strings.Contains(d, "+Test harder.") {
+		t.Fatalf("diff is %q (%v)", d, err)
+	}
+
+	var git []string
+	for line := range strings.Lines(d) {
+		if strings.HasPrefix(line, "diff ") && strings.Contains(line, "/.git/") {
+			git = append(git, strings.TrimSpace(line[strings.LastIndex(line, "/.git/")+1:]))
+		}
+	}
+	if len(git) > 0 {
+		t.Errorf("the diff names %d files under .git, such as %q", len(git), git[0])
+	}
+}
+
 func TestDiffShowsHowASkillChangedUpstream(t *testing.T) {
 	e := newTestEnv(t)
 	old := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})

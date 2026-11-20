@@ -1,6 +1,7 @@
 package infra
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -60,6 +61,38 @@ func TestStatesRefuseAStateFileTheyCannotRead(t *testing.T) {
 
 	if _, err := files.States(); err == nil || !strings.Contains(err.Error(), "0123456789abcdef.json") {
 		t.Errorf("got %v", err)
+	}
+}
+
+func TestStatesReadOnlyFilesNamedLikeAState(t *testing.T) {
+	openBug(t, "a stray file in state/ stops every sync")
+	e := newTestEnv(t)
+	files, _ := NewMachineFiles()
+	if err := files.SaveState(domain.TreeState{Path: "/w/app", Project: "app"}); err != nil {
+		t.Fatal(err)
+	}
+	e.write(e.path(".config/nerve/state/stray.json"), "{}")
+
+	if all, err := files.States(); err != nil || len(all) != 1 || all[0].Path != "/w/app" {
+		t.Errorf("states are %+v (%v)", all, err)
+	}
+}
+
+func TestMachineFileWritesANewPathUnderALinkedHomeWithTilde(t *testing.T) {
+	openBug(t, "a symlinked HOME makes new machine-file paths absolute")
+	e := newTestEnv(t)
+	real := e.path("real-home")
+	e.write(filepath.Join(real, "brain/brain.toml"), "")
+	e.link(e.path("home"), real)
+	t.Setenv("HOME", e.path("home"))
+	files, _ := NewMachineFiles()
+
+	if err := files.Save(domain.Machine{Brain: filepath.Join(real, "brain")}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := e.read(e.path(".config/nerve/config.toml")); got != "brain = \"~/brain\"\n" {
+		t.Errorf("machine file is:\n%s", got)
 	}
 }
 

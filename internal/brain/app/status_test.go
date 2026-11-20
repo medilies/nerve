@@ -170,3 +170,16 @@ func TestCheckPassesAGoodBrain(t *testing.T) {
 		t.Errorf("check says:\n%s", r)
 	}
 }
+
+func TestStatusOfAProjectReportsEachOfItsCheckouts(t *testing.T) {
+	openBug(t, "status --project shows only the last checkout")
+	e := newEnv(t)
+	e.listed("app", "/w/p1")
+	e.checkout("/w/p2")
+	e.machine.machine.Checkouts = append(e.machine.machine.Checkouts, domain.Checkout{Path: "/w/p2", Project: "app"})
+	r := &recorder{}
+
+	e.must(r, e.app.Status(app.ProjectRef{Dir: "/elsewhere", Project: "app"}, r))
+
+	contains(t, r, "checkout /w/p1 (app): never synced", "checkout /w/p2 (app): never synced")
+}

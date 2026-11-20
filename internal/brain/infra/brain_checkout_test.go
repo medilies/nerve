@@ -97,6 +97,21 @@ func TestMovePinTouchesOnlyThePin(t *testing.T) {
 	}
 }
 
+func TestMovePinLeavesTheShaWhereItIsNotThePin(t *testing.T) {
+	openBug(t, "MovePin fails when the sha appears twice in brain.toml")
+	e := newTestEnv(t)
+	old, next := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	e.write(e.path("brain/brain.toml"), "[[source]]\n# was "+old+"\nrepo = \"acme/up\"\nsha = \""+old+"\"\nskills = [\"x\"]\n")
+
+	if err := NewBrainCheckout(e.path("brain")).MovePin(old, next); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := e.read(e.path("brain/brain.toml")); got != "[[source]]\n# was "+old+"\nrepo = \"acme/up\"\nsha = \""+next+"\"\nskills = [\"x\"]\n" {
+		t.Errorf("brain.toml is:\n%s", got)
+	}
+}
+
 // published makes the Brain a clone of a remote that has one more commit,
 // and returns that commit.
 func (e *testEnv) published() string {

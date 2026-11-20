@@ -1,0 +1,20 @@
+[!bugs] skip 'open bug: a moved checkout leaves nerve link visible to git'
+
+# A checkout moved, then listed again, holds nothing of nerve's that git
+# sees.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+exec nerve sync --here
+cd $HOME
+mv proj proj2
+exec nerve sync
+stdout '^unlisted .*/proj'
+cd proj2
+exec nerve project add app
+
+exec nerve sync --here
+
+exec git status --porcelain --untracked-files=all
+! stdout .

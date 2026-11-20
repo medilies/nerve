@@ -721,3 +721,90 @@ func TestWorktreesOfABareRepoShareItsExcludeBlock(t *testing.T) {
 		t.Errorf("excluded %v, want the links of both trees", got)
 	}
 }
+
+func TestEverySkillLinkGoneAtOnceIsLinkedAgainThoughAnAgentLinkRemains(t *testing.T) {
+	openBug(t, "one agent link left makes every deleted skill link a write-back")
+	e := newEnv(t)
+	e.ownSkill("a")
+	e.ownSkill("b")
+	e.brain.agents["rev"] = true
+	p := e.listed("app", "/w/app")
+	p.Skills, p.Agents = []string{"a", "b"}, []string{"rev"}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	for _, name := range []string{"a", "b", "nerve"} {
+		delete(e.trees.links, "/w/app/.claude/skills/"+name) // rm .claude/skills/*
+	}
+
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+
+	if got := e.project("app").Skills; len(got) != 2 || e.brain.saves != 0 {
+		t.Errorf("skills are %v after %d saves, want both kept", got, e.brain.saves)
+	}
+}
+
+// lostWorktree syncs a worktree of app, then has git lose it, and takes app
+// out of the Brain.
+func lostWorktree(t *testing.T) *env {
+	t.Helper()
+	e := newEnv(t)
+	e.ownSkill("go-stack")
+	p := e.listed("app", "/w/app")
+	p.Skills, p.Settings = []string{"go-stack"}, map[string]any{"model": "opus"}
+	e.worktree("/w/app-feature", "/w/app")
+	e.trees.dirs["/w/app/.git"] = true
+	e.must(e.sync("/w/app-feature", app.SyncOptions{Here: true}))
+	e.trees.lost["/w/app-feature"] = true // say, git worktree prune
+	delete(e.brain.m.Projects, "app")
+	return e
+}
+
+func TestAWorktreeGitCannotLocateIsCleanedWhenItsProjectLeaves(t *testing.T) {
+	openBug(t, "a worktree git cannot locate is never cleaned, and fails every sync")
+	e := lostWorktree(t)
+
+	r, err := e.sync("/w", app.SyncOptions{})
+
+	if _, kept := e.machine.states["/w/app-feature"]; err != nil || kept || e.settings("/w/app-feature") != nil {
+		t.Errorf("got %v, state kept %v, settings %v:\n%s", err, kept, e.settings("/w/app-feature"), r)
+	}
+}
+
+func TestCleaningAWorktreeGitCannotLocateReportsWhatItLeftInInfoExclude(t *testing.T) {
+	openBug(t, "a worktree git cannot locate is never cleaned, and fails every sync")
+	e := lostWorktree(t)
+
+	r, _ := e.sync("/w", app.SyncOptions{})
+
+	if !strings.Contains(r.String(), "info/exclude") {
+		t.Errorf("no event says what is left in info/exclude:\n%s", r)
+	}
+}
+
+func TestSyncWhoseSettingsCannotBeWrittenReportsNothingSet(t *testing.T) {
+	openBug(t, "sync reports settings set before the settings file is written")
+	e := newEnv(t)
+	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
+	e.trees.writeErr = errors.New("settings.local.json: read-only")
+
+	r, err := e.sync("/w/app", app.SyncOptions{Here: true})
+
+	if err == nil || strings.Contains(r.String(), "set      model") {
+		t.Errorf("got %v, and a setting reported set that was not written:\n%s", err, r)
+	}
+}
+
+func TestAFullSyncWhoseMachineFileCannotBeSavedReportsNothingUnlisted(t *testing.T) {
+	openBug(t, "sync reports a checkout unlisted before the machine file is saved")
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.listed("gone", "/w/gone")
+	e.must(e.sync("/w", app.SyncOptions{}))
+	delete(e.trees.dirs, "/w/gone")
+	e.machine.saveErr = errors.New("config.toml: read-only")
+
+	r, err := e.sync("/w", app.SyncOptions{})
+
+	if err == nil || strings.Contains(r.String(), "unlisted") {
+		t.Errorf("got %v, and a checkout reported unlisted that the machine file still lists:\n%s", err, r)
+	}
+}

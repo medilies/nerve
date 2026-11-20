@@ -79,3 +79,41 @@ func TestZipRefusesALinkItCannotHold(t *testing.T) {
 		})
 	}
 }
+
+func TestZipKeepsWhatAFileMayRun(t *testing.T) {
+	openBug(t, "zips lose executable bits")
+	e := newTestEnv(t)
+	e.write(e.path("s/x/SKILL.md"), skillMD("x", ""))
+	e.write(e.path("s/x/scripts/run.sh"), "#!/bin/sh\n")
+	if err := os.Chmod(e.path("s/x/scripts/run.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := ZipCache{}.Zip(domain.Skill{Name: "x", Dir: e.path("s/x")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range zr.File {
+		if f.Name == "x/scripts/run.sh" && f.Mode()&0o111 == 0 {
+			t.Errorf("%s is zipped as %s", f.Name, f.Mode())
+		}
+	}
+}
+
+func TestZipTakesASkillWhoseFolderIsALink(t *testing.T) {
+	openBug(t, "a skill whose folder is a link is refused by the zip")
+	e := newTestEnv(t)
+	e.write(e.path("real/x/SKILL.md"), skillMD("x", ""))
+	e.link(e.path("s/x"), e.path("real/x"))
+
+	b, err := ZipCache{}.Zip(domain.Skill{Name: "x", Dir: e.path("s/x")})
+
+	if err != nil || !bytes.Contains(b, []byte("x/SKILL.md")) {
+		t.Errorf("zipped %d bytes (%v)", len(b), err)
+	}
+}

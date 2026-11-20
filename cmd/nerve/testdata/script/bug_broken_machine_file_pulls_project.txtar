@@ -1,0 +1,22 @@
+[!bugs] skip 'open bug: a broken machine file makes sync pull the project'
+
+# Sync with a broken machine file pulls no repo: it never takes the
+# project around the working directory for the Brain.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+exec git clone -q . ../up
+cd ../up
+exec git commit -q --allow-empty -m ahead
+cd ../proj
+exec git remote add origin ../up
+exec git fetch -q origin
+exec git branch -q -u origin/main
+replace $HOME/.config/nerve/config.toml 'brain = "~/brain"' 'brain = "relative/path"'
+
+exec nerve sync --here --hook
+
+! stdout 'pulled'
+exec git rev-list --count HEAD
+stdout '^1$'

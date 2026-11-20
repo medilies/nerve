@@ -276,3 +276,15 @@ func TestListSettingsNamesTheLayersGivingEach(t *testing.T) {
 		`enabledPlugins.x@y = true  (nerve: plugins, hooks, autosync)`,
 		`env.T = (hidden)  (local overlay)`)
 }
+
+func TestSetSettingKeepsNoRepeatInAListInTheBrain(t *testing.T) {
+	openBug(t, "setting set stores a list's repeated items in the Brain")
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+
+	_ = e.app.SetSetting(target("/w/app"), "permissions.allow", []any{"a", "a"}, false, &recorder{})
+
+	if got := jsonText(e.project("app").Settings); strings.Contains(got, `"a","a"`) {
+		t.Errorf("project settings are %s", got)
+	}
+}

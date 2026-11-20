@@ -271,11 +271,16 @@ type fakeTrees struct {
 	tracked   map[string]bool // trees where git tracks it
 	excludes  map[string][]string
 	damaged   map[string]bool // repos whose exclude block someone broke
+	lost      map[string]bool // trees git can no longer locate, as after git worktree prune
+	writeErr  error           // of WriteSettings
 }
 
 func (w *fakeTrees) Locate(dir string) (domain.Tree, error) {
 	for _, t := range w.trees {
 		if dir == t.Top || strings.HasPrefix(dir, t.Top+"/") {
+			if w.lost[t.Top] {
+				return domain.Tree{}, errors.New("not in a git repo: fatal: not a git repository: /nowhere")
+			}
 			return t, nil
 		}
 	}
@@ -420,6 +425,9 @@ func (w *fakeTrees) ReadSettings(p string) (map[string]any, error) {
 }
 
 func (w *fakeTrees) WriteSettings(p string, s map[string]any) error {
+	if w.writeErr != nil {
+		return w.writeErr
+	}
 	if s == nil {
 		s = map[string]any{}
 	}
@@ -493,7 +501,7 @@ func newEnv(t *testing.T) *env {
 		machine: &fakeMachine{machine: domain.Machine{Brain: "/brain"}, overlays: map[string]map[string]any{}, states: map[string]domain.TreeState{}, built: map[string]map[string]string{}},
 		trees: &fakeTrees{dirs: map[string]bool{}, links: map[string]string{}, dangling: map[string]bool{}, files: map[string]bool{},
 			settings: map[string]map[string]any{}, unignored: map[string]bool{}, tracked: map[string]bool{},
-			excludes: map[string][]string{}, damaged: map[string]bool{}},
+			excludes: map[string][]string{}, damaged: map[string]bool{}, lost: map[string]bool{}},
 		self: &fakeSelf{},
 		zips: &fakeZips{written: map[string][]byte{}, refused: map[string]string{}},
 	}

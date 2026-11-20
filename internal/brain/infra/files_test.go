@@ -148,6 +148,9 @@ func TestGitNeverRunsAnAskpassHelper(t *testing.T) {
 	}
 	t.Setenv("GIT_ASKPASS", helper) // as VS Code sets it
 	t.Setenv("SSH_ASKPASS", helper)
+	config := e.path("gitconfig")
+	e.write(config, "[core]\n\taskPass = "+helper+"\n")
+	t.Setenv("GIT_CONFIG_GLOBAL", config) // as a user may set it
 
 	_, err := git(e.home, "ls-remote", srv.URL+"/private/repo.git")
 

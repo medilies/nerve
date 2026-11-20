@@ -154,3 +154,35 @@ func TestUpdatePinRefusesAPinThatDropsASkill(t *testing.T) {
 		t.Errorf("got %v, moved %v", err, e.brain.moved)
 	}
 }
+
+func TestRemoveItemWhoseBrainSaveFailsReportsNothingDropped(t *testing.T) {
+	openBug(t, "skill rm reports the drop before the Brain is saved")
+	e := newEnv(t)
+	e.listed("app", "/w/app").Skills = []string{"go-stack"}
+	e.brain.failSaves = 1
+	r := &recorder{}
+
+	if err := e.app.RemoveItem(target("/w/app"), "skill", "go-stack", false, r); err == nil {
+		t.Fatal("remove passed")
+	}
+
+	if strings.Contains(r.String(), "dropped") {
+		t.Errorf("reports a drop the Brain did not save:\n%s", r)
+	}
+}
+
+func TestListItemsShowsOnlyMarkdownFilesAsTheTeamsAgents(t *testing.T) {
+	openBug(t, ".claude/agents lists any file as the team's agent")
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	e.trees.files["/w/app/.claude/agents/team.md"] = true
+	e.trees.files["/w/app/.claude/agents/README.txt"] = true
+	r := &recorder{}
+
+	e.must(r, e.app.ListItems(target("/w/app"), "agent", r))
+
+	if strings.Contains(r.String(), "README") {
+		t.Errorf("a file that is not an agent is listed as one:\n%s", r)
+	}
+}
