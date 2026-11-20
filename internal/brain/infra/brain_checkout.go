@@ -272,16 +272,43 @@ func forTOML(v any) any {
 	return v
 }
 
+var (
+	sourceHeader = regexp.MustCompile(`^\s*\[\[\s*source\s*\]\]\s*(#.*)?$`)
+	anyHeader    = regexp.MustCompile(`^\s*\[`)
+)
+
+// MovePin replaces old on the sha line of the one [[source]] table pinned
+// at old, and leaves every other line, such as a comment naming it, as it
+// is.
 func (b BrainCheckout) MovePin(old, new string) error {
 	path := filepath.Join(b.root, domain.ManifestFile)
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	if bytes.Count(content, []byte(old)) != 1 {
-		return fmt.Errorf("%s: pin %s must appear exactly once", domain.ManifestFile, old)
+	q := regexp.QuoteMeta(old)
+	shaLine := regexp.MustCompile(`^\s*sha\s*=\s*("` + q + `"|'` + q + `')\s*(#.*)?$`)
+	lines := strings.SplitAfter(string(content), "\n")
+	pin, inSource := -1, false
+	for i, line := range lines {
+		line = strings.TrimRight(line, "\r\n")
+		switch {
+		case sourceHeader.MatchString(line):
+			inSource = true
+		case anyHeader.MatchString(line):
+			inSource = false
+		case inSource && shaLine.MatchString(line):
+			if pin >= 0 {
+				return fmt.Errorf("%s: two [[source]] tables are pinned at %s", domain.ManifestFile, old)
+			}
+			pin = i
+		}
 	}
-	return writeFile(path, bytes.Replace(content, []byte(old), []byte(new), 1))
+	if pin < 0 {
+		return fmt.Errorf("%s: no [[source]] is pinned at %s", domain.ManifestFile, old)
+	}
+	lines[pin] = strings.Replace(lines[pin], old, new, 1)
+	return writeFile(path, []byte(strings.Join(lines, "")))
 }
 
 // pullTimeout bounds the fetch of a pull, so autosync reports a network

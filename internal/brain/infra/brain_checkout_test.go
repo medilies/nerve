@@ -98,7 +98,6 @@ func TestMovePinTouchesOnlyThePin(t *testing.T) {
 }
 
 func TestMovePinLeavesTheShaWhereItIsNotThePin(t *testing.T) {
-	openBug(t, "MovePin fails when the sha appears twice in brain.toml")
 	e := newTestEnv(t)
 	old, next := strings.Repeat("a", 40), strings.Repeat("b", 40)
 	e.write(e.path("brain/brain.toml"), "[[source]]\n# was "+old+"\nrepo = \"acme/up\"\nsha = \""+old+"\"\nskills = [\"x\"]\n")
