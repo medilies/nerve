@@ -20,3 +20,10 @@ internal/brain/infra/   adapters: brain.toml, machine files, git, caches, links,
 ```
 
 Dependencies point inward: `.golangci.yml`'s depguard rules refuse anything else in `domain` and `app`. A new concept takes the words of [GLOSSARY.md](../GLOSSARY.md).
+
+Tests sit next to the code they test:
+
+- `domain`: the rules, on plain values.
+- `app`: the use cases, on the in-memory ports in `fakes_test.go`.
+- `infra`: the adapters, on a temp HOME with real files, git and a local HTTP server.
+- `cmd/nerve`: a few end-to-end runs of the CLI, for the wiring.

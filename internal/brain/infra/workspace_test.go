@@ -1,0 +1,123 @@
+package infra
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestLocateFindsTheMainCheckoutOfAWorktree(t *testing.T) {
+	e := newTestEnv(t)
+	app := e.repo(e.path("app"))
+	e.write(filepath.Join(app, "README"), "x")
+	e.commit(app)
+	tree := e.path("app-feature")
+	e.git(app, "worktree", "add", "-q", "-b", "feature", tree)
+	if err := os.MkdirAll(filepath.Join(tree, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := LocalWorkspace{}
+
+	got, err := w.Locate(filepath.Join(tree, "src"))
+	if err != nil || got.Top != tree || got.Main != app {
+		t.Errorf("located %+v (%v), want top %s, main %s", got, err, tree, app)
+	}
+	if got, _ := w.Locate(app); got.Top != app || got.Main != app {
+		t.Errorf("located %+v in the main checkout", got)
+	}
+	if _, err := w.Locate(e.home); err == nil || !strings.Contains(err.Error(), "not in a git repo") {
+		t.Errorf("got %v outside a repo", err)
+	}
+}
+
+func TestCheckIgnoredRefusesSettingsGitWouldSeeOrShares(t *testing.T) {
+	e := newTestEnv(t)
+	app := e.repo(e.path("app"))
+	w := LocalWorkspace{}
+
+	if err := w.CheckIgnored(app); err == nil || !strings.Contains(err.Error(), "git does not ignore .claude/settings.local.json") {
+		t.Errorf("got %v", err)
+	}
+	e.write(e.path(".config/git/ignore"), "**/.claude/settings.local.json\n") // as Claude Code does
+	if err := w.CheckIgnored(app); err != nil {
+		t.Errorf("an ignored file is refused: %v", err)
+	}
+	e.write(filepath.Join(app, ".claude/settings.local.json"), "{}")
+	e.git(app, "add", "-f", ".claude/settings.local.json")
+	if err := w.CheckIgnored(app); err == nil || !strings.Contains(err.Error(), "git tracks .claude/settings.local.json") {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestSyncExcludeKeepsOnlyItsOwnBlock(t *testing.T) {
+	e := newTestEnv(t)
+	app := e.repo(e.path("app"))
+	exclude := filepath.Join(app, ".git/info/exclude")
+	e.write(exclude, "*.log")
+	w := LocalWorkspace{}
+
+	if err := w.SyncExclude(app, []string{".claude/skills/a", ".claude/agents/b.md"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.read(exclude); got != "*.log\n# nerve: begin\n/.claude/skills/a\n/.claude/agents/b.md\n# nerve: end\n" {
+		t.Errorf("exclude is:\n%s", got)
+	}
+	e.write(filepath.Join(app, ".claude/skills/a/SKILL.md"), "x")
+	if out := e.git(app, "status", "--porcelain", "--untracked-files=all"); out != "" {
+		t.Errorf("git sees an excluded link: %s", out)
+	}
+	if err := w.SyncExclude(app, []string{".claude/skills/c"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.SyncExclude(app, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.read(exclude); got != "*.log\n" {
+		t.Errorf("exclude is %q after removing the block", got)
+	}
+}
+
+func TestLinkReplacesALinkButNeverAFile(t *testing.T) {
+	e := newTestEnv(t)
+	w := LocalWorkspace{}
+	link := e.path("app/.claude/skills/x")
+
+	if err := w.Link(link, "/one"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Link(link, "/two"); err != nil {
+		t.Fatal(err)
+	}
+	if target, ok := w.LinkTarget(link); !ok || target != "/two" || !w.IsLink(link) || !w.Present(link) || w.Exists(link) {
+		t.Errorf("link to %s (%v); a broken link is present, not existing", target, ok)
+	}
+	file := e.path("app/.claude/skills/team")
+	e.write(file, "x")
+	if err := w.Link(file, "/one"); err == nil || w.IsLink(file) {
+		t.Errorf("a real file was replaced")
+	}
+	if got := w.Entries(e.path("app/.claude/skills")); strings.Join(got, ",") != "team,x" {
+		t.Errorf("entries are %v", got)
+	}
+}
+
+func TestSettingsAreReadAndWrittenAsJSON(t *testing.T) {
+	e := newTestEnv(t)
+	w := LocalWorkspace{}
+	path := e.path("app/.claude/settings.local.json")
+
+	if s, err := w.ReadSettings(path); s != nil || err != nil {
+		t.Errorf("a missing file reads %v (%v)", s, err)
+	}
+	if err := w.WriteSettings(path, map[string]any{"model": "opus"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.read(path); got != "{\n  \"model\": \"opus\"\n}\n" {
+		t.Errorf("written as %q", got)
+	}
+	e.write(path, "not json")
+	if _, err := w.ReadSettings(path); err == nil {
+		t.Errorf("a broken file reads")
+	}
+}

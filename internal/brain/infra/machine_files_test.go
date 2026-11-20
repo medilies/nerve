@@ -1,0 +1,97 @@
+package infra
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/medilies/nerve/internal/brain/domain"
+)
+
+func TestMachineFileRoundTripsWithPathsUnderHome(t *testing.T) {
+	e := newTestEnv(t)
+	files, err := NewMachineFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := domain.Machine{Brain: e.path("brain"), Checkouts: []domain.Checkout{{Path: e.path("dev/app"), Project: "app"}}}
+
+	path, err := files.Create(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := e.read(path); got != "brain = \"~/brain\"\n\n[[checkout]]\npath = \"~/dev/app\"\nproject = \"app\"\n" {
+		t.Errorf("machine file is:\n%s", got)
+	}
+	if got, err := files.Load(); err != nil || got.Brain != m.Brain || got.Checkouts[0] != m.Checkouts[0] {
+		t.Errorf("read back %+v (%v)", got, err)
+	}
+	if _, err := files.Create(m); err == nil || !strings.Contains(err.Error(), "exists: edit it instead") {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestMachineFileRefusesWhatItCannotHold(t *testing.T) {
+	e := newTestEnv(t)
+	files, _ := NewMachineFiles()
+	if _, err := files.Load(); err == nil || !strings.Contains(err.Error(), "run nerve init") {
+		t.Errorf("got %v without a machine file", err)
+	}
+	for _, c := range []struct{ content, want string }{
+		{"brain = \"~/b\"\n[[config]]\ndir = \"~/.claude\"\n", "[[config]] is gone since nerve v0.3"},
+		{"brain = \"b\"\n", `brain "b" must be absolute`},
+		{"brain = \"~/b\"\nx = 1\n", "unknown keys [x]"},
+		{"brain = \"~/b\"\n[[checkout]]\npath = \"~/a\"\nproject = \"a\"\n[[checkout]]\npath = \"~/a/\"\nproject = \"b\"\n", "is listed twice"},
+	} {
+		e.write(e.path(".config/nerve/config.toml"), c.content)
+		if _, err := files.Load(); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%q: got %v, want %q", c.content, err, c.want)
+		}
+	}
+}
+
+func TestStateAndOverlaysStayOnTheMachine(t *testing.T) {
+	e := newTestEnv(t)
+	files, _ := NewMachineFiles()
+
+	st, err := files.State("/w/app")
+	if err != nil || st.Path != "/w/app" || st.Links == nil {
+		t.Fatalf("a new tree's state is %+v (%v)", st, err)
+	}
+	st.Project, st.Commit, st.Links[".claude/skills/x"] = "app", "abc", "skill:x"
+	if err := files.SaveState(st); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := files.State("/w/app"); got.Project != "app" || got.Links[".claude/skills/x"] != "skill:x" {
+		t.Errorf("read back %+v", got)
+	}
+	if all, _ := files.States(); len(all) != 1 || all[0].Path != "/w/app" {
+		t.Errorf("states are %+v", all)
+	}
+	if err := files.SaveBuilt(map[string]map[string]string{"acct": {"x": "h"}}); err != nil {
+		t.Fatal(err)
+	}
+	if all, _ := files.States(); len(all) != 1 {
+		t.Errorf("the claude.ai record counts as a tree: %+v", all)
+	}
+	if built, _ := files.Built(); built["acct"]["x"] != "h" {
+		t.Errorf("built is %v", built)
+	}
+	if err := files.DropState("/w/app"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := files.State("/w/app"); got.Project != "" {
+		t.Errorf("a dropped state reads %+v", got)
+	}
+
+	path, err := files.SaveOverlay("app", map[string]any{"env": map[string]any{"T": "1"}})
+	if err != nil || path != e.path(".config/nerve/overlays/app.json") {
+		t.Fatalf("overlay at %s (%v)", path, err)
+	}
+	if o, _, _ := files.Overlay("app"); o["env"].(map[string]any)["T"] != "1" {
+		t.Errorf("overlay reads %v", o)
+	}
+	if o, _, err := files.Overlay("none"); o != nil || err != nil {
+		t.Errorf("a missing overlay reads %v (%v)", o, err)
+	}
+}

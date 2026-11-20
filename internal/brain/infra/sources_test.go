@@ -1,0 +1,69 @@
+package infra
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/medilies/nerve/internal/brain/domain"
+)
+
+// upstream makes a fake github.com/acme/up holding files, and returns its
+// commit.
+func (e *testEnv) upstream(files map[string]string) string {
+	e.t.Helper()
+	dir := e.path("github/acme/up.git")
+	if !fileExists(dir) {
+		e.repo(dir)
+		e.git(dir, "config", "uploadpack.allowAnySHA1InWant", "true")
+	}
+	for name, content := range files {
+		e.write(filepath.Join(dir, name), content)
+	}
+	return e.commit(dir)
+}
+
+func TestSkillFetchesASkillAtItsPin(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"skills/eng/grilling/SKILL.md": skillMD("grilling", ""), "skills/x/tdd/SKILL.md": skillMD("tdd", "")})
+
+	s, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling")
+
+	if err != nil || s.Origin != "acme/up" || s.Dir != e.path(".cache/nerve/sources/acme/up/"+sha+"/skills/eng/grilling") {
+		t.Errorf("got %+v (%v)", s, err)
+	}
+	if _, err := (SourceCache{}).Skill(domain.Source{Repo: "acme/up", SHA: sha}, "ghost"); err == nil || err.Error() != "acme/up@"+sha[:7]+`: no skill "ghost"` {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestSkillTakesAWholeRepoWhoseRootIsTheSkill(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"SKILL.md": skillMD("tui-test", ""), "crates/x/skill.rs": ""})
+
+	s, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, "tui-test")
+
+	if err != nil || s.Dir != e.path(".cache/nerve/sources/acme/up/"+sha) {
+		t.Errorf("got %+v (%v)", s, err)
+	}
+}
+
+func TestDiffShowsHowASkillChangedUpstream(t *testing.T) {
+	e := newTestEnv(t)
+	old := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	next := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "") + "Grill harder.\n"})
+	src := SourceCache{}
+
+	d, err := src.Diff("acme/up", "grilling", old, next)
+	if err != nil || !strings.Contains(d, "+Grill harder.") {
+		t.Errorf("diff is %q (%v)", d, err)
+	}
+	if head, err := src.Head("acme/up"); err != nil || head != next {
+		t.Errorf("head is %s (%v), want %s", head, err, next)
+	}
+	e.git(e.path("github/acme/up.git"), "rm", "-q", "-r", "skills/grilling")
+	gone := e.upstream(map[string]string{"skills/other/SKILL.md": skillMD("other", "")})
+	if _, err := src.Diff("acme/up", "grilling", old, gone); err == nil || !strings.Contains(err.Error(), "drop it from brain.toml first") {
+		t.Errorf("got %v", err)
+	}
+}
