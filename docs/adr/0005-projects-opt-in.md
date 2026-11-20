@@ -1,0 +1,105 @@
+# Projects opt in; nothing is carried everywhere
+
+Status: proposed, 2026-11-20. Supersedes [ADR 0004](0004-skills-as-plugins.md), and the user-level carrying of [ADR 0003](0003-generated-layered-settings.md).
+
+## Context
+
+nerve carried the Brain at user level, so every skill, plugin, hook and denied tool reached every project. In practice:
+
+- A skill is almost never wanted in every project. Most belong to one stack or one kind of work.
+- In a team project, the team decides what is committed in `.claude/`, and teammates do not all want the same personal skills.
+- What is carried at user level is hard to see, and hard for a project to undo. Deny rules from every level are combined, and a deny beats a project's allow. Hooks from every level all run. A personal skill shadows a project skill with the same name, and a plugin skill sits beside it as a near-duplicate.
+
+Two rules follow:
+
+- **Only where needed.** Send skills, settings and plugins only where they are needed, so context is not bloated and needed tools are not denied. Make every effect visible, explicit and hard to miss.
+- **Nothing sensitive in the Brain.** No secrets, no paths, no repo remotes, no client or employer names, no account emails.
+
+## Options
+
+- **Keep user level, let projects opt out.** Every project pays for everything until someone notices. This breaks the first rule by default.
+- **The team's committed `.claude/`.** Right for what the whole team wants, but it is the team's decision, and it forces one person's choices on everyone.
+- **Per person, per project.** `.claude/settings.local.json` and links in `.claude/`, both kept out of git, recorded in the Brain.
+
+## Decision
+
+### The Brain lists projects
+
+- `brain.toml` is the source of truth. Each project entry has a name you choose, and lists its skills, agents, hooks, plugins and settings. A project's files only reflect `brain.toml`.
+- `common` holds settings only, applied to every listed project. Skills, agents, hooks and plugins reach a project only when its entry names them.
+- A project is named, never located. This machine's file maps each checkout to a project name, and `nerve project add <name>` makes that link once per checkout. No remote or path enters the Brain.
+
+### What nerve writes in a project
+
+nerve writes only in listed projects, and nothing at user level:
+
+- `.claude/settings.local.json`, built from `common`, then the project entry, then the project's local overlay. Plugins and hooks reach the project as entries in this file.
+  - nerve refuses to write it while git tracks it or does not ignore it, and never edits `.gitignore`.
+  - Claude Code adds `**/.claude/settings.local.json` to the global git excludes file the first time it writes the file itself. A file nerve creates gets no such rule.
+- One link per skill in `.claude/skills/` and per agent in `.claude/agents/`, including the nerve skill, kept out of git through a marked block in the repo's `info/exclude`.
+  - Own skills and agents link from the Brain checkout, so edits are live.
+  - Third-party skills link from a cache at their pinned commit, and `nerve skill update` moves a pin after showing the upstream diff.
+- Deleting a link removes that skill or agent from the project's entry. It is the one change that flows from a project back to `brain.toml`. Every other change in `settings.local.json` is drift, as in ADR 0003.
+- When one of your skills or agents has the same name as one the team committed, nerve keeps the team's and links yours as `<owner>-<name>`, where `<owner>` comes from the Brain's git remote at sync time and is never stored. The link's folder name is the name you invoke it by.
+
+### Autosync is explicit
+
+- `autosync` is a key in `brain.toml`, on by default, and a project entry can turn it off. When it is on, nerve adds a `SessionStart` hook to the project's `settings.local.json` that runs `nerve sync --here`. On is the default because the source is a git repo the user committed to: the hook only applies what was already reviewed.
+- Every run hands the user a report as the hook's `systemMessage`. That is shown to the user and does not enter Claude's context. It says:
+  - what changed (links made or removed, settings added, changed or revoked);
+  - what was held back as drift;
+  - whether the pull was skipped.
+
+  When nothing changed, it is one line naming the Brain commit the project is at.
+- Settings the hook writes take effect in the same session, and so do skills it links: the hook asks Claude Code to rescan them (`reloadSkills`).
+- Autosync never resolves drift: it is the CLI, run without a person. It leaves drifted keys as they are and reports them. The nerve skill resolves drift with the user.
+- `/nerve` on its own changes nothing. It summarizes the current project's state, autosync included, or says what it can do.
+
+### Revoking
+
+- nerve records what it last wrote in each checkout. A key or array item that leaves `common` or a project entry is removed from that checkout's file at its next sync, unless it was changed there since, which is reported as drift. A skill or agent that leaves an entry loses its link.
+- `rm --all` (`nerve setting rm <key>[=<value>] --all`, `nerve skill rm <name> --all`, and so on) removes it from every entry at once, and lists each project affected, so no project keeps it through an override.
+- `nerve project rm <name>` takes nerve's links, exclude block, hook and keys out of a checkout and drops the entry.
+- A revoke reaches a checkout at its next sync: its next session start with autosync on, or a manual `nerve sync` with it off. `/nerve` shows a checkout that is behind the Brain.
+
+### claude.ai is a special project
+
+```toml
+[project.claude-ai-work]
+surface = "claude.ai"
+skills = ["research"]
+```
+
+- It takes skills only. One entry per account, named by a label, never by email.
+- `sync` builds a zip per skill into nerve's cache, never into the Brain, and reports which zips changed since it last built them. Uploading and deleting on claude.ai stay manual, because there is no API for it.
+- nerve does not read skills back from claude.ai. Claude Code downloads the account's skills into every session signed into it, at user level. Claude Code's `syncClaudeAiSkills: false` turns that off; `common` can carry it to listed projects.
+
+### Adding a project that already has settings
+
+`nerve project add` reads the project's existing `settings.local.json` and records it, so the project behaves exactly as before. Each key ends up in one of these groups, and every group is reported:
+
+| The existing key… | Recorded as | Effect |
+| --- | --- | --- |
+| has the same value as `common` | nothing: `common` already provides it | none |
+| has a different value from `common` | a project override | the project keeps its value |
+| is an array that shares items with `common` | the items `common` lacks | none |
+| is not in `common` | a project key | none |
+| is sensitive or identifying | the project's local overlay, never the Brain | none |
+| is missing, but `common` has it | nothing | **added to the project**: reported before it is written |
+
+`add` changes only `brain.toml` and the overlay. The project file is written by the next sync, after the change has been reviewed and committed. A value is never promoted into `common` automatically. `check` reports a project override that equals `common`, so the overrides that remain always mean something.
+
+### Keeping sensitive values out
+
+- `check` and `sync` refuse secret-bearing keys (`env`, `apiKeyHelper` and the like), absolute home paths, email addresses and token-like strings anywhere in `brain.toml`. `{{brain}}` stands in for the checkout path.
+- Every value about to enter the Brain, from `add`, from moving drift, or from a request, goes through the same guard. The nerve skill shows it to the user, and anything identifying goes to the project's local overlay. That covers values a pattern cannot catch, such as a client host in a permission rule.
+
+## Consequences
+
+- No skill, agent, hook, plugin or setting from the Brain reaches a project that is not listed. Listing a project, or anything in it, is a reviewed commit.
+- nerve no longer writes user-level settings, standing instructions or keybindings. Profiles go.
+- A new machine links each checkout once with `nerve project add <name>`, since the Brain does not say where projects live.
+- Local overlays stay on one machine. A sensitive value has to be set again on each machine.
+- The plugin marketplace layout goes, and skills are invoked by name again (`/go-stack`).
+- Claude Code writes approvals ("don't ask again") and project-local `/config` choices into `settings.local.json`, so drift is common there.
+- The CLI is grouped by noun, like Docker's: `nerve project`, `skill`, `agent`, `hook`, `plugin` and `setting`.
