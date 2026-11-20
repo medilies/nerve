@@ -31,7 +31,7 @@ const (
 	EvSetting        = "setting"         // Key at Path went from Local to Brain
 	EvDrift          = "drift"           // Key at Path changed outside the Brain, from Brain to Local, and was left as is; with Item, that item of the list
 	EvWroteBack      = "wrote-back"      // Item left Project in brain.toml, since its link was deleted
-	EvRelinked       = "relinked"        // nerve's links in Path were all gone at once, so it made them again rather than write them back
+	EvRelinked       = "relinked"        // nerve's links in Path, or in one of its folders, were all gone at once, so it made them again rather than write them back
 	EvProblem        = "problem"         // Detail is wrong with Path (at Key)
 	EvOK             = "ok"              // Detail
 	EvDiff           = "diff"            // Detail is how Item changed in its source, "" when it did not

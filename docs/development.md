@@ -31,7 +31,7 @@ Tests sit next to the code they test:
 
 A test of a bug not fixed yet asserts the right behaviour, and is skipped:
 
-- in Go, it starts with `openBug(t, "<the wrong behaviour>")`;
+- in Go, it starts with `openBug(t, "<the wrong behaviour>")`, a helper in the package's `bugs_test.go`, added with its first open bug and deleted with its last;
 - in a script, with `[!bugs] skip 'open bug: <the wrong behaviour>'`, and its file name starts with `bug_`.
 
 Fixing the bug deletes that line, so the test must pass.

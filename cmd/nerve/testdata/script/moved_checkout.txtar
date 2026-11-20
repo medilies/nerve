@@ -1,5 +1,3 @@
-[!bugs] skip 'open bug: a moved checkout leaves nerve link visible to git'
-
 # A checkout moved, then listed again, holds nothing of nerve's that git
 # sees.
 

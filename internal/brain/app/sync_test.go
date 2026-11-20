@@ -723,7 +723,6 @@ func TestWorktreesOfABareRepoShareItsExcludeBlock(t *testing.T) {
 }
 
 func TestEverySkillLinkGoneAtOnceIsLinkedAgainThoughAnAgentLinkRemains(t *testing.T) {
-	openBug(t, "one agent link left makes every deleted skill link a write-back")
 	e := newEnv(t)
 	e.ownSkill("a")
 	e.ownSkill("b")
@@ -759,7 +758,6 @@ func lostWorktree(t *testing.T) *env {
 }
 
 func TestAWorktreeGitCannotLocateIsCleanedWhenItsProjectLeaves(t *testing.T) {
-	openBug(t, "a worktree git cannot locate is never cleaned, and fails every sync")
 	e := lostWorktree(t)
 
 	r, err := e.sync("/w", app.SyncOptions{})
@@ -770,7 +768,6 @@ func TestAWorktreeGitCannotLocateIsCleanedWhenItsProjectLeaves(t *testing.T) {
 }
 
 func TestCleaningAWorktreeGitCannotLocateReportsWhatItLeftInInfoExclude(t *testing.T) {
-	openBug(t, "a worktree git cannot locate is never cleaned, and fails every sync")
 	e := lostWorktree(t)
 
 	r, _ := e.sync("/w", app.SyncOptions{})
@@ -781,7 +778,6 @@ func TestCleaningAWorktreeGitCannotLocateReportsWhatItLeftInInfoExclude(t *testi
 }
 
 func TestSyncWhoseSettingsCannotBeWrittenReportsNothingSet(t *testing.T) {
-	openBug(t, "sync reports settings set before the settings file is written")
 	e := newEnv(t)
 	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
 	e.trees.writeErr = errors.New("settings.local.json: read-only")
@@ -794,7 +790,6 @@ func TestSyncWhoseSettingsCannotBeWrittenReportsNothingSet(t *testing.T) {
 }
 
 func TestAFullSyncWhoseMachineFileCannotBeSavedReportsNothingUnlisted(t *testing.T) {
-	openBug(t, "sync reports a checkout unlisted before the machine file is saved")
 	e := newEnv(t)
 	e.listed("app", "/w/app")
 	e.listed("gone", "/w/gone")

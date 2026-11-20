@@ -1,5 +1,3 @@
-[!bugs] skip 'open bug: a broken machine file makes sync pull the project'
-
 # Sync with a broken machine file pulls no repo: it never takes the
 # project around the working directory for the Brain.
 

@@ -27,14 +27,15 @@ func (a App) Status(ref ProjectRef, r Reporter) error {
 	r.Add(Event{Kind: EvBrain, Path: a.Brain.Root(), Detail: a.Brain.State()})
 	l := loaded{machine: machine, m: m}
 	tree, name, err := a.here(machine, ref.Dir)
+	dirs := []string{tree.Top}
 	if ref.Project != "" {
 		if _, err := m.Project(ref.Project); err != nil {
 			return err
 		}
-		name, err, tree = ref.Project, nil, domain.Tree{}
+		name, err, dirs = ref.Project, nil, nil
 		for _, c := range machine.Checkouts {
 			if c.Project == name {
-				tree = domain.Tree{Top: c.Path, Main: c.Path}
+				dirs = append(dirs, c.Path)
 			}
 		}
 	}
@@ -48,11 +49,19 @@ func (a App) Status(ref ProjectRef, r Reporter) error {
 		return nil
 	}
 	r.Add(Event{Kind: EvProject, Project: name, Detail: m.Describe(p)})
-	if tree.Top == "" {
-		return nil
+	for _, dir := range dirs {
+		if err := a.treeStatus(m, name, p, dir, r); err != nil {
+			return err
+		}
 	}
-	r.Add(Event{Kind: EvCheckout, Path: tree.Top, Project: name, Detail: a.syncState(tree.Top, a.Brain.Head())})
-	st, err := a.Machine.State(tree.Top)
+	return nil
+}
+
+// treeStatus says how one working tree of project name stands: its sync
+// state, links, the team's skills and agents, and drift.
+func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir string, r Reporter) error {
+	r.Add(Event{Kind: EvCheckout, Path: dir, Project: name, Detail: a.syncState(dir, a.Brain.Head())})
+	st, err := a.Machine.State(dir)
 	if err != nil {
 		return err
 	}
@@ -60,7 +69,7 @@ func (a App) Status(ref ProjectRef, r Reporter) error {
 		r.Add(Event{Kind: EvItem, Project: name, Item: st.Links[rel].Item(), Detail: "linked as " + rel})
 	}
 	for _, kind := range []string{"skill", "agent"} {
-		for _, item := range a.teamItems(tree.Top, kind, st) {
+		for _, item := range a.teamItems(dir, kind, st) {
 			r.Add(Event{Kind: EvItem, Project: name, Item: kind + " " + item, Detail: "the team's"})
 		}
 	}
@@ -72,7 +81,7 @@ func (a App) Status(ref ProjectRef, r Reporter) error {
 	if err != nil {
 		return err
 	}
-	path := settingsPath(tree.Top)
+	path := settingsPath(dir)
 	current, err := a.Trees.ReadSettings(path)
 	if err != nil {
 		return err

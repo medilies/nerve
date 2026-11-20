@@ -1,5 +1,3 @@
-[!bugs] skip 'open bug: a stray brain.toml above the working directory is taken as the Brain'
-
 # Outside the Brain and any listed checkout, check uses this machine's
 # Brain, not a brain.toml found above the working directory.
 

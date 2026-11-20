@@ -125,9 +125,10 @@ project = "billing"
 
 ## Checking a Brain
 
-`nerve check`, in the Brain or anywhere when this machine names one,
-validates own skills and agents, each pin, what each project lists, and
-the sensitive values above. In a listed checkout, it checks this
+`nerve check`, in the Brain (a git repo with `brain.toml` at its top)
+or anywhere when this machine names one, validates own skills and
+agents, each pin, what each project lists, and the sensitive values
+above. In a listed checkout, it checks this
 machine's Brain, even when the project has a `brain.toml` of its own.
 In the Brain's CI, run the release it pins:
 

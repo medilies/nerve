@@ -239,7 +239,6 @@ func TestInitNamesTheBrainOnce(t *testing.T) {
 }
 
 func TestRemovingAProjectWhoseBrainSaveFailsKeepsItsOverlay(t *testing.T) {
-	openBug(t, "project rm deletes the overlay before the Brain is saved")
 	e := newEnv(t)
 	e.listed("app", "/w/app")
 	e.machine.overlays["app"] = map[string]any{"env": map[string]any{"TOKEN": "x"}}
@@ -257,7 +256,6 @@ func TestRemovingAProjectWhoseBrainSaveFailsKeepsItsOverlay(t *testing.T) {
 }
 
 func TestRemovingAProjectWhoseBrainSaveFailsKeepsItsCheckoutListed(t *testing.T) {
-	openBug(t, "project rm unlists the checkout before the Brain is saved")
 	e := newEnv(t)
 	e.listed("app", "/w/app")
 	e.must(e.sync("/w/app", app.SyncOptions{}))
@@ -273,7 +271,6 @@ func TestRemovingAProjectWhoseBrainSaveFailsKeepsItsCheckoutListed(t *testing.T)
 }
 
 func TestRemoveProjectRefusesANameThatIsAPath(t *testing.T) {
-	openBug(t, "project rm takes a path as the project's name")
 	e := newEnv(t)
 	e.machine.overlays["../../victim"] = map[string]any{"x": "y"} // a file of the user's that the name reaches
 
@@ -285,7 +282,6 @@ func TestRemoveProjectRefusesANameThatIsAPath(t *testing.T) {
 }
 
 func TestAddProjectWhoseBrainSaveFailsReportsNothingImported(t *testing.T) {
-	openBug(t, "project add reports imported settings before the Brain is saved")
 	e := newEnv(t)
 	e.checkout("/w/app")
 	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus"}

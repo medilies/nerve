@@ -1,5 +1,3 @@
-[!bugs] skip 'open bug: --json with a bad flag prints text'
-
 # --json, with any command line, prints one JSON document.
 
 ! exec nerve --json sync --bogus

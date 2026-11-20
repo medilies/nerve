@@ -156,7 +156,6 @@ func TestUpdatePinRefusesAPinThatDropsASkill(t *testing.T) {
 }
 
 func TestRemoveItemWhoseBrainSaveFailsReportsNothingDropped(t *testing.T) {
-	openBug(t, "skill rm reports the drop before the Brain is saved")
 	e := newEnv(t)
 	e.listed("app", "/w/app").Skills = []string{"go-stack"}
 	e.brain.failSaves = 1
@@ -172,7 +171,6 @@ func TestRemoveItemWhoseBrainSaveFailsReportsNothingDropped(t *testing.T) {
 }
 
 func TestListItemsShowsOnlyMarkdownFilesAsTheTeamsAgents(t *testing.T) {
-	openBug(t, ".claude/agents lists any file as the team's agent")
 	e := newEnv(t)
 	e.listed("app", "/w/app")
 	e.must(e.sync("/w/app", app.SyncOptions{}))

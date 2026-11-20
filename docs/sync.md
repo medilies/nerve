@@ -84,10 +84,13 @@ To resolve drift:
 - Deleting a skill's or agent's link in `.claude/` takes it out of the
   project in `brain.toml`, at the next sync, which says to commit it.
   A link you point elsewhere becomes yours: nerve leaves it alone.
-  - Links that are all gone at once, or gone with `.claude/skills/` or
-    `.claude/agents/`, as after `git clean -x`, are linked again
-    instead, and a settings file that is gone is written again. Delete
-    one link at a time to drop its item.
+  - Links that are all gone at once, gone with their folder, or all
+    gone from `.claude/skills/` or `.claude/agents/` when it held two
+    or more, as after `git clean -x` or `rm .claude/skills/*`, are
+    linked again instead, and a settings file that is gone is written
+    again. Delete one link at a time to drop its item.
+  - A link that already points where nerve would point it, as in a
+    checkout that moved, becomes nerve's again.
 - A project dropped from the Brain, by `nerve project rm` here or on
   another machine, is cleaned out of its checkouts: nerve's links, its
   exclude block, the settings and list items it wrote that were not

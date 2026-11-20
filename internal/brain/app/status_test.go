@@ -172,7 +172,6 @@ func TestCheckPassesAGoodBrain(t *testing.T) {
 }
 
 func TestStatusOfAProjectReportsEachOfItsCheckouts(t *testing.T) {
-	openBug(t, "status --project shows only the last checkout")
 	e := newEnv(t)
 	e.listed("app", "/w/p1")
 	e.checkout("/w/p2")

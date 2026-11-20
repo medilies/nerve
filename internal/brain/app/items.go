@@ -67,23 +67,28 @@ func (a App) RemoveItem(ref ProjectRef, kind, name string, all bool, r Reporter)
 		}
 		projects = []string{project}
 	}
-	dropped := 0
+	var dropped []Event
 	for _, project := range projects {
 		list := l.m.Projects[project].List(kind)
 		if !slices.Contains(*list, name) {
 			continue
 		}
 		*list = slices.DeleteFunc(*list, func(x string) bool { return x == name })
-		dropped++
-		r.Add(Event{Kind: EvDropped, Project: project, Item: kind + " " + name})
+		dropped = append(dropped, Event{Kind: EvDropped, Project: project, Item: kind + " " + name})
 	}
-	if dropped == 0 {
+	if len(dropped) == 0 {
 		if all {
 			return fmt.Errorf("no project has %s %s", kind, name)
 		}
 		return fmt.Errorf("project %s has no %s %s", projects[0], kind, name)
 	}
-	return a.Brain.Save(l.m)
+	if err := a.Brain.Save(l.m); err != nil {
+		return err
+	}
+	for _, e := range dropped {
+		r.Add(e)
+	}
+	return nil
 }
 
 // ListItems lists the target project's items of a kind and where each comes
@@ -154,7 +159,7 @@ func (a App) teamItems(dir, kind string, st domain.TreeState) []string {
 	sub := map[string]string{"skill": "skills", "agent": "agents"}[kind]
 	var names []string
 	for _, e := range a.Trees.Entries(filepath.Join(dir, ".claude", sub)) {
-		if _, ours := st.Links[path.Join(".claude", sub, e)]; ours || strings.HasPrefix(e, ".") {
+		if _, ours := st.Links[path.Join(".claude", sub, e)]; ours || strings.HasPrefix(e, ".") || kind == "agent" && !strings.HasSuffix(e, ".md") {
 			continue
 		}
 		names = append(names, strings.TrimSuffix(e, ".md"))

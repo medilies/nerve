@@ -43,9 +43,6 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 			return err
 		}
 		entry, overlay, fates := domain.ImportSettings(existing, l.m.Common)
-		for _, f := range fates {
-			r.Add(Event{Kind: EvImported, Project: name, Key: f.Key, Detail: f.What})
-		}
 		// The overlay first: a run that fails after it and is run again
 		// imports again, and merges the same values.
 		if overlay != nil {
@@ -62,6 +59,9 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 		l.m.Projects[name] = &domain.Project{Settings: entry}
 		if err := a.Brain.Save(l.m); err != nil {
 			return err
+		}
+		for _, f := range fates {
+			r.Add(Event{Kind: EvImported, Project: name, Key: f.Key, Detail: f.What})
 		}
 		r.Add(Event{Kind: EvProject, Project: name, Detail: "added to " + domain.ManifestFile})
 	}
@@ -115,10 +115,15 @@ func (a App) syncState(dir, head string) string {
 	return "synced at " + Short(head)
 }
 
-// RemoveProject cleans the project's working trees on this machine, deletes
-// its local overlay here, and drops it from the Brain; other machines clean
-// theirs at their next sync.
+// RemoveProject cleans the project's working trees on this machine, drops
+// it from the Brain, then unlists its checkouts and deletes its local overlay
+// here; other machines clean theirs at their next sync. The overlay goes
+// last: it may hold what exists nowhere else, and a run that fails before it
+// is run again.
 func (a App) RemoveProject(name string, r Reporter) error {
+	if !domain.NamePattern.MatchString(name) {
+		return fmt.Errorf("no project %q: a project's name is lowercase words joined by hyphens", name)
+	}
 	l, err := a.load()
 	if err != nil {
 		return err
@@ -152,6 +157,13 @@ func (a App) RemoveProject(name string, r Reporter) error {
 			return err
 		}
 	}
+	if inBrain {
+		delete(l.m.Projects, name)
+		if err := a.Brain.Save(l.m); err != nil {
+			return err
+		}
+		r.Add(Event{Kind: EvProject, Project: name, Detail: "dropped from " + domain.ManifestFile})
+	}
 	if listed {
 		l.machine.Checkouts = slices.DeleteFunc(l.machine.Checkouts, func(c domain.Checkout) bool { return c.Project == name })
 		if err := a.Machine.Save(l.machine); err != nil {
@@ -162,13 +174,6 @@ func (a App) RemoveProject(name string, r Reporter) error {
 		return err
 	} else if path != "" {
 		r.Add(Event{Kind: EvRemoved, Path: path})
-	}
-	if inBrain {
-		delete(l.m.Projects, name)
-		if err := a.Brain.Save(l.m); err != nil {
-			return err
-		}
-		r.Add(Event{Kind: EvProject, Project: name, Detail: "dropped from " + domain.ManifestFile})
 	}
 	return nil
 }

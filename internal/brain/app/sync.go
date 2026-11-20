@@ -46,6 +46,10 @@ type workingTree struct {
 // A tree that fails is reported, and the others still sync; what the run
 // changed in the Brain and on this machine is saved either way.
 func (a App) Sync(o SyncOptions, r Reporter) error {
+	// This machine's file names the Brain, so nothing is pulled without it.
+	if _, err := a.Machine.Load(); err != nil {
+		return err
+	}
 	if !o.SkipPull {
 		if err := a.Brain.Pull(r); err != nil {
 			return err
@@ -77,6 +81,7 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 	s := &syncer{App: a, m: l.m, r: r, self: self, cmd: cmd, discard: o.Discard}
 	checkouts := len(l.machine.Checkouts)
 	var trees []workingTree
+	var gone []Event // checkouts unlisted, reported once the machine file is saved
 	if o.Here {
 		t, name, err := a.here(l.machine, o.Dir)
 		if err != nil {
@@ -84,7 +89,7 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 		}
 		_, listed := l.machine.CheckoutAt(t.Top)
 		trees = []workingTree{{dir: t.Top, project: name, listed: listed}}
-	} else if trees, err = a.workingTrees(&l.machine, r); err != nil {
+	} else if trees, gone, err = a.workingTrees(&l.machine); err != nil {
 		return err
 	}
 	unlisted := len(l.machine.Checkouts) != checkouts
@@ -119,7 +124,13 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 	}
 	var errs []error
 	if unlisted {
-		errs = append(errs, a.Machine.Save(l.machine))
+		err := a.Machine.Save(l.machine)
+		if err == nil {
+			for _, e := range gone {
+				r.Add(e)
+			}
+		}
+		errs = append(errs, err)
 	}
 	if !o.Here {
 		errs = append(errs, s.claudeAI())
@@ -139,9 +150,11 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 
 // workingTrees lists what a full sync carries the Brain to: each checkout
 // machine lists, and each worktree of one that a sync reached before. It
-// unlists a checkout that is gone, and forgets a worktree that is.
-func (a App) workingTrees(machine *domain.Machine, r Reporter) ([]workingTree, error) {
+// unlists a checkout that is gone, returning its event, and forgets a
+// worktree that is.
+func (a App) workingTrees(machine *domain.Machine) ([]workingTree, []Event, error) {
 	var trees []workingTree
+	var gone []Event
 	var kept []domain.Checkout
 	for _, c := range machine.Checkouts {
 		if a.Trees.Exists(c.Path) {
@@ -150,14 +163,14 @@ func (a App) workingTrees(machine *domain.Machine, r Reporter) ([]workingTree, e
 			continue
 		}
 		if err := a.Machine.DropState(c.Path); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		r.Add(Event{Kind: EvUnlisted, Project: c.Project, Path: c.Path})
+		gone = append(gone, Event{Kind: EvUnlisted, Project: c.Project, Path: c.Path})
 	}
 	machine.Checkouts = kept
 	states, err := a.Machine.States()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, st := range states {
 		if _, ok := machine.CheckoutAt(st.Path); ok {
@@ -165,14 +178,14 @@ func (a App) workingTrees(machine *domain.Machine, r Reporter) ([]workingTree, e
 		}
 		if !a.Trees.Exists(st.Path) {
 			if err := a.Machine.DropState(st.Path); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			continue
 		}
 		_, project, _ := a.here(*machine, st.Path) // "" when no listed checkout holds it
 		trees = append(trees, workingTree{dir: st.Path, project: project})
 	}
-	return trees, nil
+	return trees, gone, nil
 }
 
 func problemEvent(p domain.Problem) Event {
@@ -327,13 +340,13 @@ func (s *syncer) reconcile(path string, want map[string]any, last *map[string]an
 	for _, c := range rc.Drift {
 		s.r.Add(driftEvent(path, c))
 	}
-	for _, c := range rc.Changes {
-		s.r.Add(Event{Kind: EvSetting, Path: path, Key: c.Key, Local: c.Before, Brain: c.After})
-	}
 	if rc.Write {
 		if err := s.Trees.WriteSettings(path, rc.Result); err != nil {
 			return false, err
 		}
+	}
+	for _, c := range rc.Changes {
+		s.r.Add(Event{Kind: EvSetting, Path: path, Key: c.Key, Local: c.Before, Brain: c.After})
 	}
 	*last = rc.Next
 	return len(rc.Drift) > 0, nil
@@ -352,22 +365,31 @@ func driftEvent(path string, c domain.Change) Event {
 
 // writeBack drops from the project each skill or agent whose link nerve
 // made and the user deleted, and saves the Brain; only then does the tree
-// forget those links. Links that are all gone at once, or gone with their
-// folder, as git clean or rm -rf .claude leave them, were not deleted one
-// by one: link makes them again.
+// forget those links. Links that are all gone at once, gone with their
+// folder, or the two or more of one folder all gone, as git clean, rm -rf
+// .claude or rm .claude/skills/* leave them, were not deleted one by one:
+// link makes them again.
 func (s *syncer) writeBack(name string, p *domain.Project, dir string, st *domain.TreeState) error {
-	var gone []string
+	var missing []string
+	inFolder, missingIn := map[string]int{}, map[string]int{}
 	for _, rel := range domain.SortedKeys(st.Links) {
+		inFolder[path.Dir(rel)]++
 		if !s.Trees.Present(filepath.Join(dir, rel)) {
+			missing = append(missing, rel)
+			missingIn[path.Dir(rel)]++
+		}
+	}
+	var gone []string // deleted one by one
+	for _, rel := range missing {
+		folder := path.Dir(rel)
+		if len(missing) < len(st.Links) && s.Trees.Exists(filepath.Join(dir, folder)) && (inFolder[folder] < 2 || missingIn[folder] < inFolder[folder]) {
 			gone = append(gone, rel)
 		}
 	}
-	if len(gone) == 0 {
-		return nil
-	}
-	folderGone := func(rel string) bool { return !s.Trees.Exists(filepath.Join(dir, path.Dir(rel))) }
-	if len(gone) == len(st.Links) || slices.ContainsFunc(gone, folderGone) {
+	if len(gone) < len(missing) {
 		s.r.Add(Event{Kind: EvRelinked, Project: name, Path: dir})
+	}
+	if len(gone) == 0 {
 		return nil
 	}
 	before := map[string][]string{} // each list changed, as it was
@@ -411,33 +433,41 @@ func (a App) ours(dir, rel string, l domain.Link) bool {
 // link makes dir hold each link, and removes the links nerve made that are
 // no longer wanted. Where the team already has a skill or agent of that
 // name, it links nerve's as <owner>-<name>. It never touches what nerve did
-// not make, nor a link someone pointed elsewhere.
+// not make, nor a link someone pointed elsewhere. A link that already points
+// where nerve would point it, as one left by a checkout that moved, becomes
+// nerve's.
 func (s *syncer) link(dir string, links []domain.Link, st *domain.TreeState) error {
 	ours := func(rel string) bool {
 		l, ok := st.Links[rel]
 		return ok && s.ours(dir, rel, l)
 	}
-	taken := func(rel string) bool {
-		return s.Trees.Present(filepath.Join(dir, rel)) && !ours(rel)
+	same := func(rel string, l domain.Link) bool {
+		target, ok := s.Trees.LinkTarget(filepath.Join(dir, rel))
+		return ok && target == l.Target
+	}
+	taken := func(rel string, l domain.Link) bool {
+		return s.Trees.Present(filepath.Join(dir, rel)) && !ours(rel) && !same(rel, l)
 	}
 	next := map[string]domain.Link{}
 	for _, l := range links {
 		rel := l.Rel("")
-		if taken(rel) {
+		if taken(rel, l) {
 			owner, err := s.ownerName()
 			if err != nil {
 				return fmt.Errorf("the team has %s: %w", rel, err)
 			}
-			if rel = l.Rel(owner + "-"); taken(rel) {
+			if rel = l.Rel(owner + "-"); taken(rel, l) {
 				return fmt.Errorf("the team has both %s and %s: nerve has nowhere to link %s %s", l.Rel(""), rel, l.Kind, l.Name)
 			}
 		}
 		path := filepath.Join(dir, rel)
-		if target, ok := s.Trees.LinkTarget(path); !ok || target != l.Target {
+		if !same(rel, l) {
 			if err := s.Trees.Link(path, l.Target); err != nil {
 				return err
 			}
 			s.r.Add(Event{Kind: EvLinked, Path: path, Target: l.Target})
+		} else if _, known := st.Links[rel]; !known {
+			s.r.Add(Event{Kind: EvLinked, Path: path, Target: l.Target}) // adopted
 		}
 		next[rel] = l
 		st.Links[rel] = l // ours from here on, should a later link collide
@@ -494,7 +524,7 @@ func (a App) clean(dir, why string, r Reporter) error {
 				return err
 			}
 		case st.Repo != "" && a.Trees.Exists(st.Repo): // its block is still there
-			return err
+			r.Add(Event{Kind: EvProblem, Path: dir, Detail: fmt.Sprintf("git cannot locate it, so nerve's lines for it stay in %s: %v", filepath.Join(st.Repo, "info", "exclude"), err)})
 		}
 		path := settingsPath(dir)
 		current, err := a.Trees.ReadSettings(path)

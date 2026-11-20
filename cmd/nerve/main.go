@@ -142,16 +142,19 @@ func main() { os.Exit(cli(os.Args[1:], os.Stdout, os.Stderr)) }
 // exit code.
 func cli(args []string, stdout, stderr io.Writer) int {
 	mode := infra.AsText
-	if pos, f, err := parseFlags(args); err == nil {
-		switch {
-		case f.hook && len(pos) > 0 && pos[0] == "sync": // only autosync's sync
-			mode = infra.AsHook
-		case f.json:
-			mode = infra.AsJSON
-		}
+	pos, f, err := parseFlags(args)
+	flagArgs := args
+	if i := slices.Index(args, "--"); i >= 0 {
+		flagArgs = args[:i]
+	}
+	switch {
+	case err == nil && f.hook && len(pos) > 0 && pos[0] == "sync": // only autosync's sync
+		mode = infra.AsHook
+	case slices.Contains(flagArgs, "--json"): // even on a command line nerve refuses
+		mode = infra.AsJSON
 	}
 	r := infra.NewReport(stdout, mode)
-	err := run(args, r)
+	err = run(args, r)
 	switch {
 	case r.Finish(err) || err == nil:
 	case errors.Is(err, errUsage):
@@ -210,10 +213,13 @@ func onBrainHere(wd string) (app.App, error) {
 	return wire(m.Brain, machine)
 }
 
-// brainAround finds the folder holding a brain.toml, from dir up.
+// brainAround finds the Brain around dir: from dir up, the top of a git
+// repo holding a brain.toml. A brain.toml elsewhere is not a Brain.
 func brainAround(dir string) (string, bool) {
 	for ; ; dir = filepath.Dir(dir) {
-		if _, err := os.Stat(filepath.Join(dir, domain.ManifestFile)); err == nil {
+		_, manifest := os.Stat(filepath.Join(dir, domain.ManifestFile))
+		_, repo := os.Lstat(filepath.Join(dir, ".git"))
+		if manifest == nil && repo == nil {
 			return dir, true
 		}
 		if filepath.Dir(dir) == dir {

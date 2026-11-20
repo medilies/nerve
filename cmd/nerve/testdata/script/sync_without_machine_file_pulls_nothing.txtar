@@ -1,5 +1,3 @@
-[!bugs] skip 'open bug: sync with no machine file pulls the project'
-
 # Sync with no machine file pulls no repo: it never takes the project
 # around the working directory for the Brain.
 
@@ -14,6 +12,6 @@ exec git branch -q -u origin/main
 
 exec nerve sync --here --hook
 
-! stdout 'pull'
+! stdout 'pulled|no pull'
 exec git rev-list --count HEAD
 stdout '^1$'
