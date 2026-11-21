@@ -14,13 +14,12 @@ link .claude/skills/go-stack $HOME/brain/skills/go-stack
 link .claude/agents/reviewer.md $HOME/brain/agents/reviewer.md
 link .claude/skills/nerve $HOME/.cache/nerve/skill/nerve
 grep '"model": "opus"' .claude/settings.local.json
-grep '"outputStyle": "terse"' .claude/settings.local.json
 grep '"SessionStart"' .claude/settings.local.json
 exec git status --porcelain --untracked-files=all
 ! stdout .
 grep '^\[project.app\]\nskills = \["go-stack"\]\nagents = \["reviewer"\]$' $HOME/brain/brain.toml
 exec nerve status
-stdout '^project  app: autosync on, 1 skill, 1 agent, 2 settings$'
+stdout '^project  app: autosync on, 1 skill, 1 agent, 1 setting$'
 
 -- brain/brain.toml --
 [common.settings]
@@ -35,5 +34,3 @@ description: Does go-stack.
 name: reviewer
 description: Reviews.
 ---
--- proj/.claude/settings.local.json --
-{"outputStyle": "terse"}

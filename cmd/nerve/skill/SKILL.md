@@ -34,7 +34,7 @@ Always add `--json`, then tell the user what happened in plain words. A command 
 | --- | --- |
 | `nerve status` | Where things stand. |
 | `nerve sync --here` | Carry the Brain to this project. `nerve sync` does every checkout on the machine and builds claude.ai zips. |
-| `nerve project add <name>` | List this checkout. A new entry records its existing settings: say what went where. |
+| `nerve project add <name>` | List this checkout. Settings it already has are drift at its first sync. |
 | `nerve project ls` | The Brain's projects, and their checkouts on this machine. |
 | `nerve project rm <name>` | Clean its checkouts here, delete its overlay here, and drop it from the Brain. Ask first. |
 | `nerve skill add\|rm <name>`, `agent …`, `hook …`, `plugin add\|rm <plugin>@<marketplace>` | Change what the project lists. `rm --all` takes it out of every project. |

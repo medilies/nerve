@@ -26,7 +26,7 @@ const usage = `usage: nerve <command>
   status                       the Brain, and the project around the working directory
   check                        validate the Brain (run by its CI)
 
-  project add <name>           list this checkout as project <name>, importing its settings.local.json
+  project add <name>           list this checkout as project <name>
   project ls                   the projects, and their checkouts on this machine
   project rm <name>            clean its checkouts here, and drop it from the Brain
   project autosync on|off      sync at each session start in the project (--all: the Brain's default)

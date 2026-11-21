@@ -1,6 +1,6 @@
 # Projects opt in; nothing is carried everywhere
 
-Status: accepted, 2026-11-20; deleting a link and a name the team has superseded by [ADR 0007](0007-drop-guessing-features.md). Supersedes [ADR 0004](0004-skills-as-plugins.md), and the user-level carrying of [ADR 0003](0003-generated-layered-settings.md).
+Status: accepted, 2026-11-20; deleting a link and a name the team has superseded by [ADR 0007](0007-drop-guessing-features.md); adding a project that already has settings amended 2026-11-21, to import nothing. Supersedes [ADR 0004](0004-skills-as-plugins.md), and the user-level carrying of [ADR 0003](0003-generated-layered-settings.md).
 
 ## Context
 
@@ -77,24 +77,14 @@ skills = ["research"]
 
 ### Adding a project that already has settings
 
-`nerve project add` reads the project's existing `settings.local.json` and records it, so the project behaves exactly as before. Each key ends up in one of these groups, and every group is reported:
+`nerve project add` adds an empty entry, and records nothing of the checkout's existing `settings.local.json`. At the first sync, each existing key the Brain disagrees with is drift: left as is and reported. The user moves it into the Brain with `nerve setting set`, which sends anything sensitive to the overlay, or drops it with `--discard`. `nerve project rm` strips only what nerve wrote, so these keys stay in the file.
 
-| The existing key… | Recorded as | Effect |
-| --- | --- | --- |
-| has the same value as `common` | nothing: `common` already provides it | none |
-| has a different value from `common` | a project override | the project keeps its value |
-| is an array that shares items with `common` | the items `common` lacks | **`common`'s other items are added**: each is reported before it is written |
-| is not in `common` | a project key | none |
-| is sensitive or identifying, in its value or its key | the project's local overlay, never the Brain | none |
-| is or holds null, which `brain.toml` cannot hold | the project's local overlay | none |
-| is missing, but `common` has it | nothing | **added to the project**: reported before it is written |
-
-`add` changes only `brain.toml` and the overlay. The project file is written by the next sync, after the change has been reviewed and committed. A value is never promoted into `common` automatically. `check` reports a project override that equals `common`, so the overrides that remain always mean something.
+An earlier version imported the file: it sorted each key into the entry, the overlay or nothing, against `common`. That guessed where each key belonged, could carry a value into the Brain unseen, and moved secrets into an overlay that `project rm` then deleted. The idea waits in the [backlog](../backlog.md).
 
 ### Keeping sensitive values out
 
 - `check` and `sync` refuse secret-bearing keys (`env`, `apiKeyHelper` and the like), absolute home paths, email addresses and token-like strings anywhere in `brain.toml`. `{{brain}}` stands in for the checkout path.
-- Every value about to enter the Brain, from `add`, from moving drift, or from a request, goes through the same guard. The nerve skill shows it to the user, and anything identifying goes to the project's local overlay. That covers values a pattern cannot catch, such as a client host in a permission rule.
+- Every value about to enter the Brain, from moving drift or from a request, goes through the same guard. The nerve skill shows it to the user, and anything identifying goes to the project's local overlay. That covers values a pattern cannot catch, such as a client host in a permission rule.
 
 ## Consequences
 

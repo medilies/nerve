@@ -41,7 +41,6 @@ const (
 	EvBrain        = "brain"          // Path is the machine's Brain checkout; Detail its state
 	EvAdded        = "added"          // Item joined Project
 	EvDropped      = "dropped"        // Item left Project, or its local overlay when Detail says so
-	EvImported     = "imported"       // Key of Project's existing settings went where Detail says
 	EvOverlay      = "overlay"        // Key went to the local overlay at Path; Detail says why
 	EvProject      = "project"        // Project; Detail describes it
 	EvCheckout     = "checkout"       // Path belongs to Project; Detail its sync state
@@ -117,8 +116,6 @@ func (e Event) String() string {
 			return fmt.Sprintf("dropped  %s from common", e.Item)
 		}
 		return fmt.Sprintf("dropped  %s from project %s", e.Item, e.Project)
-	case EvImported:
-		return fmt.Sprintf("imported %s: %s", e.Key, e.Detail)
 	case EvOverlay:
 		return fmt.Sprintf("overlay  %s set in %s: %s", e.Key, e.Path, e.Detail)
 	case EvProject:

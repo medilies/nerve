@@ -1,12 +1,16 @@
 # Removing a project takes out everything nerve made, and keeps what the
-# user set since.
+# checkout had before and what the user set since.
 
 exec nerve init brain
 cd proj
 exec nerve project add app
+! stdout imported
 exec nerve skill add go-stack
 exec nerve setting set model opus
-exec nerve sync --here
+# What the checkout had before is drift until it is moved or dropped.
+! exec nerve sync --here
+stdout '^drift    outputStyle is "terse" here, unset in the Brain: left as is$'
+stdout '^drift    env.TOKEN is \(hidden\) here, unset in the Brain: left as is$'
 # The user's own, since the sync.
 replace .claude/settings.local.json '"model": "opus"' '"spinnerTipsEnabled": false, "model": "opus"'
 
@@ -27,5 +31,9 @@ description: Does go-stack.
 ---
 -- want-settings --
 {
+  "env": {
+    "TOKEN": "x"
+  },
+  "outputStyle": "terse",
   "spinnerTipsEnabled": false
 }

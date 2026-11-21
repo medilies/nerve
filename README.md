@@ -23,8 +23,8 @@ nowhere else.
   when a session starts, and tells you what changed.
 - **Revoke everywhere.** Take a skill or a denied tool out of every
   project with one command; each checkout drops it at its next sync.
-- **Nothing lost.** A setting Claude Code changed is reported as drift,
-  never overwritten. A link that goes missing is made again.
+- **Nothing lost.** A setting a checkout had before nerve, or that
+  Claude Code changed since, is reported as drift, never overwritten. A link that goes missing is made again.
 - **Pinned and reviewed.** Third-party skills sit at a commit, and move
   only after you read how they changed.
 - **Nothing sensitive in the Brain.** Secrets, home paths and emails
@@ -80,7 +80,7 @@ From then on, `sync` keeps nerve at the release the Brain pins.
 ## Usage
 
 ```sh
-nerve project add billing            # list this checkout as project billing, keeping its settings.local.json
+nerve project add billing            # list this checkout as project billing
 nerve skill add go-stack             # give it a skill; agent, hook and plugin work the same
 nerve setting set model opus         # a setting for it; --common for every project
 nerve setting add permissions.allow "Bash(make test)"   # one more item in a list

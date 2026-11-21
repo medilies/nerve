@@ -56,8 +56,9 @@ skipped, if it was.
 
 ## Drift
 
-A key changed in the project since nerve last wrote it, by `/model` or
-`/config` say, that the Brain disagrees with, is drift. nerve leaves it
+A key the Brain disagrees with, that the checkout had before nerve
+first wrote it, or that changed since, by `/model` or `/config` say, is
+drift. nerve leaves it
 as it is, writes the rest, and reports it at every sync until it is
 resolved. A sync by hand fails on drift; autosync only reports it.
 

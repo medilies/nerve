@@ -7,9 +7,9 @@ import (
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
-// AddProject lists the checkout around dir as project name. A new project's
-// entry records the checkout's existing settings, so it behaves as before;
-// an existing one is only joined. Nothing is written in the project.
+// AddProject lists the checkout around dir as project name, adding an empty
+// entry for a new project. Nothing is written in the project: settings it
+// already has are drift at its first sync.
 func (a App) AddProject(dir, name string, r Reporter) error {
 	if !domain.NamePattern.MatchString(name) {
 		return fmt.Errorf("project %q must be lowercase words joined by hyphens", name)
@@ -38,30 +38,9 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 	case p != nil:
 		r.Add(Event{Kind: EvProject, Project: name, Detail: "already in the Brain: this checkout joins it"})
 	default:
-		existing, err := a.Trees.ReadSettings(settingsPath(t.Main))
-		if err != nil {
-			return err
-		}
-		entry, overlay, fates := domain.ImportSettings(existing, l.m.Common)
-		// The overlay first: a run that fails after it and is run again
-		// imports again, and merges the same values.
-		if overlay != nil {
-			old, _, err := a.Machine.Overlay(name)
-			if err != nil {
-				return err
-			}
-			path, err := a.Machine.SaveOverlay(name, domain.Merge(old, overlay))
-			if err != nil {
-				return err
-			}
-			r.Add(Event{Kind: EvWrote, Path: path})
-		}
-		l.m.Projects[name] = &domain.Project{Settings: entry}
+		l.m.Projects[name] = &domain.Project{}
 		if err := a.Brain.Save(l.m); err != nil {
 			return err
-		}
-		for _, f := range fates {
-			r.Add(Event{Kind: EvImported, Project: name, Key: f.Key, Detail: f.What})
 		}
 		r.Add(Event{Kind: EvProject, Project: name, Detail: "added to " + domain.ManifestFile})
 	}

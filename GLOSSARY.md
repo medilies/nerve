@@ -82,5 +82,5 @@ A project's settings kept on one machine and never in the Brain, for anything se
 _Avoid_: secrets file, private settings
 
 **Drift**:
-A setting, or one item of a list, changed in a project since nerve last wrote it, that the Brain disagrees with; nerve leaves it as is and reports it.
+A setting, or one item of a list, that a project had before nerve first wrote it or that changed since, and that the Brain disagrees with; nerve leaves it as is and reports it.
 _Avoid_: out of sync, divergence

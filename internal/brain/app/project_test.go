@@ -1,7 +1,6 @@
 package app_test
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
@@ -9,33 +8,45 @@ import (
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
-func TestAddProjectRecordsTheCheckoutsSettingsAgainstCommon(t *testing.T) {
+func TestAddProjectListsTheCheckoutAndRecordsNoneOfItsSettings(t *testing.T) {
 	e := newEnv(t)
 	e.checkout("/w/app")
-	e.brain.m.Common = map[string]any{"model": "opus", "syncClaudeAiSkills": false}
-	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus", "effortLevel": "low", "env": map[string]any{"TOKEN": "x"}}
+	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus", "env": map[string]any{"TOKEN": "x"}}
 	r := &recorder{}
 
 	e.must(r, e.app.AddProject("/w/app/src", "app", r))
 
-	if got := jsonText(e.project("app").Settings); got != `{"effortLevel":"low"}` {
-		t.Errorf("project settings are %s", got)
+	if got := e.project("app"); got == nil || got.Settings != nil {
+		t.Errorf("project is %+v, want an empty entry", got)
 	}
-	if got := jsonText(e.machine.overlays["app"]); got != `{"env":{"TOKEN":"x"}}` {
-		t.Errorf("overlay is %s", got)
+	if got, ok := e.machine.overlays["app"]; ok {
+		t.Errorf("overlay is %s, want none", jsonText(got))
 	}
 	if got := e.machine.machine.Checkouts; len(got) != 1 || got[0] != (domain.Checkout{Path: "/w/app", Project: "app"}) {
 		t.Errorf("checkouts are %v", got)
 	}
-	if len(e.trees.links) > 0 || len(e.trees.settings) != 1 {
+	if len(e.trees.links) > 0 || jsonText(e.settings("/w/app")) != `{"env":{"TOKEN":"x"},"model":"opus"}` {
 		t.Errorf("project add wrote in the project")
 	}
 	contains(t, r,
-		"imported model: already given by common",
-		"imported syncClaudeAiSkills: added by common at the next sync",
-		"imported env.TOKEN: kept in the local overlay: env may hold secrets",
 		"project  app: added to brain.toml",
 		"checkout /w/app (app): listed: review brain.toml, then nerve sync --here")
+}
+
+func TestRemovingAProjectKeepsTheSettingsItsCheckoutHadBefore(t *testing.T) {
+	e := newEnv(t)
+	e.checkout("/w/app")
+	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus", "env": map[string]any{"TOKEN": "x"}}
+	e.must(&recorder{}, e.app.AddProject("/w/app", "app", &recorder{}))
+	if _, err := e.sync("/w/app", app.SyncOptions{Hook: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	e.must(&recorder{}, e.app.RemoveProject("app", &recorder{}))
+
+	if got := jsonText(e.settings("/w/app")); got != `{"env":{"TOKEN":"x"},"model":"opus"}` {
+		t.Errorf("settings are %s, want the checkout's own kept", got)
+	}
 }
 
 func TestAddProjectFromAWorktreeListsTheMainCheckout(t *testing.T) {
@@ -47,20 +58,6 @@ func TestAddProjectFromAWorktreeListsTheMainCheckout(t *testing.T) {
 
 	if got := e.machine.machine.Checkouts[0].Path; got != "/w/app" {
 		t.Errorf("listed %s, want the main checkout", got)
-	}
-}
-
-func TestAddProjectFromAWorktreeImportsTheMainCheckoutsSettings(t *testing.T) {
-	e := newEnv(t)
-	e.checkout("/w/app")
-	e.worktree("/w/app-feature", "/w/app")
-	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus"}
-	e.trees.settings["/w/app-feature/.claude/settings.local.json"] = map[string]any{"model": "sonnet"}
-
-	e.must(&recorder{}, e.app.AddProject("/w/app-feature", "app", &recorder{}))
-
-	if got := jsonText(e.project("app").Settings); got != `{"model":"opus"}` {
-		t.Errorf("recorded %s, want the settings of the checkout it lists", got)
 	}
 }
 
@@ -178,26 +175,6 @@ func TestRemoveProjectRemovesTheFoldersNerveMadeAndNoOthers(t *testing.T) {
 	}
 }
 
-func TestAddProjectThatFailsPartWayImportsAgainWhenRunAgain(t *testing.T) {
-	e := newEnv(t)
-	e.checkout("/w/app")
-	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"env": map[string]any{"TOKEN": "x"}, "model": "opus"}
-	e.machine.saveErr = errors.New("config dir is read-only")
-
-	if err := e.app.AddProject("/w/app", "app", &recorder{}); err == nil {
-		t.Fatal("add passed")
-	}
-	if e.project("app") != nil {
-		t.Errorf("the project reached the Brain without its overlay")
-	}
-	e.machine.saveErr = nil
-	e.must(&recorder{}, e.app.AddProject("/w/app", "app", &recorder{}))
-
-	if got := jsonText(e.machine.overlays["app"]); got != `{"env":{"TOKEN":"x"}}` {
-		t.Errorf("overlay is %s", got)
-	}
-}
-
 func TestSetAutosyncForAProjectOrTheBrain(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
@@ -278,21 +255,5 @@ func TestRemoveProjectRefusesANameThatIsAPath(t *testing.T) {
 
 	if _, kept := e.machine.overlays["../../victim"]; err == nil || !kept {
 		t.Errorf("got %v, and the file the name reaches was removed: %v", err, !kept)
-	}
-}
-
-func TestAddProjectWhoseBrainSaveFailsReportsNothingImported(t *testing.T) {
-	e := newEnv(t)
-	e.checkout("/w/app")
-	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus"}
-	e.brain.failSaves = 1
-	r := &recorder{}
-
-	if err := e.app.AddProject("/w/app", "app", r); err == nil {
-		t.Fatal("add passed")
-	}
-
-	if strings.Contains(r.String(), "imported") {
-		t.Errorf("reports an import the Brain did not save:\n%s", r)
 	}
 }

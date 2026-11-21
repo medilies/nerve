@@ -82,8 +82,8 @@ refusal names the commands that move the value to a local overlay.
 
 The commands that write the Brain keep them out:
 
-- `project add`, `setting set` and `setting add` put such a setting in
-  the local overlay instead, whether its value or its key is sensitive.
+- `setting set` and `setting add` put such a setting in the local
+  overlay instead, whether its value or its key is sensitive.
 - `plugin add` refuses such a plugin ID, and says how to enable it on
   this machine only.
 
@@ -115,7 +115,7 @@ project = "billing"
 - **Local overlays**, `overlays/<project>.json`, hold a project's
   settings that are sensitive or identifying, or that `brain.toml`
   cannot hold, such as `null`. nerve puts them there on its own when
-  it imports a project or sets a value. They never leave the machine,
+  you set such a value. They never leave the machine,
   so set them again on each one.
   - `nerve setting rm` removes a key from the overlay too.
   - `nerve project rm` deletes the project's overlay on this machine.
