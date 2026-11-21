@@ -15,7 +15,14 @@ Ideas left out of [ADR 0005](adr/0005-projects-opt-in.md) to keep it minimal. Ta
   - nerve's own hook, written by an earlier sync, must not be imported.
   - What moves to the overlay must come back to the file when the project is removed, or a secret is lost.
 - **A drift resolver.** Open drift in a diff tool to move each key into the project, `common` or the overlay, rather than going through it with the nerve skill.
-- **claude.ai accounts.** A project that stands for a claude.ai account, whose skills sync zips and tells the user to upload ([ADR 0008](adr/0008-drop-claude-ai-accounts.md)). Worth it once claude.ai has an API for skills, which would let nerve upload them, and see what an account holds.
+- **claude.ai accounts.** A project that stands for a claude.ai account and takes skills only: sync zips each one, and says which to upload and which to delete. Worth it once claude.ai has an API for skills. The challenges, which made the first version go ([ADR 0008](adr/0008-drop-claude-ai-accounts.md)):
+  - With no API, uploading and deleting stay manual, and nerve cannot see what an account holds. A missed "upload" leaves the account and nerve apart, with no sign of it.
+  - A skill on claude.ai reaches every Claude Code session signed into the account, against "only where needed". `syncClaudeAiSkills: false` has to turn that off.
+  - It is a second kind of project, with no sessions: no autosync, settings, agents, hooks or plugins. Every use case has to tell it apart.
+  - A zip must hold the skill and nothing else: no link out of it or to a folder, no dot file such as `.env`, and no file that is not a regular one, such as a pipe, whose read never ends. The same files must give the same bytes, to tell a change.
+  - claude.ai refuses frontmatter keys other than `name`, `description`, `license`, `compatibility`, `metadata` and `allowed-tools`.
+  - The zip of a skill taken out must go, and one that cannot be removed must stay known, or it is uploaded again by mistake.
+  - The project names the account, never by its email.
 - **Sweeping a killed run's temp files.** A run killed mid-write leaves `.<file>.<random>` beside the file, such as one in the Brain that git shows as untracked. A sweep needs a name only nerve makes, so it never deletes a file of the user's.
 - **Autosync in `nerve hook ls`.** List nerve's own hook beside the Brain's, marked as nerve's.
 - **Agents in the same session.** Check whether an agent linked by autosync is usable in the same session, as skills are with `reloadSkills`.
