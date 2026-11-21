@@ -32,6 +32,51 @@ func TestLocateFindsTheMainCheckoutOfAWorktree(t *testing.T) {
 	}
 }
 
+func TestLocateTakesAWorktreeOfABareRepoAsItsOwnCheckout(t *testing.T) {
+	e := newTestEnv(t)
+	app := e.repo(e.path("app"))
+	e.write(filepath.Join(app, "README"), "x")
+	e.commit(app)
+	bare := e.path("app.git")
+	e.git(e.home, "clone", "-q", "--bare", app, bare)
+	tree := e.path("wt")
+	e.git(bare, "worktree", "add", "-q", tree)
+
+	got, err := LocalTrees{}.Locate(tree)
+
+	if err != nil || got.Top != tree || got.Main != tree || got.Repo != bare {
+		t.Errorf("located %+v (%v): a bare repo has no main checkout, and its exclude file is its own", got, err)
+	}
+}
+
+func TestLocateFindsARepoWhoseGitFolderIsElsewhere(t *testing.T) {
+	e := newTestEnv(t)
+	app := e.path("app")
+	e.git(e.home, "init", "-q", "--separate-git-dir", e.path("app-git"), app)
+
+	got, err := LocalTrees{}.Locate(app)
+
+	if err != nil || got.Top != app || got.Main != app || got.Repo != e.path("app-git") {
+		t.Errorf("located %+v (%v)", got, err)
+	}
+}
+
+func TestLocateTakesASubmoduleAsARepoOfItsOwn(t *testing.T) {
+	e := newTestEnv(t)
+	lib := e.repo(e.path("lib"))
+	e.write(filepath.Join(lib, "README"), "x")
+	e.commit(lib)
+	app := e.repo(e.path("app"))
+	e.git(app, "-c", "protocol.file.allow=always", "submodule", "add", "-q", lib, "lib")
+	sub := filepath.Join(app, "lib")
+
+	got, err := LocalTrees{}.Locate(sub)
+
+	if err != nil || got.Top != sub || got.Main != sub || got.Repo != filepath.Join(app, ".git", "modules", "lib") {
+		t.Errorf("located %+v (%v)", got, err)
+	}
+}
+
 func TestCheckIgnoredRefusesSettingsGitWouldSeeOrShares(t *testing.T) {
 	e := newTestEnv(t)
 	app := e.repo(e.path("app"))

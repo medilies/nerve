@@ -140,11 +140,11 @@ func (s *fakeSources) Skill(src domain.Source, name string) (domain.Skill, error
 
 func (s *fakeSources) Head(repo string) (string, error) { return s.heads[repo], nil }
 
-func (s *fakeSources) Diff(repo, name, from, to string) (string, error) {
-	if _, ok := s.skills[repo+"@"+to+"/"+name]; !ok {
+func (s *fakeSources) Diff(src domain.Source, name, to string) (string, error) {
+	if _, ok := s.skills[src.Repo+"@"+to+"/"+name]; !ok {
 		return "", fmt.Errorf("at %s: no skill %q; drop it from brain.toml first", to[:7], name)
 	}
-	return fmt.Sprintf("diff %s %s..%s", name, from[:7], to[:7]), nil
+	return fmt.Sprintf("diff %s %s..%s", name, src.SHA[:7], to[:7]), nil
 }
 
 type fakeMachine struct {

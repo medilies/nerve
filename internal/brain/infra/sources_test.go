@@ -27,14 +27,15 @@ func (e *testEnv) upstream(files map[string]string) string {
 
 func TestSkillFetchesASkillAtItsPin(t *testing.T) {
 	e := newTestEnv(t)
-	sha := e.upstream(map[string]string{"skills/eng/grilling/SKILL.md": skillMD("grilling", ""), "skills/x/tdd/SKILL.md": skillMD("tdd", "")})
+	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", ""), "tdd/SKILL.md": skillMD("tdd", "")})
 
-	s, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling")
-
-	if err != nil || s.Origin != "acme/up" || s.Dir != e.path(".cache/nerve/sources/acme/up/"+sha+"/skills/eng/grilling") {
-		t.Errorf("got %+v (%v)", s, err)
+	for name, dir := range map[string]string{"grilling": "skills/grilling", "tdd": "tdd"} {
+		s, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, name)
+		if err != nil || s.Origin != "acme/up" || s.Dir != e.path(".cache/nerve/sources/acme/up/"+sha+"/"+dir) {
+			t.Errorf("%s: got %+v (%v)", name, s, err)
+		}
 	}
-	if _, err := (SourceCache{}).Skill(domain.Source{Repo: "acme/up", SHA: sha}, "ghost"); err == nil || err.Error() != "acme/up@"+sha[:7]+`: no skill "ghost"` {
+	if _, err := (SourceCache{}).Skill(domain.Source{Repo: "acme/up", SHA: sha}, "ghost"); err == nil || err.Error() != "acme/up@"+sha[:7]+`: no skill "ghost" at the root, in skills/ghost/ or in ghost/: name the folder that holds it with path in its [[source]]` {
 		t.Errorf("got %v", err)
 	}
 }
@@ -69,7 +70,7 @@ func TestDiffOfASkillThatIsTheWholeRepoNamesNoGitFile(t *testing.T) {
 	old := e.upstream(map[string]string{"SKILL.md": skillMD("tui-test", "")})
 	next := e.upstream(map[string]string{"SKILL.md": skillMD("tui-test", "") + "Test harder.\n"})
 
-	d, err := SourceCache{}.Diff("acme/up", "tui-test", old, next)
+	d, err := SourceCache{}.Diff(domain.Source{Repo: "acme/up", SHA: old}, "tui-test", next)
 	if err != nil || !strings.Contains(d, "+Test harder.") {
 		t.Fatalf("diff is %q (%v)", d, err)
 	}
@@ -91,7 +92,7 @@ func TestDiffShowsHowASkillChangedUpstream(t *testing.T) {
 	next := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "") + "Grill harder.\n"})
 	src := SourceCache{}
 
-	d, err := src.Diff("acme/up", "grilling", old, next)
+	d, err := src.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", next)
 	if err != nil || !strings.Contains(d, "+Grill harder.") {
 		t.Errorf("diff is %q (%v)", d, err)
 	}
@@ -100,7 +101,7 @@ func TestDiffShowsHowASkillChangedUpstream(t *testing.T) {
 	}
 	e.git(e.path("github/acme/up.git"), "rm", "-q", "-r", "skills/grilling")
 	gone := e.upstream(map[string]string{"skills/other/SKILL.md": skillMD("other", "")})
-	if _, err := src.Diff("acme/up", "grilling", old, gone); err == nil || !strings.Contains(err.Error(), "drop it from brain.toml first") {
+	if _, err := src.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", gone); err == nil || !strings.Contains(err.Error(), "drop it from brain.toml first") {
 		t.Errorf("got %v", err)
 	}
 }
@@ -118,7 +119,7 @@ func TestDiffShowsOnlyTheSourcesTextAsItIs(t *testing.T) {
 	t.Setenv("GIT_CONFIG_KEY_1", "diff.external")
 	t.Setenv("GIT_CONFIG_VALUE_1", tool)
 
-	d, err := SourceCache{}.Diff("acme/up", "grilling", old, next)
+	d, err := SourceCache{}.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", next)
 
 	if err != nil || strings.Contains(d, "DIFF TOOL") || strings.ContainsAny(d, "\x1b\x07") || !strings.Contains(d, "Grill.") {
 		t.Errorf("diff is %q (%v)", d, err)
@@ -165,7 +166,7 @@ func TestDiffShowsBidiControlsAndCutsAHugeDiff(t *testing.T) {
 	old := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
 	next := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "") + "a\u202eb\n" + strings.Repeat("x\n", 300_000)})
 
-	d, err := SourceCache{}.Diff("acme/up", "grilling", old, next)
+	d, err := SourceCache{}.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", next)
 
 	if err != nil || strings.ContainsRune(d, '‮') || !strings.Contains(d, "a<U+202E>b") {
 		t.Errorf("got %v, and the bidi control is not shown as such: %q", err, d[:min(len(d), 300)])
@@ -199,7 +200,7 @@ func TestDiffShowsALineSeparatorAsSuch(t *testing.T) {
 	old := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
 	next := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "") + "a b c\n"})
 
-	d, err := SourceCache{}.Diff("acme/up", "grilling", old, next)
+	d, err := SourceCache{}.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", next)
 
 	if err != nil || !strings.Contains(d, "a<U+2028>b<U+2029>c") {
 		t.Errorf("got %v: %q", err, d)
@@ -253,5 +254,50 @@ func TestFetchSweepsUnderACacheFolderNamedLikeAPattern(t *testing.T) {
 
 	if fileExists(stale) {
 		t.Errorf("the killed fetch's folder is still there")
+	}
+}
+
+func TestSkillLooksOnlyInItsPlaces(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"examples/grilling/SKILL.md": skillMD("grilling", "")})
+
+	if _, err := (SourceCache{}).Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling"); err == nil {
+		t.Errorf("found a skill outside the root, skills/ and a folder of its name")
+	}
+}
+
+func TestSkillIsFoundInTheFolderItsPathNames(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"plugins/x/skills/grilling/SKILL.md": skillMD("grilling", ""), "plugins/x/SKILL.md": skillMD("whole", "")})
+
+	for name, dir := range map[string]string{"grilling": "plugins/x/skills/grilling", "whole": "plugins/x"} {
+		path := map[string]string{"grilling": "plugins/x/skills", "whole": "plugins/x"}[name]
+		s, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha, Path: path}, name)
+		if err != nil || s.Dir != e.path(".cache/nerve/sources/acme/up/"+sha+"/"+dir) {
+			t.Errorf("%s: got %+v (%v)", name, s, err)
+		}
+	}
+}
+
+func TestSkillInTwoOfItsPlacesIsRefused(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", ""), "grilling/SKILL.md": skillMD("grilling", "")})
+
+	_, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling")
+
+	if err == nil || !strings.HasSuffix(err.Error(), `skill "grilling" is in both skills/grilling/ and grilling/: name the folder that holds it with path in its [[source]]`) {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestDiffLooksInTheFolderThePathNames(t *testing.T) {
+	e := newTestEnv(t)
+	old := e.upstream(map[string]string{"plugins/x/skills/grilling/SKILL.md": skillMD("grilling", "")})
+	next := e.upstream(map[string]string{"plugins/x/skills/grilling/SKILL.md": skillMD("grilling", "") + "Grill harder.\n"})
+
+	d, err := SourceCache{}.Diff(domain.Source{Repo: "acme/up", SHA: old, Path: "plugins/x/skills"}, "grilling", next)
+
+	if err != nil || !strings.Contains(d, "+Grill harder.") {
+		t.Errorf("diff is %q (%v)", d, err)
 	}
 }

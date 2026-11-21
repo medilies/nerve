@@ -1,9 +1,12 @@
 package domain
 
 import (
+	"encoding/base64"
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // SecretKeys are settings keys that hold secrets or run credential
@@ -19,6 +22,7 @@ var (
 	homePattern       = regexp.MustCompile(`(^|[\s"'(=:,/@])(/mnt/[a-z]|/var)?(/home/[^/\s"']+|/Users/[^/\s"']+|/root([/\s"')]|$))|[A-Za-z]:\\Users\\`)
 	tokenPattern      = regexp.MustCompile(`\b(sk-[A-Za-z0-9_-]{20,}|sk_(live|test)_[A-Za-z0-9]{10,}|hf_[A-Za-z0-9]{20,}|npm_[A-Za-z0-9]{20,}|ya29\.[A-Za-z0-9_-]{20,}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}|(?i:bearer)\s+[A-Za-z0-9._~+/-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+)`)
 	credentialPattern = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----|[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@`)
+	basicPattern      = regexp.MustCompile(`(?i)\bbasic\s+([A-Za-z0-9+/]{4,}={0,2})`)
 )
 
 // Sensitive says why a setting must stay out of the Brain, or "": it is
@@ -87,7 +91,7 @@ func sensitiveText(v any, homes bool) string {
 		case why != "":
 		case tokenPattern.MatchString(s):
 			why = "looks like a token"
-		case credentialPattern.MatchString(s):
+		case credentialPattern.MatchString(s) || basicCredential(s):
 			why = "holds a credential"
 		case emailPattern.MatchString(s):
 			why = "holds an email address"
@@ -96,6 +100,18 @@ func sensitiveText(v any, homes bool) string {
 		}
 	})
 	return why
+}
+
+// basicCredential says whether s holds HTTP basic auth: the word, then
+// user:password in base64, which a word after "basic" never decodes to.
+func basicCredential(s string) bool {
+	for _, m := range basicPattern.FindAllStringSubmatch(s, -1) {
+		b, err := base64.StdEncoding.DecodeString(m[1])
+		if err == nil && utf8.Valid(b) && strings.Contains(string(b), ":") && !strings.ContainsFunc(string(b), unicode.IsControl) {
+			return true
+		}
+	}
+	return false
 }
 
 func walkStrings(v any, fn func(string)) {

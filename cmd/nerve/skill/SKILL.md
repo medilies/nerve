@@ -53,6 +53,7 @@ A `[[source]]` or a `[hook.<name>]` has no command: add it to `brain.toml` by ha
 [[source]]                  # third-party skills
 repo = "owner/name"         # on GitHub
 sha = "<full 40-character commit>"
+path = "plugins/x/skills"   # optional: where its skills are, when not at the root, skills/ or <name>/
 skills = ["grilling"]
 
 [hook.go-fmt]               # a Claude Code hook

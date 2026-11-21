@@ -2,7 +2,6 @@ package infra
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +25,7 @@ func (c SourceCache) Skill(src domain.Source, name string) (domain.Skill, error)
 	if err != nil {
 		return domain.Skill{}, err
 	}
-	dir, err := findSkill(tree, name)
+	dir, err := findSkill(tree, src.Path, name)
 	if err != nil {
 		return domain.Skill{}, fmt.Errorf("%s@%s: %w", src.Repo, src.SHA[:7], err)
 	}
@@ -45,20 +44,20 @@ func (SourceCache) Head(repo string) (string, error) {
 	return sha, nil
 }
 
-func (SourceCache) Diff(repo, name, from, to string) (string, error) {
-	oldTree, err := fetch(repo, from)
+func (SourceCache) Diff(src domain.Source, name, to string) (string, error) {
+	oldTree, err := fetch(src.Repo, src.SHA)
 	if err != nil {
 		return "", err
 	}
-	newTree, err := fetch(repo, to)
+	newTree, err := fetch(src.Repo, to)
 	if err != nil {
 		return "", err
 	}
-	oldDir, err := findSkill(oldTree, name)
+	oldDir, err := findSkill(oldTree, src.Path, name)
 	if err != nil {
 		return "", err
 	}
-	newDir, err := findSkill(newTree, name)
+	newDir, err := findSkill(newTree, src.Path, name)
 	if err != nil {
 		return "", fmt.Errorf("at %s: %w; drop it from %s first", to[:7], err, domain.ManifestFile)
 	}
@@ -167,33 +166,33 @@ func sweep(dir string) {
 	}
 }
 
-// findSkill finds a skill in a repo checkout: the whole repo when its root
-// SKILL.md names it, else the one folder of that name holding a SKILL.md.
-func findSkill(tree, name string) (string, error) {
-	if meta, err := readFrontmatter(filepath.Join(tree, "SKILL.md")); err == nil && meta["name"] == name {
-		return tree, nil
+// findSkill finds a skill in a repo checkout, in the folder path names, or
+// "" for the repo's root: that folder when its SKILL.md names the skill,
+// else its folder of that name holding a SKILL.md. At the root, a skill may
+// also be in skills/; it must be in one place only.
+func findSkill(tree, path, name string) (string, error) {
+	base := filepath.Join(tree, filepath.FromSlash(path))
+	if meta, err := readFrontmatter(filepath.Join(base, "SKILL.md")); err == nil && meta["name"] == name {
+		return base, nil
+	}
+	places := []string{name}
+	if path == "" {
+		places = []string{"skills/" + name, name}
 	}
 	var found []string
-	err := filepath.WalkDir(tree, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	for _, rel := range places {
+		if fileExists(filepath.Join(base, filepath.FromSlash(rel), "SKILL.md")) {
+			found = append(found, rel+"/")
 		}
-		if d.IsDir() && d.Name() == ".git" {
-			return filepath.SkipDir
-		}
-		if d.IsDir() && d.Name() == name && fileExists(filepath.Join(path, "SKILL.md")) {
-			found = append(found, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
 	}
-	switch len(found) {
-	case 0:
-		return "", fmt.Errorf("no skill %q", name)
-	case 1:
-		return found[0], nil
+	const fix = "name the folder that holds it with path in its [[source]]"
+	switch {
+	case len(found) == 1:
+		return filepath.Join(base, filepath.FromSlash(found[0])), nil
+	case len(found) > 1:
+		return "", fmt.Errorf("skill %q is in both %s: %s", name, strings.Join(found, " and "), fix)
+	case path != "":
+		return "", fmt.Errorf("no skill %q in %s/%s/: %s", name, path, name, fix)
 	}
-	return "", fmt.Errorf("skill %q is ambiguous: %v", name, found)
+	return "", fmt.Errorf("no skill %q at the root, in skills/%s/ or in %s/: %s", name, name, name, fix)
 }

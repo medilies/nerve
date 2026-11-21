@@ -51,11 +51,15 @@ model = "opus"
   those nerve allows. See [Nothing sensitive](#nothing-sensitive).
 - **`[[source]]`** is a third-party repo on GitHub at a full commit,
   and the skills used from it. Each repo has one table. A link in a
-  source arrives as a plain file holding its target. Skill, agent, hook and project names are
-  lowercase words joined by hyphens. A skill is the folder of that name
-  holding a `SKILL.md`, or the whole repo when its root `SKILL.md`
-  names it. `nerve skill update <repo> [sha]` shows how the source's
-  skills changed, then moves the pin.
+  source arrives as a plain file holding its target. Skill, agent, hook
+  and project names are lowercase words joined by hyphens.
+  - A skill is the whole repo when its root `SKILL.md` names it, else
+    the folder `skills/<name>/` or `<name>/` holding a `SKILL.md`, in
+    one of them only.
+  - `path` names another folder to look in instead, such as
+    `path = "plugins/x/skills"`.
+  - `nerve skill update <repo> [sha]` shows how the source's skills
+    changed, then moves the pin.
 - **`[hook.<name>]`** defines a Claude Code hook. `{{brain}}` in any
   value becomes the Brain's checkout path.
 - **`[common.settings]`** holds the only settings that reach more than
@@ -93,7 +97,8 @@ credential, cookie or authorization. Nor are `hooks` and
 
 `check` and `sync` refuse any other setting. They also refuse home
 paths (`/home/…`, `/Users/…`, `/root`), emails, token-like strings,
-private keys and credentials in URLs anywhere in `brain.toml`: in
+private keys, basic auth and credentials in URLs anywhere in
+`brain.toml`: in
 values, settings keys, hook matchers and commands, plugin IDs, and
 names. Each refusal names the commands that move the value to a local
 overlay.

@@ -44,8 +44,8 @@ type Sources interface {
 	Skill(src domain.Source, name string) (domain.Skill, error)
 	// Head is the tip of a repo's default branch.
 	Head(repo string) (string, error)
-	// Diff is how a skill differs between two commits of a repo.
-	Diff(repo, name, from, to string) (string, error)
+	// Diff is how a skill differs between a source's pin and commit to.
+	Diff(src domain.Source, name, to string) (string, error)
 }
 
 // Machine is what this machine keeps and the Brain never holds: the machine

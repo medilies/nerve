@@ -35,6 +35,7 @@ allowed-settings = ["statusLine"]
 [[source]]
 repo = "acme/up"
 sha = "5863806dd4e15c63174bee4e7515a4256792ecfa"
+path = "plugins/x/skills"
 skills = ["grilling"]
 
 [hook.fmt]
@@ -63,7 +64,7 @@ model = "opus"
 		t.Fatal(err)
 	}
 	got := e.read(e.path("brain/brain.toml"))
-	if !strings.Contains(got, "cleanupPeriodDays = 30\n") || !strings.Contains(got, "\nallowed-settings = [\"statusLine\"]\n") || strings.Contains(got, "[project]\n") || strings.Contains(got, "[common]\n") || strings.Contains(got, "[hook]\n") {
+	if !strings.Contains(got, "sha = \"5863806dd4e15c63174bee4e7515a4256792ecfa\"\npath = \"plugins/x/skills\"\n") || !strings.Contains(got, "cleanupPeriodDays = 30\n") || !strings.Contains(got, "\nallowed-settings = [\"statusLine\"]\n") || strings.Contains(got, "[project]\n") || strings.Contains(got, "[common]\n") || strings.Contains(got, "[hook]\n") {
 		t.Errorf("saved as:\n%s", got)
 	}
 	again, err := brain.Load()

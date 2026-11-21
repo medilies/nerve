@@ -18,6 +18,7 @@ var (
 	RepoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 	SHAPattern  = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	NamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+	pathPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$`)
 )
 
 // Manifest is a Brain's brain.toml: the nerve release that carries it, the
@@ -52,6 +53,7 @@ const NotAllowed = "not an allowed setting"
 type Source struct {
 	Repo   string
 	SHA    string
+	Path   string // the folder holding its skills, "" for the usual places
 	Skills []string
 }
 
@@ -105,6 +107,9 @@ func (m Manifest) Validate() error {
 		}
 		if !SHAPattern.MatchString(s.SHA) {
 			return fmt.Errorf("%s: %s: sha must be a full 40-character lowercase commit", ManifestFile, s.Repo)
+		}
+		if s.Path != "" && (!pathPattern.MatchString(s.Path) || slices.ContainsFunc(strings.Split(s.Path, "/"), func(p string) bool { return p == "." || p == ".." })) {
+			return fmt.Errorf("%s: %s: path %q must be a folder in the repo, such as skills/eng", ManifestFile, s.Repo, s.Path)
 		}
 		if len(s.Skills) == 0 {
 			return fmt.Errorf("%s: %s: no skills", ManifestFile, s.Repo)
@@ -266,7 +271,7 @@ func (m Manifest) Refusals() []Problem {
 	}
 	text("allowed-settings", m.AllowedSettings)
 	for i, s := range m.Sources {
-		text(fmt.Sprintf("source[%d]", i), []any{s.Repo, s.Skills})
+		text(fmt.Sprintf("source[%d]", i), []any{s.Repo, s.Path, s.Skills})
 	}
 	for _, name := range SortedKeys(m.Hooks) {
 		h := m.Hooks[name]

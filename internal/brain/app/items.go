@@ -219,7 +219,7 @@ func (a App) UpdatePin(repo, sha string, r Reporter) error {
 		return nil
 	}
 	for _, name := range src.Skills {
-		d, err := a.Sources.Diff(repo, name, src.SHA, sha)
+		d, err := a.Sources.Diff(src, name, sha)
 		if err != nil {
 			return err
 		}

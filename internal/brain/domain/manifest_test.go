@@ -18,6 +18,9 @@ func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 		`"acme/." is not owner/name`:       {Sources: []domain.Source{{Repo: "acme/.", SHA: sha, Skills: []string{"x"}}}},
 		"sha must be a full":               {Sources: []domain.Source{{Repo: "acme/up", SHA: "main", Skills: []string{"x"}}}},
 		"acme/up: no skills":               {Sources: []domain.Source{{Repo: "acme/up", SHA: sha}}},
+		`path "../x" must be a folder in`:  {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Path: "../x", Skills: []string{"x"}}}},
+		`path "/x" must be a folder in`:    {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Path: "/x", Skills: []string{"x"}}}},
+		`path "a/./b" must be a folder in`: {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Path: "a/./b", Skills: []string{"x"}}}},
 		"needs an event and a command":     {Hooks: map[string]domain.Hook{"fmt": {Event: "Stop"}}},
 		`hook "Fmt" must be lowercase`:     {Hooks: map[string]domain.Hook{"Fmt": {Event: "Stop", Command: "x"}}},
 		`project "App" must be lowercase`:  {Projects: map[string]*domain.Project{"App": {}}},
@@ -290,6 +293,17 @@ func TestSensitiveFindsLowercaseBearerTokensAndMoreSecretKeys(t *testing.T) {
 	for _, key := range []string{"privateKey", "accessKey", "sessionKey", "cookie", "authorization"} {
 		if why := domain.Sensitive(key, "x"); why == "" {
 			t.Errorf("key %s is not flagged", key)
+		}
+	}
+}
+
+func TestSensitiveFindsABasicAuthCredentialAndNotTheWord(t *testing.T) {
+	if why := domain.Sensitive("x", "Bash(curl -H 'Authorization: Basic dXNlcjpwYXNz' x)"); why != "holds a credential" {
+		t.Errorf("a basic auth credential: got %q", why)
+	}
+	for _, v := range []string{"Bash(make basic installation)", "Bash(echo basic step2)", "Basic usage"} {
+		if why := domain.Sensitive("x", v); why != "" {
+			t.Errorf("%q flagged: %s", v, why)
 		}
 	}
 }

@@ -46,6 +46,7 @@ type manifestFile struct {
 type sourceTable struct {
 	Repo   string   `toml:"repo"`
 	SHA    string   `toml:"sha"`
+	Path   string   `toml:"path,omitempty"`
 	Skills []string `toml:"skills"`
 }
 
