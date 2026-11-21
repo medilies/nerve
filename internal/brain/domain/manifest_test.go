@@ -203,6 +203,16 @@ func TestSettingRefusalLooksInsideAnObjectValue(t *testing.T) {
 	}
 }
 
+func TestSensitiveGivesOneReasonWhateverTheMapOrder(t *testing.T) {
+	v := map[string]any{"a": "me@example.com", "b": "ghp_abcdefghijklmnopqrstuvwxyz0123", "c": "/home/bob/x", "d": "/Users/bob/y"}
+	want := domain.Sensitive("x", v)
+	for range 50 {
+		if got := domain.Sensitive("x", v); got != want {
+			t.Fatalf("got %q, then %q", want, got)
+		}
+	}
+}
+
 func TestSensitiveFindsSecretKeysAtAnyDepth(t *testing.T) {
 	if why := domain.Sensitive(domain.LeafKey([]string{"mcpServers", "db", "env", "HOST"}), "db.internal"); why == "" {
 		t.Errorf("not flagged")
@@ -218,7 +228,7 @@ func TestSensitiveLeavesOrdinaryValuesAlone(t *testing.T) {
 }
 
 func TestSensitiveLeavesAProjectFolderNamedHomeAlone(t *testing.T) {
-	for _, v := range []string{"Edit(app/home/page.tsx)", "Read(./src/home/**)", "Read(src/Users/list.ts)"} {
+	for _, v := range []string{"Edit(app/home/page.tsx)", "Read(./src/home/**)", "Read(src/Users/list.ts)", "Read(/root-tools/x)", "Bash(make bearer)"} {
 		t.Run(v, func(t *testing.T) {
 			if why := domain.Sensitive(domain.LeafKey([]string{"permissions", "allow"}), []any{v}); why != "" {
 				t.Errorf("flagged: %s", why)
@@ -234,6 +244,15 @@ func TestSensitiveFindsRootPathsKeysAndCredentials(t *testing.T) {
 		"-----BEGIN PRIVATE KEY-----",
 		"postgres://u:pw@db:5432/app",
 		"AIzaSyA1234567890abcdefghijklmnopqrstuv",
+		"Bash(curl -H 'Authorization: Bearer abcDEF123456789')",
+		"sk_live_4eC39HqLyjWDarjtT1zdp7dc",
+		"hf_abcdefghijklmnopqrstuvwxyzABCDEF",
+		"npm_abcdefghijklmnopqrstuvwxyz0123456789",
+		"ya29.a0AfH6SMBabcdefghijklmnopqrstuvwxyz",
+		"SG.abcdefghijklmnopqrstuv.abcdefghijklmnopqrstuvwxyz0123456789abcdefg",
+		"x@/home/bob/market",
+		"Read(/mnt/c/Users/bob/notes)",
+		"Read(/var/home/bob/notes)",
 	} {
 		t.Run(v, func(t *testing.T) {
 			if why := domain.Sensitive("x", v); why == "" {

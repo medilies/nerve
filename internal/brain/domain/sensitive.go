@@ -16,8 +16,8 @@ var (
 	secretKeyPattern = regexp.MustCompile(`(?i)token|secret|passw|api[-_]?key|credential`)
 	emailPattern     = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}`)
 	// A home folder where a path starts, not a project folder named home.
-	homePattern       = regexp.MustCompile(`(^|[\s"'(=:,/])(/home/[^/\s"']+|/Users/[^/\s"']+|/root\b)|[A-Za-z]:\\Users\\`)
-	tokenPattern      = regexp.MustCompile(`\b(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+)`)
+	homePattern       = regexp.MustCompile(`(^|[\s"'(=:,/@])(/mnt/[a-z]|/var)?(/home/[^/\s"']+|/Users/[^/\s"']+|/root([/\s"')]|$))|[A-Za-z]:\\Users\\`)
+	tokenPattern      = regexp.MustCompile(`\b(sk-[A-Za-z0-9_-]{20,}|sk_(live|test)_[A-Za-z0-9]{10,}|hf_[A-Za-z0-9]{20,}|npm_[A-Za-z0-9]{20,}|ya29\.[A-Za-z0-9_-]{20,}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}|Bearer\s+[A-Za-z0-9._~+/-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+)`)
 	credentialPattern = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----|[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@`)
 )
 
@@ -85,9 +85,9 @@ func walkStrings(v any, fn func(string)) {
 			walkStrings(x, fn)
 		}
 	case map[string]any:
-		for k, x := range t {
+		for _, k := range SortedKeys(t) {
 			fn(k)
-			walkStrings(x, fn)
+			walkStrings(t[k], fn)
 		}
 	}
 }
