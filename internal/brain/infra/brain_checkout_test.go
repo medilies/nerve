@@ -208,7 +208,7 @@ func TestPullFailsOnADivergedBrain(t *testing.T) {
 
 	err := NewBrainCheckout(e.path("brain")).Pull(&events{})
 
-	if err == nil || !strings.Contains(err.Error(), "pull "+e.path("brain")) {
+	if err == nil || err.Error() != e.path("brain")+" has diverged from its upstream: rebase it on its upstream, then sync again" {
 		t.Errorf("got %v", err)
 	}
 }

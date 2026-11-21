@@ -372,9 +372,18 @@ func (b BrainCheckout) Pull(r app.Reporter) error {
 	if _, err := gitWithin(pullTimeout, b.root, "fetch", "-q"); err != nil {
 		return skip("could not reach its remote")
 	}
+	switch _, err := git(b.root, "merge-base", "--is-ancestor", "HEAD", "@{upstream}"); {
+	case exitCode(err) == 1: // 1: HEAD is not behind the upstream
+		if _, err := git(b.root, "merge-base", "--is-ancestor", "@{upstream}", "HEAD"); err == nil {
+			return nil // ahead or level: nothing to pull
+		}
+		return fmt.Errorf("%s has diverged from its upstream: rebase it on its upstream, then sync again", b.root)
+	case err != nil:
+		return skip("cannot read its git state: " + firstLine(err))
+	}
 	before := b.Head()
 	if _, err := git(b.root, "merge", "-q", "--ff-only", "@{upstream}"); err != nil {
-		return fmt.Errorf("pull %s: %w", b.root, err)
+		return fmt.Errorf("pull %s: %s", b.root, firstLine(err))
 	}
 	if after := b.Head(); after != before {
 		r.Add(app.Event{Kind: app.EvPulled, Path: b.root, Target: after})
