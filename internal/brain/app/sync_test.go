@@ -872,3 +872,13 @@ func TestClaudeAIZipThatCannotBeRemovedIsReported(t *testing.T) {
 
 	contains(t, r, "problem  /cache/nerve/claude.ai/claude-ai-work/notes.zip: cannot remove it: notes.zip: permission denied")
 }
+
+func TestAListedCheckoutGitCannotLocateNamesTheFix(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.trees.lost["/w/app"] = true // say, its .git removed
+
+	r, _ := e.sync("/w", app.SyncOptions{})
+
+	contains(t, r, "problem  /w/app: git cannot locate it, so nerve leaves it as it is: not in a git repo: fatal: not a git repository: /nowhere; make it a git repo again, or move the folder away for nerve to unlist it")
+}

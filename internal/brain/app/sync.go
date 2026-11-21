@@ -210,7 +210,7 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 	}
 	tree, err := s.Trees.Locate(dir)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("git cannot locate it, so nerve leaves it as it is: %w; make it a git repo again, or move the folder away for nerve to unlist it", err)
 	}
 	st, err := s.Machine.State(dir)
 	if err != nil {
