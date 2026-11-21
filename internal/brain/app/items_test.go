@@ -175,6 +175,68 @@ func TestUpdateLeavesASourceThatDropsASkillAndMovesTheOthers(t *testing.T) {
 	contains(t, r, "problem  brain.json: acme/up: at 84b741e: no skill \"grilling\"; drop it from brain.json first")
 }
 
+func TestUpdateMovesEveryEntryOfARepoTogether(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Sources = []domain.Source{
+		{Repo: "acme/up", SHA: pinA, Path: "skills/eng", Skills: []string{"grilling"}},
+		{Repo: "acme/up", SHA: pinA, Path: "skills/pro", Skills: []string{"grill-me"}},
+	}
+	e.sources.tips["acme/up"] = pinB
+	e.sources.skills["acme/up@"+pinB+"/grilling"] = domain.Skill{}
+	e.sources.skills["acme/up@"+pinB+"/grill-me"] = domain.Skill{}
+	r := &recorder{}
+
+	e.must(r, e.app.Update("/w", "acme/up", false, r))
+
+	if e.brain.m.Sources[0].SHA != pinB || e.brain.m.Sources[1].SHA != pinB {
+		t.Errorf("sources %v", e.brain.m.Sources)
+	}
+	contains(t, r, "same     skill grilling", "same     skill grill-me")
+	if got := e.brain.manifestPushes; len(got) != 1 || got[0] != "nerve: pin acme/up at 84b741e" {
+		t.Errorf("pushed %q", got)
+	}
+	for _, line := range []string{"tip      acme/up", "pinned   acme/up"} {
+		if n := strings.Count(r.String(), line); n != 1 {
+			t.Errorf("%q %d times:\n%s", line, n, r)
+		}
+	}
+}
+
+func TestUpdateFindsARepoHoweverItIsSpelled(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Sources = []domain.Source{
+		{Repo: "acme/up", SHA: pinA, Path: "skills/eng", Skills: []string{"grilling"}},
+		{Repo: "Acme/Up", SHA: pinA, Path: "skills/pro", Skills: []string{"grill-me"}},
+	}
+	// The fake, unlike GitHub, minds case: it serves the repo either way.
+	e.sources.tips["acme/up"], e.sources.tips["Acme/Up"] = pinB, pinB
+	e.sources.skills["acme/up@"+pinB+"/grilling"] = domain.Skill{}
+	e.sources.skills["Acme/Up@"+pinB+"/grill-me"] = domain.Skill{}
+	r := &recorder{}
+
+	e.must(r, e.app.Update("/w", "ACME/UP", false, r))
+
+	if e.brain.m.Sources[0].SHA != pinB || e.brain.m.Sources[1].SHA != pinB {
+		t.Errorf("sources %v:\n%s", e.brain.m.Sources, r)
+	}
+}
+
+func TestUpdateLeavesEveryEntryOfARepoWhenOneCannotMove(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Sources = []domain.Source{
+		{Repo: "acme/up", SHA: pinA, Path: "skills/eng", Skills: []string{"grilling"}},
+		{Repo: "acme/up", SHA: pinA, Path: "skills/pro", Skills: []string{"grill-me"}},
+	}
+	e.sources.tips["acme/up"] = pinB
+	e.sources.skills["acme/up@"+pinB+"/grill-me"] = domain.Skill{}
+
+	err := e.app.Update("/w", "", false, &recorder{})
+
+	if err == nil || e.brain.m.Sources[0].SHA != pinA || e.brain.m.Sources[1].SHA != pinA || len(e.brain.manifestPushes) > 0 {
+		t.Errorf("got %v, sources %v, pushed %q", err, e.brain.m.Sources, e.brain.manifestPushes)
+	}
+}
+
 func TestAddItemToACheckoutWhoseProjectLeftTheBrainSaysWhatToDo(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")

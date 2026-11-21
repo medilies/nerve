@@ -135,10 +135,11 @@ func (a App) agentFile(path string) bool {
 }
 
 // Update moves the pin of each source, or of repo alone, to the tip of its
-// default branch, first showing how each of its skills changed, with the
-// whole diff when full, and pushes the new pins. Then it syncs the listed
-// checkout around dir, if any, so the project here gets them. A source that cannot move is reported, and
-// the others still do.
+// default branch, every entry of a repo together, first showing how each
+// of its skills changed, with the whole diff when full, and pushes the new
+// pins. Then it syncs the listed checkout around dir, if any, so the
+// project here gets them. A source that cannot move is reported, and the
+// others still do.
 func (a App) Update(dir, repo string, full bool, r Reporter) error {
 	l, err := a.fresh(r)
 	if err != nil {
@@ -146,7 +147,7 @@ func (a App) Update(dir, repo string, full bool, r Reporter) error {
 	}
 	m := l.m
 	repo = strings.TrimSuffix(strings.TrimPrefix(repo, "https://github.com/"), ".git")
-	if repo != "" && !slices.ContainsFunc(m.Sources, func(s domain.Source) bool { return s.Repo == repo }) {
+	if repo != "" && !slices.ContainsFunc(m.Sources, func(s domain.Source) bool { return strings.EqualFold(s.Repo, repo) }) {
 		return fmt.Errorf("%s is not a source in %s", repo, domain.ManifestFile)
 	}
 	if len(m.Sources) == 0 {
@@ -157,10 +158,18 @@ func (a App) Update(dir, repo string, full bool, r Reporter) error {
 	var pinned []Event // reported once pushed
 	var moved []string
 	for i, src := range m.Sources {
-		if repo != "" && src.Repo != repo {
+		sameRepo := func(s domain.Source) bool { return strings.EqualFold(s.Repo, src.Repo) }
+		if repo != "" && !strings.EqualFold(src.Repo, repo) || slices.ContainsFunc(m.Sources[:i], sameRepo) {
 			continue
 		}
-		sha, err := a.pinTip(src, full, r)
+		// Each entry of a repo is at one pin, and moves with the others.
+		var entries []domain.Source
+		for _, s := range m.Sources[i:] {
+			if sameRepo(s) {
+				entries = append(entries, s)
+			}
+		}
+		sha, err := a.pinTip(entries, full, r)
 		switch {
 		case err != nil:
 			r.Add(Event{Kind: EvProblem, Path: domain.ManifestFile, Key: src.Repo, Detail: err.Error()})
@@ -168,7 +177,11 @@ func (a App) Update(dir, repo string, full bool, r Reporter) error {
 		case sha == src.SHA:
 			r.Add(Event{Kind: EvAlreadyThere, Detail: src.Repo, Target: sha})
 		default:
-			m.Sources[i].SHA = sha
+			for j := range m.Sources {
+				if sameRepo(m.Sources[j]) {
+					m.Sources[j].SHA = sha
+				}
+			}
 			pinned = append(pinned, Event{Kind: EvPinned, Detail: src.Repo, Target: sha})
 			moved = append(moved, src.Repo+" at "+Short(sha))
 		}
@@ -199,9 +212,11 @@ func (a App) Update(dir, repo string, full bool, r Reporter) error {
 	return errors.Join(errs...)
 }
 
-// pinTip finds the tip of a source's default branch and reports how each of
-// its skills changed since the pin, with the whole diff when full.
-func (a App) pinTip(src domain.Source, full bool, r Reporter) (string, error) {
+// pinTip finds the tip of a repo's default branch and reports how each
+// skill of its entries changed since their pin, with the whole diff when
+// full.
+func (a App) pinTip(entries []domain.Source, full bool, r Reporter) (string, error) {
+	src := entries[0]
 	sha, err := a.Sources.Tip(src.Repo)
 	if err != nil || sha == src.SHA {
 		return sha, err
@@ -215,19 +230,21 @@ func (a App) pinTip(src domain.Source, full bool, r Reporter) (string, error) {
 		return "", err
 	}
 	events := []Event{{Kind: EvTip, Key: src.Repo, From: src.SHA, FromDate: day(from), Target: sha, TargetDate: day(to)}}
-	for _, name := range src.Skills {
-		d, err := a.Sources.Diff(src, name, sha)
-		if err != nil {
-			return "", err
-		}
-		e := Event{Kind: EvSame, Key: src.Repo, Item: "skill " + name}
-		if len(d.Files) > 0 {
-			e.Kind, e.Files, e.Path = EvChanged, d.Files, d.Dir
-			if full {
-				e.Detail = d.Text
+	for _, entry := range entries {
+		for _, name := range entry.Skills {
+			d, err := a.Sources.Diff(entry, name, sha)
+			if err != nil {
+				return "", err
 			}
+			e := Event{Kind: EvSame, Key: src.Repo, Item: "skill " + name}
+			if len(d.Files) > 0 {
+				e.Kind, e.Files, e.Path = EvChanged, d.Files, d.Dir
+				if full {
+					e.Detail = d.Text
+				}
+			}
+			events = append(events, e)
 		}
-		events = append(events, e)
 	}
 	for _, e := range events {
 		r.Add(e)

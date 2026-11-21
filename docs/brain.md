@@ -53,10 +53,9 @@ reasoning is in [ADR 0005](adr/0005-projects-opt-in.md),
   those nerve allows. `nerve allow add` and `nerve allow rm` change it.
   See [Allowed settings](#allowed-settings).
 - **`sources`** lists third-party repos on GitHub, each at a full commit,
-  and the skills used from it. Each repo has one entry. A link in a
-  source arrives as a plain file holding its target. Skill, agent, hook
-  and project names are lowercase words of letters and digits, joined
-  by hyphens.
+  and the skills used from it. A link in a source arrives as a plain
+  file holding its target. Skill, agent, hook and project names are
+  lowercase words of letters and digits, joined by hyphens.
   - A skill is the whole repo when its root `SKILL.md` names it, else
     the folder `skills/<name>/` or `<name>/` holding a `SKILL.md`, in
     one of them only.
@@ -64,12 +63,14 @@ reasoning is in [ADR 0005](adr/0005-projects-opt-in.md),
     `"path": "plugins/x/skills"`.
   - All of an entry's skills come from that one folder. A repo that
     keeps skills in two folders, such as `skills/engineering/` and
-    `skills/productivity/`, gives skills from only one of them.
+    `skills/productivity/`, has one entry per `path`, each at the same
+    `sha`.
   - `nerve update [<repo>]` shows each source's pin and the tip of its
     default branch, with the date of each, and the files each of its
     skills changed, with their lines added and removed. `--diff` shows
-    the whole diff too. Then it pins and pushes the tip, and syncs the
-    listed checkout around the working directory.
+    the whole diff too. Then it pins every entry of the repo at the
+    tip, pushes it, and syncs the listed checkout around the working
+    directory.
 - **`hooks`** defines Claude Code hooks by name. `{{brain}}` in any
   value becomes the Brain's checkout path.
 - **`common.settings`** holds the only settings that reach more than

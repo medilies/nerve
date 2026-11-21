@@ -83,7 +83,7 @@ A command that changes `brain.json` refuses, and changes nothing, when:
 }
 ```
 
-A source's `repo` is on GitHub; `path`, optional, is where its skills are when not at the root, `skills/` or `<name>/`. A hook's `matcher` is optional, and `{{brain}}` is the Brain's path.
+A source's `repo` is on GitHub; `path`, optional, is where its skills are when not at the root, `skills/` or `<name>/`. A repo with skills in several folders has one entry per `path`, all at the same `sha`. A hook's `matcher` is optional, and `{{brain}}` is the Brain's path.
 
 ## Acting on what nerve reports
 

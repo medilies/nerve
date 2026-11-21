@@ -1,0 +1,44 @@
+# A repo whose skills sit in several folders is listed once per path, all
+# at one commit. A project gets skills from each, and update moves every
+# entry of the repo together.
+
+mkdir github/acme/up.git/skills/engineering/grilling github/acme/up.git/skills/productivity/grill-me
+cp grilling.md github/acme/up.git/skills/engineering/grilling/SKILL.md
+cp grill-me.md github/acme/up.git/skills/productivity/grill-me/SKILL.md
+cd github/acme/up.git
+exec git init -q -b main
+exec git config uploadpack.allowAnySHA1InWant true
+exec git add -A
+exec git commit -q -m v1
+exec sh -c 'printf "{\"sources\": [{\"repo\": \"acme/up\", \"sha\": \"%s\", \"path\": \"skills/engineering\", \"skills\": [\"grilling\"]}, {\"repo\": \"acme/up\", \"sha\": \"%s\", \"path\": \"skills/productivity\", \"skills\": [\"grill-me\"]}]}\n" "$(git rev-parse HEAD)" "$(git rev-parse HEAD)" > $HOME/brain/brain.json'
+exec sh -c 'echo "Grill harder." >> skills/productivity/grill-me/SKILL.md'
+exec git commit -qam v2
+
+cd $WORK/brain
+exec git commit -qam 'add acme/up'
+exec git push -q
+cd $WORK
+exec nerve init brain
+cd proj
+exec nerve project add app
+exec nerve skill add grilling
+exec nerve skill add grill-me
+
+exec nerve update
+stdout '^same     skill grilling$'
+stdout '^changed  skill grill-me: SKILL.md \+1 -0$'
+stdout '^pushed   the Brain at [0-9a-f]{7}: nerve: pin acme/up at [0-9a-f]{7}$'
+exec sh -c 'test "$(grep -c "\"sha\": \"$(git -C $HOME/github/acme/up.git rev-parse HEAD)\"" $HOME/brain/brain.json)" = 2'
+exists .claude/skills/grilling/SKILL.md
+grep 'Grill harder' .claude/skills/grill-me/SKILL.md
+
+-- grilling.md --
+---
+name: grilling
+description: Grills.
+---
+-- grill-me.md --
+---
+name: grill-me
+description: Grills me.
+---

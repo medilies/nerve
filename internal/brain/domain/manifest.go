@@ -236,9 +236,6 @@ func (m Manifest) Validate() error {
 		}
 	}
 	for i, s := range m.Sources {
-		if slices.ContainsFunc(m.Sources[:i], func(o Source) bool { return strings.EqualFold(o.Repo, s.Repo) }) {
-			return fmt.Errorf("%s: %s is in sources twice: list all its skills in one entry", ManifestFile, s.Repo)
-		}
 		if !RepoPattern.MatchString(s.Repo) || slices.ContainsFunc(strings.Split(s.Repo, "/"), func(p string) bool { return p == "." || p == ".." }) {
 			return fmt.Errorf("%s: repo %q is not owner/name", ManifestFile, s.Repo)
 		}
@@ -254,6 +251,19 @@ func (m Manifest) Validate() error {
 		for _, name := range s.Skills {
 			if !NamePattern.MatchString(name) {
 				return fmt.Errorf("%s: %s: skill %q must be lowercase words joined by hyphens", ManifestFile, s.Repo, name)
+			}
+		}
+		// A repo may hold skills in several folders: one entry per path,
+		// all at one commit, so that update moves them together.
+		for _, o := range m.Sources[:i] {
+			switch {
+			case !strings.EqualFold(o.Repo, s.Repo):
+			case o.Path == s.Path && s.Path == "":
+				return fmt.Errorf("%s: %s is in sources twice without a path: list all its skills in one entry", ManifestFile, o.Repo)
+			case o.Path == s.Path:
+				return fmt.Errorf("%s: %s is in sources twice with path %q: list all its skills in one entry", ManifestFile, o.Repo, s.Path)
+			case o.SHA != s.SHA:
+				return fmt.Errorf("%s: %s is pinned at two commits: give each of its entries one sha", ManifestFile, o.Repo)
 			}
 		}
 	}

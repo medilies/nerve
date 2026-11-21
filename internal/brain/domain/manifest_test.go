@@ -7,7 +7,10 @@ import (
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
-const sha = "5863806dd4e15c63174bee4e7515a4256792ecfa"
+const (
+	sha   = "5863806dd4e15c63174bee4e7515a4256792ecfa"
+	other = "84b741e6aa9e2c3a8e8e2e4e44e3f0d0d4f3b1a2"
+)
 
 func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 	for want, m := range map[string]domain.Manifest{
@@ -27,7 +30,10 @@ func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 		`hook "Fmt" must be lowercase w`:                       {Projects: map[string]*domain.Project{"app": {Hooks: []string{"Fmt"}}}},
 		`up: skill ".." must be`:                               {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{".."}}}},
 		`allowedSettings: "a..b" is not`:                       {AllowedSettings: []string{"a..b"}},
-		`acme/up is in sources twice`:                          {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{"x"}}, {Repo: "acme/up", SHA: sha, Skills: []string{"y"}}}},
+		`acme/up is in sources twice without a path`:           {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{"x"}}, {Repo: "Acme/Up", SHA: sha, Skills: []string{"y"}}}},
+		`acme/up is in sources twice with path "skills/eng"`:   {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Path: "skills/eng", Skills: []string{"x"}}, {Repo: "acme/up", SHA: sha, Path: "skills/eng", Skills: []string{"y"}}}},
+		`acme/up is pinned at two commits`:                     {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Path: "a", Skills: []string{"x"}}, {Repo: "acme/up", SHA: other, Path: "b", Skills: []string{"y"}}}},
+		`acme/up: sha must be a full`:                          {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Path: "a", Skills: []string{"x"}}, {Repo: "acme/up", SHA: "abc", Path: "b", Skills: []string{"y"}}}},
 		`"hooks.Stop" is written by nerve`:                     {AllowedSettings: []string{"hooks.Stop"}},
 		`"enabledPlugins" is written by`:                       {AllowedSettings: []string{"enabledPlugins"}},
 		`app: skill "foo" is listed twice`:                     {Projects: map[string]*domain.Project{"app": {Skills: []string{"foo", "foo"}}}},
@@ -40,6 +46,9 @@ func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 		if err := m.Validate(); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("got %v, want %q", err, want)
 		}
+	}
+	if err := (domain.Manifest{Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Path: "skills/eng", Skills: []string{"x"}}, {Repo: "acme/up", SHA: sha, Path: "skills/pro", Skills: []string{"y"}}}}).Validate(); err != nil {
+		t.Errorf("a repo at two paths is refused: %v", err)
 	}
 	if err := (domain.Manifest{AllowedSettings: []string{"mcpServers.db.env"}, Hooks: map[string]domain.Hook{"fmt": {Event: "PostToolUse", Command: "x"}}, Projects: map[string]*domain.Project{"app": {}}}).Validate(); err != nil {
 		t.Errorf("a valid manifest is refused: %v", err)

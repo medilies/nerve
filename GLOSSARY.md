@@ -35,7 +35,7 @@ Where a Claude Code plugin comes from; a plugin is named `<plugin>@<marketplace>
 _Avoid_: registry, store
 
 **Source**:
-A third-party repo on GitHub, pinned to a commit, and the skills a Brain uses from it.
+A third-party repo on GitHub, pinned to a commit, and the skills a Brain uses from it, from one or more of its folders.
 _Avoid_: vendor, upstream
 
 **Hook**:

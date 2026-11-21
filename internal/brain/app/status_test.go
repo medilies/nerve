@@ -135,6 +135,18 @@ func TestCheckRefusesASkillFromTwoPlaces(t *testing.T) {
 	}
 }
 
+func TestCheckNamesTheFoldersOfASkillInTwoEntriesOfARepo(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Sources = []domain.Source{
+		{Repo: "acme/up", SHA: pinA, Path: "skills/eng", Skills: []string{"grilling"}},
+		{Repo: "acme/up", SHA: pinA, Path: "skills/pro", Skills: []string{"grilling"}},
+	}
+	e.sources.skills["acme/up@"+pinA+"/grilling"] = domain.Skill{}
+	if out := check(t, e); !strings.Contains(out, "skill grilling comes from both acme/up/skills/eng and acme/up/skills/pro") {
+		t.Errorf("check says:\n%s", out)
+	}
+}
+
 func TestCheckRefusesASourceSkillMissingAtItsPin(t *testing.T) {
 	e := newEnv(t)
 	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"missing"}}}

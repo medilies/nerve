@@ -73,16 +73,20 @@ func (a App) problems(m domain.Manifest) ([]domain.Problem, error) {
 			problem(ag.Rel, "", err.Error())
 		}
 	}
-	from := map[string]string{} // third-party skill -> its repo
+	from := map[string]string{} // third-party skill -> its repo, and folder if any
 	for _, src := range m.Sources {
+		where := src.Repo
+		if src.Path != "" {
+			where += "/" + src.Path
+		}
 		for _, name := range src.Skills {
 			if other, ok := from[name]; ok || ownNames[name] {
 				if !ok {
 					other = "skills/"
 				}
-				problem(domain.ManifestFile, "source", fmt.Sprintf("skill %s comes from both %s and %s", name, other, src.Repo))
+				problem(domain.ManifestFile, "source", fmt.Sprintf("skill %s comes from both %s and %s", name, other, where))
 			}
-			from[name] = src.Repo
+			from[name] = where
 			if _, err := a.Sources.Skill(src, name); err != nil {
 				problem(domain.ManifestFile, "source", err.Error())
 			}
