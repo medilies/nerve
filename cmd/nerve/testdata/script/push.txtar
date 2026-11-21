@@ -1,5 +1,6 @@
-# push commits everything in the Brain and sends it to its remote; it needs
-# a message for changes, and says when the remote holds the Brain already.
+# push commits everything in the Brain and sends it to its remote, with a
+# message that names what changed unless given one, and says when the
+# remote holds the Brain already.
 
 exec nerve init brain
 exec nerve push
@@ -7,12 +8,14 @@ stdout '^the Brain at [0-9a-f]{7} is its remote''s already$'
 
 mkdir brain/skills/tdd
 cp tdd.md brain/skills/tdd/SKILL.md
-! exec nerve push
-stderr 'say what they are'
 ! exec nerve push add tdd
 stderr 'push takes one message: quote it'
-exec nerve push 'add tdd'
-stdout '^pushed   the Brain at [0-9a-f]{7}: add tdd$'
+exec nerve push
+stdout '^pushed   the Brain at [0-9a-f]{7}: nerve: add skills/tdd/SKILL.md$'
+
+cp tdd.md brain/skills/tdd/README.md
+exec nerve push 'add a readme'
+stdout '^pushed   the Brain at [0-9a-f]{7}: add a readme$'
 exec sh -c 'test "$(git -C brain rev-parse HEAD)" = "$(git -C brain.git rev-parse main)"'
 
 -- tdd.md --

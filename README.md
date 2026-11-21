@@ -109,7 +109,7 @@ nerve needs git 2.31 or later.
 
 ```sh
 nerve project add                    # list this checkout as a project named after its repo, and sync it
-nerve push "add go-stack"            # commit the Brain's own files, such as a new skill, and push them
+nerve push                           # commit the Brain's own files, such as a new skill, and push them
 nerve skill add go-stack             # give it a skill; agent, hook and plugin work the same
 nerve setting set model opus         # a setting for it; --common for every project
 nerve setting add permissions.allow "Bash(make test)"   # one more item in a list

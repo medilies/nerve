@@ -88,7 +88,9 @@ and `rm`, `skill`, `agent`, `hook` and `plugin` `add` and `rm`,
 commits everything in the Brain checkout, then pushes it to its
 upstream.
 
-- A change needs a message, as in `nerve push "add go-stack"`.
+- With no message, it writes one that names what changed, as in
+  `nerve: add skills/tdd/SKILL.md`. For more than three files, it counts
+  them, and lists each one below.
 - It refuses a Brain with a problem `nerve check` reports, since every
   machine syncs what it pushes.
 - It takes the remote's commits first when this Brain has none of its

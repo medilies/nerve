@@ -29,7 +29,8 @@ const usage = `usage: nerve <command>
                                machine lists (--here: only the one around the working directory);
                                -f, --force drops the Brain's commits and changes not pushed, and
                                overwrites drift: settings the Brain sets, changed here
-  push [<message>] [-f]        commit everything in the Brain, then push it to its remote;
+  push [<message>] [-f]        commit everything in the Brain, with <message> or one naming what
+                               changed, then push it to its remote;
                                -f, --force overwrites the remote's commits this Brain lacks
   update [<repo>]              show how each source's skills changed, pin and push its latest
                                commit, then sync the checkout around the working directory

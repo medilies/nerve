@@ -335,12 +335,56 @@ func (b BrainCheckout) Refresh(r app.Reporter) error {
 	return nil
 }
 
+// stagedMessage is a commit message for what is staged: it names a few
+// files, or counts many and lists them below.
+func (b BrainCheckout) stagedMessage() (string, error) {
+	out, err := git(b.root, "diff", "--cached", "-M", "--name-status")
+	if err != nil {
+		return "", err
+	}
+	verbs := []string{"add", "change", "move", "remove"}
+	done := map[string]string{"add": "added", "change": "changed", "move": "moved", "remove": "removed"}
+	byVerb := map[string][]string{}
+	var lines []string
+	for _, l := range strings.Split(trim(out), "\n") {
+		f := strings.Split(l, "\t")
+		if len(f) < 2 {
+			continue
+		}
+		verb, path, listed := "change", f[len(f)-1], f[len(f)-1]
+		switch f[0][0] {
+		case 'A', 'C':
+			verb = "add"
+		case 'D':
+			verb = "remove"
+		case 'R':
+			verb, listed = "move", f[1]+" -> "+path
+		}
+		byVerb[verb] = append(byVerb[verb], path)
+		lines = append(lines, verb+" "+listed)
+	}
+	var parts []string
+	for _, v := range verbs {
+		switch {
+		case len(byVerb[v]) == 0:
+		case len(lines) <= 3:
+			parts = append(parts, v+" "+strings.Join(byVerb[v], ", "))
+		default:
+			parts = append(parts, fmt.Sprintf("%d %s", len(byVerb[v]), done[v]))
+		}
+	}
+	if len(lines) <= 3 {
+		return "nerve: " + strings.Join(parts, "; "), nil
+	}
+	return fmt.Sprintf("nerve: %d files: %s\n\n%s", len(lines), strings.Join(parts, ", "), strings.Join(lines, "\n")), nil
+}
+
 // notPushed refuses a Brain with work not pushed, said by what, and lists
 // the commands that settle it: the remote's commits, theirs, leave a push
 // that takes them first only while the Brain has none of its own, ours.
 func notPushed(what, ours, theirs string) error {
 	options := [][2]string{
-		{`nerve push "<what changed>"`, "commit every change in the Brain, and push it"},
+		{"nerve push", "commit every change in the Brain, and push it"},
 		{"nerve sync -f", "drop the Brain's changes and commits not pushed"},
 	}
 	if theirs != "" {
@@ -513,9 +557,6 @@ func (b BrainCheckout) Push(message string, force bool, r app.Reporter) error {
 		return err
 	}
 	changed := trim(out) != ""
-	if changed && strings.TrimSpace(message) == "" {
-		return errors.New("the Brain has changes to commit: say what they are, as in nerve push \"add go-stack\"")
-	}
 	if !force {
 		switch err := b.fetch(); {
 		case errors.Is(err, errBranchGone): // a remote without the branch yet: nothing to overwrite
@@ -538,10 +579,15 @@ func (b BrainCheckout) Push(message string, force bool, r app.Reporter) error {
 		if _, err := git(b.root, "add", "-A"); err != nil {
 			return err
 		}
+		if strings.TrimSpace(message) == "" {
+			if message, err = b.stagedMessage(); err != nil {
+				return err
+			}
+		}
 		if _, err := git(b.root, "commit", "-q", "-m", message); err != nil {
 			return fmt.Errorf("cannot commit the Brain: %s", gitReason(err))
 		}
-		committed = message
+		committed, _, _ = strings.Cut(message, "\n")
 	}
 	args := []string{"push", "--porcelain", remote, "HEAD:" + merge}
 	if force {

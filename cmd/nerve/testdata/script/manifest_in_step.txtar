@@ -27,7 +27,7 @@ replace ../brain/brain.json '"app": {' '"other": {}, "app": {'
 stdout '^\+    "other": \{\}, "app": \{$'
 stderr '^error: brain.json in the Brain at .*/brain has changes not pushed\.$'
 stderr '^Run one of these, then this command again:$'
-stderr '^  nerve push "<what changed>"   commit every change in the Brain, and push it$'
+stderr '^  nerve push                    commit every change in the Brain, and push it$'
 stderr '^  nerve sync -f                 drop the Brain.s changes and commits not pushed$'
 ! grep model ../brain/brain.json
 ! exec nerve --json setting set model opus

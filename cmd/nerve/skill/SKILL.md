@@ -36,7 +36,7 @@ Always add `--json`, then tell the user what happened in plain words. A command 
 | --- | --- |
 | `nerve status` | Where things stand: what waits for a sync, links, the team's own, drift. |
 | `nerve sync --here` | Make the Brain its remote's, then carry it to this project. It refuses to drop Brain changes not pushed, naming them: offer `nerve push`, or `nerve sync --here -f` to drop them after the user agrees. `-f` also overwrites drift. `nerve sync` does every checkout on the machine. |
-| `nerve push [<message>]` | Commit everything in the Brain, such as a new own skill, then push it. A change needs a message. It takes the remote's commits first when the Brain has none of its own; when it has some too, it refuses, and `-f` overwrites the remote's: ask first. |
+| `nerve push [<message>]` | Commit everything in the Brain, such as a new own skill, then push it. With no message, nerve writes one naming what changed. It takes the remote's commits first when the Brain has none of its own; when it has some too, it refuses, and `-f` overwrites the remote's: ask first. |
 | `nerve project add [<name>]` | List this checkout, a worktree included, as a project named after its repo or `<name>`, then sync it. Settings it already has stay: as personal settings, or as drift where the Brain sets them otherwise. |
 | `nerve project ls` | The Brain's projects, and their checkouts on this machine. |
 | `nerve project rm <name>` | Clean its checkouts here, and drop it from the Brain. Its overlay stays. Ask first. |
@@ -51,7 +51,7 @@ An entry of `sources` or `hooks` has no command: add it to `brain.json` by hand,
 
 A command that changes `brain.json` refuses, and changes nothing, when:
 
-- `brain.json` has changes not pushed (a `diff` event shows them), or the Brain has commits its remote lacks: the error lists the commands that settle it, such as `nerve push "<what changed>"` to keep them or `nerve sync -f` to drop them. Offer those; run one with `-f` only after the user agrees to lose what it drops.
+- `brain.json` has changes not pushed (a `diff` event shows them), or the Brain has commits its remote lacks: the error lists the commands that settle it, such as `nerve push` to keep them or `nerve sync -f` to drop them. Offer those; run one with `-f` only after the user agrees to lose what it drops.
 - the remote's commits change files changed here: name them, and offer to push or drop those changes first.
 - the remote does not have the Brain's branch yet: `nerve push` makes it there.
 - the remote cannot be reached, or the Brain has no upstream or a detached HEAD: say so; neither push nor sync helps until it is fixed.

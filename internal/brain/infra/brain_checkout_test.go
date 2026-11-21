@@ -619,7 +619,7 @@ func TestRefreshOffersAPushThatTakesTheRemotesCommitsFirst(t *testing.T) {
 	err := NewBrainCheckout(e.path("brain")).Refresh(&events{})
 
 	if err == nil || !strings.Contains(err.Error(), "has changes not pushed, and the remote has 1 commit (") ||
-		!strings.Contains(err.Error(), `nerve push "<what changed>"   take the remote's commits, then commit every change in the Brain and push it`) {
+		!strings.Contains(err.Error(), `nerve push                    take the remote's commits, then commit every change in the Brain and push it`) {
 		t.Errorf("got %v", err)
 	}
 }
@@ -640,11 +640,11 @@ func TestRefreshOffersAForceEachWayWhenBothSidesHaveCommits(t *testing.T) {
 
 func TestRefreshRefusesWhatItWouldDrop(t *testing.T) {
 	for want, setup := range map[string]func(e *testEnv){
-		"brain.json in the Brain at " + "{brain}" + " has changes not pushed.\nRun one of these, then this command again:\n  nerve push \"<what changed>\"   commit every change in the Brain, and push it\n  nerve sync -f                 drop the Brain's changes and commits not pushed": func(e *testEnv) {
+		"brain.json in the Brain at " + "{brain}" + " has changes not pushed.\nRun one of these, then this command again:\n  nerve push                    commit every change in the Brain, and push it\n  nerve sync -f                 drop the Brain's changes and commits not pushed": func(e *testEnv) {
 			e.git(e.path("brain"), "pull", "-q", "--ff-only")
 			e.write(e.path("brain/brain.json"), "{\"projects\": {\"app\": {}}}\n")
 		},
-		"its remote lacks.\nRun one of these, then this command again:\n  nerve push \"<what changed>\"   commit every change in the Brain, and push it\n  nerve sync -f                 drop the Brain's changes and commits not pushed": func(e *testEnv) {
+		"its remote lacks.\nRun one of these, then this command again:\n  nerve push                    commit every change in the Brain, and push it\n  nerve sync -f                 drop the Brain's changes and commits not pushed": func(e *testEnv) {
 			e.git(e.path("brain"), "pull", "-q", "--ff-only")
 			e.write(e.path("brain/skills/x/SKILL.md"), "x")
 			e.commit(e.path("brain"))
@@ -745,14 +745,48 @@ func TestPushManifestThatCannotPushLeavesBrainTomlAsTheRemoteHoldsIt(t *testing.
 	}
 }
 
-func TestPushRefusesChangesWithNoMessageAndABrainWithNoUpstream(t *testing.T) {
+func TestPushWithNoMessageNamesTheFewFilesItCommits(t *testing.T) {
+	e := newTestEnv(t)
+	e.identity()
+	e.published()
+	e.git(e.path("brain"), "pull", "-q", "--ff-only")
+	e.write(e.path("brain/skills/x/SKILL.md"), "x")
+	e.write(e.path("brain/brain.json"), "{}\n")
+	var r events
+
+	e.must(NewBrainCheckout(e.path("brain")).Push("", false, &r))
+
+	want := "nerve: add skills/x/SKILL.md; change brain.json"
+	if got := e.git(e.path("brain.git"), "log", "-1", "--format=%B", "main"); got != want {
+		t.Errorf("remote's last commit is %q, want %q", got, want)
+	}
+	if !strings.HasSuffix(r.String(), ": "+want) {
+		t.Errorf("events: %s", r)
+	}
+}
+
+func TestPushWithNoMessageCountsManyFilesAndListsThemBelow(t *testing.T) {
+	e := newTestEnv(t)
+	e.identity()
+	e.published()
+	e.git(e.path("brain"), "pull", "-q", "--ff-only")
+	for _, s := range []string{"a", "b", "c", "d"} {
+		e.write(e.path("brain/skills/"+s+"/SKILL.md"), s)
+	}
+	e.must(os.Remove(e.path("brain/brain.json")))
+
+	e.must(NewBrainCheckout(e.path("brain")).Push("", false, &events{}))
+
+	want := "nerve: 5 files: 4 added, 1 removed\n\nremove brain.json\nadd skills/a/SKILL.md\nadd skills/b/SKILL.md\nadd skills/c/SKILL.md\nadd skills/d/SKILL.md"
+	if got := e.git(e.path("brain.git"), "log", "-1", "--format=%B", "main"); got != want {
+		t.Errorf("remote's last commit is %q, want %q", got, want)
+	}
+}
+
+func TestPushRefusesABrainWithNoUpstream(t *testing.T) {
 	e := newTestEnv(t)
 	e.published()
 	e.write(e.path("brain/skills/x/SKILL.md"), "x")
-
-	if err := NewBrainCheckout(e.path("brain")).Push("", false, &events{}); err == nil || !strings.Contains(err.Error(), "say what they are") {
-		t.Errorf("got %v", err)
-	}
 	e.git(e.path("brain"), "branch", "-q", "--unset-upstream")
 	if err := NewBrainCheckout(e.path("brain")).Push("add x", false, &events{}); err == nil || !strings.HasSuffix(err.Error(), ": no upstream branch") {
 		t.Errorf("got %v", err)
