@@ -15,7 +15,7 @@ func TestTextReportPrintsEachEventAsItComes(t *testing.T) {
 
 	r.Add(app.Event{Kind: app.EvWrote, Path: "/x"})
 
-	if out.String() != "wrote    /x\n" || r.Finish(errors.New("boom")) || r.Gathered() != nil || r.Count() != 1 {
+	if out.String() != "wrote    /x\n" || r.Finish(errors.New("boom")) || r.gathered() != nil || r.Count() != 1 {
 		t.Errorf("printed %q", out.String())
 	}
 }
@@ -75,9 +75,8 @@ func TestHookReportIsOneLineWhenNothingChanged(t *testing.T) {
 	upToDate := app.Event{Kind: app.EvUpToDate, Project: "app", Target: "abcdef0123"}
 	for want, events := range map[string][]app.Event{
 		"nerve: app is up to date at abcdef0": {upToDate},
-		"nerve: app is up to date at abcdef0 (no pull: no upstream branch; kept development build (devel) over v0.3.0)": {
+		"nerve: app is up to date at abcdef0 (no pull: no upstream branch)": {
 			{Kind: app.EvPullSkipped, Path: "/brain", Detail: "no upstream branch"},
-			{Kind: app.EvUpgradeSkipped, Detail: "(devel)", Target: "v0.3.0"},
 			upToDate,
 		},
 		"nerve: no pull  /brain: uncommitted changes\ndrift    model is \"sonnet\" here, \"opus\" in the Brain: left as is\napp is up to date at abcdef0": {

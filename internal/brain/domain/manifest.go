@@ -20,7 +20,6 @@ var (
 	TagPattern  = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
 	RepoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 	SHAPattern  = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	SumPattern  = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	NamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 )
 
@@ -28,13 +27,12 @@ var (
 // third-party sources it pins, the hooks it defines, the settings common to
 // its projects, and the projects themselves.
 type Manifest struct {
-	Nerve          string
-	NerveChecksums string
-	Autosync       *bool
-	Sources        []Source
-	Hooks          map[string]Hook
-	Common         map[string]any // settings every listed project gets
-	Projects       map[string]*Project
+	Nerve    string
+	Autosync *bool
+	Sources  []Source
+	Hooks    map[string]Hook
+	Common   map[string]any // settings every listed project gets
+	Projects map[string]*Project
 }
 
 // Source is one third-party repo, pinned to a commit.
@@ -74,9 +72,6 @@ func (p *Project) List(kind string) *[]string {
 func (m Manifest) Validate() error {
 	if m.Nerve != "" && !TagPattern.MatchString(m.Nerve) {
 		return fmt.Errorf("%s: nerve %q must be a release tag such as v1.2.3", ManifestFile, m.Nerve)
-	}
-	if m.NerveChecksums != "" && (m.Nerve == "" || !SumPattern.MatchString(m.NerveChecksums)) {
-		return fmt.Errorf("%s: nerve-checksums must be the lowercase SHA-256 of the pinned nerve release's checksums.txt", ManifestFile)
 	}
 	for _, s := range m.Sources {
 		if !RepoPattern.MatchString(s.Repo) || slices.ContainsFunc(strings.Split(s.Repo, "/"), func(p string) bool { return p == "." || p == ".." }) {

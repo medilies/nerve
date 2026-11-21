@@ -61,12 +61,12 @@ type Link struct {
 	Target string
 }
 
-// Rel is where the link goes in the tree, its name after prefix.
-func (l Link) Rel(prefix string) string {
+// Rel is where the link goes in the tree.
+func (l Link) Rel() string {
 	if l.Kind == "agent" {
-		return path.Join(".claude", "agents", prefix+l.Name+".md")
+		return path.Join(".claude", "agents", l.Name+".md")
 	}
-	return path.Join(".claude", "skills", prefix+l.Name)
+	return path.Join(".claude", "skills", l.Name)
 }
 
 // Item is what a link carries, as people read it, such as "skill grilling".

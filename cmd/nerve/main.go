@@ -63,9 +63,6 @@ var selfSkill []byte
 // version is set at release time.
 var version string
 
-// release is where nerve upgrades itself from.
-var release = infra.GitHubRelease()
-
 // errUsage is a command line nerve does not know; it prints the usage.
 var errUsage = errors.New(strings.TrimSpace(usage))
 
@@ -179,7 +176,7 @@ func wire(brainDir string, machine infra.MachineFiles) (app.App, error) {
 		Sources: infra.SourceCache{},
 		Machine: machine,
 		Trees:   infra.LocalTrees{},
-		Self:    infra.Nerve{SkillMD: selfSkill, Ver: infra.Version(version), Release: release},
+		Self:    infra.Nerve{SkillMD: selfSkill, Ver: infra.Version(version), Path: infra.RanAs},
 		Zips:    zips,
 	}, nil
 }
@@ -299,7 +296,7 @@ func run(args []string, r *infra.Report) error {
 	case cmd == "sync" && len(rest) == 0:
 		allowed = []string{"--here", "--discard", "--hook"}
 		do = func(a app.App) error {
-			return a.Sync(app.SyncOptions{Dir: wd, Here: f.here, Discard: f.discard, Hook: f.hook, SkipPull: infra.Resumed()}, r)
+			return a.Sync(app.SyncOptions{Dir: wd, Here: f.here, Discard: f.discard, Hook: f.hook}, r)
 		}
 	case cmd == "project" && len(rest) == 2 && rest[0] == "add":
 		do = func(a app.App) error { return a.AddProject(wd, rest[1], r) }

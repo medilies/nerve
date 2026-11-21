@@ -18,9 +18,6 @@ type Brain interface {
 	Head() string
 	// State says what the checkout holds that others cannot see yet.
 	State() string
-	// Owner is the owner of the checkout's origin remote, such as a GitHub
-	// user.
-	Owner() (string, error)
 	OwnSkill(name string) (domain.Skill, bool, error)
 	OwnSkills() ([]domain.Skill, error)
 	AgentFile(name string) (string, bool)
@@ -98,15 +95,12 @@ type Trees interface {
 }
 
 // Self is nerve itself: its own skill, how autosync runs it, and its
-// release.
+// version.
 type Self interface {
 	Skill() (domain.Skill, error)
 	// Command is what autosync runs to sync the tree a session starts in.
 	Command() (string, error)
 	Version() string
-	// Upgrade replaces nerve with the Brain's pinned release and runs it in
-	// its place.
-	Upgrade(domain.Manifest, Reporter) error
 }
 
 // Zips are the skill zips built for claude.ai accounts.

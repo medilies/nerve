@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -15,11 +14,10 @@ import (
 
 // SyncOptions say which trees a sync carries the Brain to, and how.
 type SyncOptions struct {
-	Dir      string // the working directory
-	Here     bool   // only the tree around Dir
-	Discard  bool   // overwrite drift
-	Hook     bool   // run by autosync, whose report must not fail
-	SkipPull bool   // a run that replaced an older nerve, which pulled already
+	Dir     string // the working directory
+	Here    bool   // only the tree around Dir
+	Discard bool   // overwrite drift
+	Hook    bool   // run by autosync, whose report must not fail
 }
 
 // syncer carries one Brain to working trees.
@@ -30,7 +28,6 @@ type syncer struct {
 	self    domain.Skill
 	cmd     string
 	discard bool
-	owner   string // the Brain's owner, once looked up
 }
 
 // workingTree is one tree a sync carries the Brain to.
@@ -50,19 +47,17 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 	if _, err := a.Machine.Load(); err != nil {
 		return err
 	}
-	if !o.SkipPull {
-		if err := a.Brain.Pull(r); err != nil {
-			return err
-		}
+	if err := a.Brain.Pull(r); err != nil {
+		return err
 	}
 	l, err := a.load()
 	if err != nil {
 		return err
 	}
-	// The pinned release is the one that judges the Brain, so it comes
-	// first: a release that reads the Brain better is never held back.
-	if err := a.Self.Upgrade(l.m, r); err != nil {
-		return err
+	// The pinned release is the one that judges the Brain; nerve never
+	// replaces itself, so it only says so. A development build is left be.
+	if pin, running := l.m.Nerve, a.Self.Version(); pin != "" && running != pin && domain.TagPattern.MatchString(running) {
+		r.Add(Event{Kind: EvProblem, Path: domain.ManifestFile, Key: "nerve", Detail: fmt.Sprintf("nerve %s runs, but the Brain pins %s: install %s", running, pin, pin)})
 	}
 	if p := l.m.SensitiveValues(); len(p) > 0 {
 		for _, e := range p {
@@ -238,9 +233,6 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 	if err := s.exclude(tree, st.Links); err != nil {
 		return false, err
 	}
-	if err := s.writeBack(name, p, dir, &st); err != nil {
-		return false, err
-	}
 	links := []domain.Link{{Kind: "skill", Name: "nerve", Target: s.self.Dir}}
 	for _, n := range p.Skills {
 		sk, err := s.skill(s.m, n)
@@ -363,66 +355,6 @@ func driftEvent(path string, c domain.Change) Event {
 	return e
 }
 
-// writeBack drops from the project each skill or agent whose link nerve
-// made and the user deleted, and saves the Brain; only then does the tree
-// forget those links. Links that are all gone at once, gone with their
-// folder, or the two or more of one folder all gone, as git clean, rm -rf
-// .claude or rm .claude/skills/* leave them, were not deleted one by one:
-// link makes them again.
-func (s *syncer) writeBack(name string, p *domain.Project, dir string, st *domain.TreeState) error {
-	var missing []string
-	inFolder, missingIn := map[string]int{}, map[string]int{}
-	for _, rel := range domain.SortedKeys(st.Links) {
-		inFolder[path.Dir(rel)]++
-		if !s.Trees.Present(filepath.Join(dir, rel)) {
-			missing = append(missing, rel)
-			missingIn[path.Dir(rel)]++
-		}
-	}
-	var gone []string // deleted one by one
-	for _, rel := range missing {
-		folder := path.Dir(rel)
-		if len(missing) < len(st.Links) && s.Trees.Exists(filepath.Join(dir, folder)) && (inFolder[folder] < 2 || missingIn[folder] < inFolder[folder]) {
-			gone = append(gone, rel)
-		}
-	}
-	if len(gone) < len(missing) {
-		s.r.Add(Event{Kind: EvRelinked, Project: name, Path: dir})
-	}
-	if len(gone) == 0 {
-		return nil
-	}
-	before := map[string][]string{} // each list changed, as it was
-	var dropped []domain.Link
-	for _, rel := range gone {
-		l := st.Links[rel]
-		list := p.List(l.Kind)
-		if list == nil || !slices.Contains(*list, l.Name) {
-			continue
-		}
-		if _, ok := before[l.Kind]; !ok {
-			before[l.Kind] = slices.Clone(*list)
-		}
-		*list = slices.DeleteFunc(*list, func(x string) bool { return x == l.Name })
-		dropped = append(dropped, l)
-	}
-	if len(dropped) > 0 {
-		if err := s.Brain.Save(s.m); err != nil {
-			for kind, list := range before {
-				*p.List(kind) = list
-			}
-			return fmt.Errorf("deleted links stay until %s takes their items out: %w", domain.ManifestFile, err)
-		}
-	}
-	for _, rel := range gone {
-		delete(st.Links, rel)
-	}
-	for _, l := range dropped {
-		s.r.Add(Event{Kind: EvWroteBack, Project: name, Item: l.Item()})
-	}
-	return nil
-}
-
 // ours says whether the link at rel in dir is still the one nerve made: a
 // link that points where nerve pointed it.
 func (a App) ours(dir, rel string, l domain.Link) bool {
@@ -431,11 +363,11 @@ func (a App) ours(dir, rel string, l domain.Link) bool {
 }
 
 // link makes dir hold each link, and removes the links nerve made that are
-// no longer wanted. Where the team already has a skill or agent of that
-// name, it links nerve's as <owner>-<name>. It never touches what nerve did
-// not make, nor a link someone pointed elsewhere. A link that already points
-// where nerve would point it, as one left by a checkout that moved, becomes
-// nerve's.
+// no longer wanted. A link that is gone is made again. Where the team
+// already has a skill or agent of that name, or someone pointed nerve's link
+// elsewhere, it leaves it, skips that item, and says so. A link that already
+// points where nerve would point it, as one left by a checkout that moved,
+// becomes nerve's.
 func (s *syncer) link(dir string, links []domain.Link, st *domain.TreeState) error {
 	ours := func(rel string) bool {
 		l, ok := st.Links[rel]
@@ -450,17 +382,12 @@ func (s *syncer) link(dir string, links []domain.Link, st *domain.TreeState) err
 	}
 	next := map[string]domain.Link{}
 	for _, l := range links {
-		rel := l.Rel("")
-		if taken(rel, l) {
-			owner, err := s.ownerName()
-			if err != nil {
-				return fmt.Errorf("the team has %s: %w", rel, err)
-			}
-			if rel = l.Rel(owner + "-"); taken(rel, l) {
-				return fmt.Errorf("the team has both %s and %s: nerve has nowhere to link %s %s", l.Rel(""), rel, l.Kind, l.Name)
-			}
-		}
+		rel := l.Rel()
 		path := filepath.Join(dir, rel)
+		if taken(rel, l) {
+			s.r.Add(Event{Kind: EvProblem, Path: path, Detail: fmt.Sprintf("the team has it, so %s %s is not linked here: rename yours in the Brain to use it", l.Kind, l.Name)})
+			continue
+		}
 		if !same(rel, l) {
 			if err := s.Trees.Link(path, l.Target); err != nil {
 				return err
@@ -484,17 +411,6 @@ func (s *syncer) link(dir string, links []domain.Link, st *domain.TreeState) err
 	}
 	st.Links = next
 	return nil
-}
-
-func (s *syncer) ownerName() (string, error) {
-	if s.owner == "" {
-		owner, err := s.Brain.Owner()
-		if err != nil {
-			return "", err
-		}
-		s.owner = owner
-	}
-	return s.owner, nil
 }
 
 // clean takes out of a working tree what nerve put there: its links that

@@ -11,13 +11,13 @@ hooks/<script>      # scripts hooks run, referenced as {{brain}}/hooks/<script>
 ```
 
 Words used here are defined in [GLOSSARY.md](../GLOSSARY.md); the
-reasoning is in [ADR 0005](adr/0005-projects-opt-in.md).
+reasoning is in [ADR 0005](adr/0005-projects-opt-in.md) and
+[ADR 0007](adr/0007-drop-guessing-features.md).
 
 ## brain.toml
 
 ```toml
 nerve = "v0.3.0"                 # the release that carries this Brain
-nerve-checksums = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"  # optional: SHA-256 of that release's checksums.txt
 autosync = true                  # sync each project at session start; the default
 
 [[source]]                       # third-party skills, pinned to a full commit
@@ -47,10 +47,9 @@ surface = "claude.ai"
 skills = ["research"]
 ```
 
-- **`nerve`** pins the release that carries the Brain. `sync` brings
-  the installed nerve to it, checking the download against the
-  release's `checksums.txt`, and that file against `nerve-checksums`
-  when set. A development build is never replaced.
+- **`nerve`** pins the release that carries the Brain. When another
+  release runs, `sync` reports it: install the pinned one. nerve never
+  replaces itself, and says nothing to a development build.
 - **`[[source]]`** is a third-party repo on GitHub at a full commit,
   and the skills used from it. Skill, agent, hook and project names are
   lowercase words joined by hyphens. A skill is the folder of that name

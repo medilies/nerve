@@ -13,7 +13,6 @@ const sha = "5863806dd4e15c63174bee4e7515a4256792ecfa"
 func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 	for want, m := range map[string]domain.Manifest{
 		"must be a release tag":           {Nerve: "latest"},
-		"nerve-checksums must be":         {Nerve: "v1.0.0", NerveChecksums: "abc"},
 		"is not owner/name":               {Sources: []domain.Source{{Repo: "acme", SHA: sha, Skills: []string{"x"}}}},
 		`"../x" is not owner/name`:        {Sources: []domain.Source{{Repo: "../x", SHA: sha, Skills: []string{"x"}}}},
 		`"acme/." is not owner/name`:      {Sources: []domain.Source{{Repo: "acme/.", SHA: sha, Skills: []string{"x"}}}},

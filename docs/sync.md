@@ -11,9 +11,8 @@ the one around the working directory, a worktree included.
   no upstream or a detached HEAD, or its remote cannot be reached. It
   fails if the checkout has diverged.
   - It never asks for a password: a remote that needs one is skipped.
-- **Brings nerve to the Brain's pin**, then runs the new binary in its
-  place. If it cannot replace its own binary, it fails and says so:
-  install the pinned release by hand.
+- **Checks nerve against the Brain's pin**, and reports a release that
+  differs: install the pinned one. It never replaces itself.
 - **Refuses a checkout** where git tracks `.claude/settings.local.json`,
   or does not ignore it: add `**/.claude/settings.local.json` to your
   global git ignore file. nerve never edits `.gitignore`.
@@ -81,16 +80,13 @@ To resolve drift:
 - A setting, skill or agent taken out of a project, or out of every
   project with `rm --all`, is removed from each checkout at its next
   sync. A key changed there since is drift, and kept.
-- Deleting a skill's or agent's link in `.claude/` takes it out of the
-  project in `brain.toml`, at the next sync, which says to commit it.
-  A link you point elsewhere becomes yours: nerve leaves it alone.
-  - Links that are all gone at once, gone with their folder, or all
-    gone from `.claude/skills/` or `.claude/agents/` when it held two
-    or more, as after `git clean -x` or `rm .claude/skills/*`, are
-    linked again instead, and a settings file that is gone is written
-    again. Delete one link at a time to drop its item.
-  - A link that already points where nerve would point it, as in a
-    checkout that moved, becomes nerve's again.
+- Only `skill rm` and `agent rm` take a skill or agent out of a
+  project. A link that is gone, as after `git clean -x`, is made again
+  at the next sync, and so is a settings file that is gone.
+- A link you point elsewhere becomes yours: nerve leaves it alone, and
+  does not link that item there.
+- A link that already points where nerve would point it, as in a
+  checkout that moved, becomes nerve's again.
 - A project dropped from the Brain, by `nerve project rm` here or on
   another machine, is cleaned out of its checkouts: nerve's links, its
   exclude block, the settings and list items it wrote that were not
@@ -99,11 +95,8 @@ To resolve drift:
 ## The team's own
 
 nerve never touches what it did not make. Where the team already has a
-skill or agent of the same name, nerve links yours as `<owner>-<name>`.
-The owner is the folder that holds the Brain's repo in its `origin`
-remote, such as `medilies` in `git@github.com:medilies/brain.git`. A
-remote with no such folder, such as `https://example.com/brain.git`,
-names no owner, and sync refuses the checkout that needs one.
+skill or agent of the same name, nerve does not link yours there, and
+reports a problem: rename yours in the Brain to use it in that project.
 `nerve skill ls` shows yours and the team's.
 
 ## claude.ai
@@ -129,5 +122,3 @@ account. `syncClaudeAiSkills: false`, in your user settings or
 - The exclude block also hides from `git add` a new folder of the same
   name, in every worktree of the repo. Files the team already committed
   are not affected.
-- `nerve-checksums` guards against a release replaced after you pinned
-  it: `curl -sL https://github.com/medilies/nerve/releases/download/<tag>/checksums.txt | sha256sum`.

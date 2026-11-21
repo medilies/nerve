@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -28,15 +27,8 @@ type Report struct {
 
 var _ app.Reporter = (*Report)(nil)
 
-// NewReport starts a report. A run that replaced an older nerve picks up
-// the events that one gathered before it handed over.
-func NewReport(w io.Writer, mode int) *Report {
-	r := &Report{w: w, mode: mode}
-	if earlier := os.Getenv(earlierEventsEnv); mode != AsText && earlier != "" {
-		_ = json.Unmarshal([]byte(earlier), &r.events) // at worst, the earlier events are lost
-	}
-	return r
-}
+// NewReport starts a report.
+func NewReport(w io.Writer, mode int) *Report { return &Report{w: w, mode: mode} }
 
 func (r *Report) Add(e app.Event) {
 	r.count++
@@ -49,8 +41,8 @@ func (r *Report) Add(e app.Event) {
 
 func (r *Report) Count() int { return r.count }
 
-// Gathered is the events gathered so far, nil when printed as they come.
-func (r *Report) Gathered() []app.Event {
+// gathered is the events gathered so far, nil when printed as they come.
+func (r *Report) gathered() []app.Event {
 	if r.mode == AsText {
 		return nil
 	}
@@ -68,7 +60,7 @@ func (r *Report) Finish(err error) bool {
 		doc := struct {
 			Events []app.Event `json:"events"`
 			Error  string      `json:"error,omitempty"`
-		}{Events: r.Gathered()}
+		}{Events: r.gathered()}
 		if err != nil {
 			doc.Error = err.Error()
 		}
@@ -110,7 +102,7 @@ func hookOutput(events []app.Event, err error) map[string]any {
 }
 
 // oneLine folds a run that changed nothing into its up-to-date line, with
-// why the pull or the upgrade was skipped, if it was.
+// why the pull was skipped, if it was.
 func oneLine(events []app.Event) (string, bool) {
 	var line string
 	var notes []string
@@ -123,8 +115,6 @@ func oneLine(events []app.Event) (string, bool) {
 			line = e.String()
 		case app.EvPullSkipped:
 			notes = append(notes, "no pull: "+e.Detail)
-		case app.EvUpgradeSkipped:
-			notes = append(notes, "kept development build "+e.Detail+" over "+e.Target)
 		default:
 			return "", false
 		}

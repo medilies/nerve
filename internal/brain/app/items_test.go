@@ -110,7 +110,7 @@ func TestListItemsShowsLinksAndTheTeamsOwn(t *testing.T) {
 	e.must(r, e.app.ListItems(target("/w/app"), "skill", r))
 
 	contains(t, r,
-		"skill go-stack own, linked as .claude/skills/medilies-go-stack",
+		"skill go-stack own, not linked: the team has .claude/skills/go-stack",
 		"skill grilling from acme/up@5863806, linked as .claude/skills/grilling",
 		"skill nerve nerve's own",
 		"skill go-stack the team's")

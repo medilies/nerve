@@ -64,8 +64,6 @@ command = "{{brain}}/hooks/go-fmt.sh"   # {{brain}} is the Brain's path
 ## Acting on what nerve reports
 
 - **`drift`**: Claude Code or the user changed a setting here, and nerve left it as is. With `item`, it is one item of a list, such as an approval in `permissions.allow`. For each, ask: keep it for this project (`setting set`, or `setting add` for an item), for every project (`--common`), only on this machine (the overlay), or drop it (`nerve sync --here --discard`, after the user agrees to lose it). A value or key shown as `(hidden)` is sensitive: never ask the user to paste it.
-- **`wrote-back`**: a deleted link took its skill or agent out of the project in `brain.toml`. Offer to commit it.
-- **`relinked`**: nerve's links were all gone at once, or all those of one folder, as after `git clean -x` or `rm .claude/skills/*`, so it linked them again rather than drop them from the project. To drop one, the user deletes only its link.
 - **`unlisted`**: a checkout's folder is gone, so this machine no longer lists it. `nerve project add` lists it again.
 - **`problem`**: propose a fix for each.
 - **`diff`** from `skill update`: summarize what changed in the source, and call out anything that widens what a skill can do (new tools, scripts, network access) before the user commits the new pin.

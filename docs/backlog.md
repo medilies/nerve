@@ -13,4 +13,3 @@ Ideas left out of [ADR 0005](adr/0005-projects-opt-in.md) to keep it minimal. Ta
 - **Verified claude.ai state.** Read what an account actually holds, rather than reporting which zips changed.
 - **Autosync in `nerve hook ls`.** List nerve's own hook beside the Brain's, marked as nerve's.
 - **Agents in the same session.** Check whether an agent linked by autosync is usable in the same session, as skills are with `reloadSkills`.
-- **Dropping write-back.** Today, deleting a skill's or agent's link takes it out of the project in `brain.toml`. Guessing intent from links causes most of the link bugs: mass loss, moved checkouts, links pointed elsewhere. Dropping it for `skill rm` and `agent rm` alone would remove that guessing. Come back to it once those bugs are fixed.

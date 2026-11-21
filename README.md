@@ -24,7 +24,7 @@ nowhere else.
 - **Revoke everywhere.** Take a skill or a denied tool out of every
   project with one command; each checkout drops it at its next sync.
 - **Nothing lost.** A setting Claude Code changed is reported as drift,
-  never overwritten. Delete a skill's link, and the Brain drops it too.
+  never overwritten. A link that goes missing is made again.
 - **Pinned and reviewed.** Third-party skills sit at a commit, and move
   only after you read how they changed.
 - **Nothing sensitive in the Brain.** Secrets, home paths and emails

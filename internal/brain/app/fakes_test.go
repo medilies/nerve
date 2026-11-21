@@ -57,7 +57,6 @@ type fakeBrain struct {
 	pullErr   error
 	own       map[string]domain.Skill
 	agents    map[string]bool
-	owner     string
 	head      string
 	pulls     int
 	moved     [][2]string
@@ -90,13 +89,6 @@ func (b *fakeBrain) MovePin(old, new string) error {
 		}
 	}
 	return nil
-}
-
-func (b *fakeBrain) Owner() (string, error) {
-	if b.owner == "" {
-		return "", errors.New("the Brain has no origin remote")
-	}
-	return b.owner, nil
 }
 
 func (b *fakeBrain) OwnSkill(name string) (domain.Skill, bool, error) {
@@ -270,9 +262,10 @@ type fakeTrees struct {
 	unignored map[string]bool // trees where git does not ignore settings.local.json
 	tracked   map[string]bool // trees where git tracks it
 	excludes  map[string][]string
-	damaged   map[string]bool // repos whose exclude block someone broke
-	lost      map[string]bool // trees git can no longer locate, as after git worktree prune
-	writeErr  error           // of WriteSettings
+	damaged   map[string]bool  // repos whose exclude block someone broke
+	lost      map[string]bool  // trees git can no longer locate, as after git worktree prune
+	writeErr  error            // of WriteSettings
+	linkErr   map[string]error // of Link, at a path
 }
 
 func (w *fakeTrees) Locate(dir string) (domain.Tree, error) {
@@ -313,6 +306,9 @@ func (w *fakeTrees) mkdirs(dir string) {
 }
 
 func (w *fakeTrees) Link(p, target string) error {
+	if err := w.linkErr[p]; err != nil {
+		return err
+	}
 	if w.files[p] || w.dirs[p] {
 		return fmt.Errorf("%s is a real file", p)
 	}
@@ -436,14 +432,18 @@ func (w *fakeTrees) WriteSettings(p string, s map[string]any) error {
 	return nil
 }
 
-type fakeSelf struct{ upgrades int }
+type fakeSelf struct{ version string }
 
 func (s *fakeSelf) Skill() (domain.Skill, error) {
 	return domain.Skill{Name: "nerve", Dir: "/cache/nerve/skill/nerve", Origin: "nerve"}, nil
 }
-func (s *fakeSelf) Command() (string, error)                    { return "nerve sync --here --hook", nil }
-func (s *fakeSelf) Version() string                             { return "v0.3.0" }
-func (s *fakeSelf) Upgrade(domain.Manifest, app.Reporter) error { s.upgrades++; return nil }
+func (s *fakeSelf) Command() (string, error) { return "nerve sync --here --hook", nil }
+func (s *fakeSelf) Version() string {
+	if s.version == "" {
+		return "v0.3.0"
+	}
+	return s.version
+}
 
 // fakeZips zips a skill as its name and description, so a changed
 // description is a changed zip.
@@ -496,7 +496,7 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	e := &env{
 		t:       t,
-		brain:   &fakeBrain{own: map[string]domain.Skill{}, agents: map[string]bool{}, owner: "medilies", head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		brain:   &fakeBrain{own: map[string]domain.Skill{}, agents: map[string]bool{}, head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		sources: &fakeSources{skills: map[string]domain.Skill{}, heads: map[string]string{}},
 		machine: &fakeMachine{machine: domain.Machine{Brain: "/brain"}, overlays: map[string]map[string]any{}, states: map[string]domain.TreeState{}, built: map[string]map[string]string{}},
 		trees: &fakeTrees{dirs: map[string]bool{}, links: map[string]string{}, dangling: map[string]bool{}, files: map[string]bool{},

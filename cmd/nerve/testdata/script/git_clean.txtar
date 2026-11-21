@@ -12,7 +12,7 @@ exec git clean -fdxq
 
 exec nerve sync --here
 
-stdout '^relinked .*/proj'
+stdout '^linked   .*/proj/.claude/skills/py -> '
 ! stdout drift
 grep '^skills = \["go-stack", "py"\]$' $HOME/brain/brain.toml
 link .claude/skills/py $HOME/brain/skills/py

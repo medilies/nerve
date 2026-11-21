@@ -134,8 +134,11 @@ func (a App) ListItems(ref ProjectRef, kind string, r Reporter) error {
 		case "plugin":
 			detail = "enabled"
 		}
-		if rel, ok := linkedAs[kind+" "+name]; ok {
+		link := domain.Link{Kind: kind, Name: name}
+		if rel, ok := linkedAs[link.Item()]; ok {
 			detail += ", linked as " + rel
+		} else if dir != "" && (kind == "skill" || kind == "agent") && a.Trees.Present(filepath.Join(dir, link.Rel())) {
+			detail += ", not linked: the team has " + link.Rel()
 		} else if dir != "" {
 			detail += ", not linked yet: sync"
 		}

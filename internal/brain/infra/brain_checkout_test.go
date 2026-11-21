@@ -218,34 +218,6 @@ func TestStateSaysWhenGitFails(t *testing.T) {
 	}
 }
 
-func TestOwnerIsTheOriginRemotesOwner(t *testing.T) {
-	e := newTestEnv(t)
-	brain := e.repo(e.path("brain"))
-	b := NewBrainCheckout(brain)
-	if _, err := b.Owner(); err == nil || !strings.Contains(err.Error(), "no origin remote") {
-		t.Errorf("got %v", err)
-	}
-	e.git(brain, "remote", "add", "origin", "x")
-	for url, want := range map[string]string{
-		"git@github.com:Medilies/brain.git":     "medilies",
-		"https://github.com/medilies/brain.git": "medilies",
-		"ssh://git@host:22/team/brain":          "team",
-		"https://host:8443/team/brain.git":      "team",
-		"https://gitlab.com/group/sub/brain":    "sub",
-	} {
-		e.git(brain, "remote", "set-url", "origin", url)
-		if got, err := b.Owner(); got != want {
-			t.Errorf("%s: owner %q (%v), want %q", url, got, err, want)
-		}
-	}
-	for _, url := range []string{"https://host:8443/brain.git", "https://gitlab.example.com/brain.git", "git@host:brain.git", "https://host/../brain"} {
-		e.git(brain, "remote", "set-url", "origin", url)
-		if got, err := b.Owner(); err == nil || !strings.Contains(err.Error(), "names no owner") {
-			t.Errorf("%s: owner %q (%v)", url, got, err)
-		}
-	}
-}
-
 func TestOwnSkillsAndAgentsAreReadFromTheBrain(t *testing.T) {
 	e := newTestEnv(t)
 	e.write(e.path("brain/skills/go-stack/SKILL.md"), skillMD("go-stack", ""))

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"math"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -34,13 +33,12 @@ func (b BrainCheckout) Root() string { return b.root }
 
 // manifestFile is brain.toml as written.
 type manifestFile struct {
-	Nerve          string                  `toml:"nerve,omitempty"`
-	NerveChecksums string                  `toml:"nerve-checksums,omitempty"`
-	Autosync       *bool                   `toml:"autosync,omitempty"`
-	Sources        []sourceTable           `toml:"source,omitempty"`
-	Hooks          map[string]hookTable    `toml:"hook,omitempty"`
-	Common         *commonTable            `toml:"common,omitempty"`
-	Projects       map[string]projectTable `toml:"project,omitempty"`
+	Nerve    string                  `toml:"nerve,omitempty"`
+	Autosync *bool                   `toml:"autosync,omitempty"`
+	Sources  []sourceTable           `toml:"source,omitempty"`
+	Hooks    map[string]hookTable    `toml:"hook,omitempty"`
+	Common   *commonTable            `toml:"common,omitempty"`
+	Projects map[string]projectTable `toml:"project,omitempty"`
 }
 
 type sourceTable struct {
@@ -87,7 +85,7 @@ func (b BrainCheckout) Load() (domain.Manifest, error) {
 	if len(unknown) > 0 {
 		return domain.Manifest{}, fmt.Errorf("%s: unknown keys %v", domain.ManifestFile, unknown)
 	}
-	m := domain.Manifest{Nerve: f.Nerve, NerveChecksums: f.NerveChecksums, Autosync: f.Autosync}
+	m := domain.Manifest{Nerve: f.Nerve, Autosync: f.Autosync}
 	for _, s := range f.Sources {
 		m.Sources = append(m.Sources, domain.Source(s))
 	}
@@ -119,7 +117,7 @@ func (b BrainCheckout) Load() (domain.Manifest, error) {
 
 // Save writes brain.toml in nerve's own layout. Comments are not kept.
 func (b BrainCheckout) Save(m domain.Manifest) error {
-	f := manifestFile{Nerve: m.Nerve, NerveChecksums: m.NerveChecksums, Autosync: m.Autosync}
+	f := manifestFile{Nerve: m.Nerve, Autosync: m.Autosync}
 	for _, s := range m.Sources {
 		f.Sources = append(f.Sources, sourceTable(s))
 	}
@@ -384,46 +382,6 @@ func (b BrainCheckout) State() string {
 		}
 	}
 	return strings.Join(parts, ", ")
-}
-
-// ownerPattern is what nerve takes as an owner: a name that makes a plain
-// folder prefix.
-var ownerPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]*$`)
-
-// Owner is the owner of the origin remote: the folder that holds the
-// repo in the remote's path, such as medilies in
-// git@github.com:medilies/brain.git.
-func (b BrainCheckout) Owner() (string, error) {
-	out, err := git(b.root, "remote", "get-url", "origin")
-	if err != nil {
-		return "", errors.New("the Brain has no origin remote to name the prefix nerve links yours under")
-	}
-	remote := trim(out)
-	owner, ok := ownerOf(remote)
-	if !ok {
-		return "", fmt.Errorf("the Brain's remote %s names no owner/repo to name the prefix nerve links yours under", remote)
-	}
-	return owner, nil
-}
-
-// ownerOf reads the owner from a remote URL, an scp-like one included.
-func ownerOf(remote string) (string, bool) {
-	path := remote
-	if scheme, _, ok := strings.Cut(remote, "://"); ok && !strings.Contains(scheme, "/") {
-		u, err := url.Parse(remote)
-		if err != nil {
-			return "", false
-		}
-		path = u.Path
-	} else if host, rest, ok := strings.Cut(remote, ":"); ok && !strings.Contains(host, "/") {
-		path = rest
-	}
-	parts := strings.FieldsFunc(path, func(r rune) bool { return r == '/' })
-	if len(parts) < 2 {
-		return "", false
-	}
-	owner := strings.ToLower(parts[len(parts)-2])
-	return owner, ownerPattern.MatchString(owner) && owner != ".."
 }
 
 func (b BrainCheckout) OwnSkill(name string) (domain.Skill, bool, error) {

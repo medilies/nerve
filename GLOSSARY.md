@@ -42,7 +42,7 @@ _Avoid_: vendor, upstream
 A Claude Code hook defined once in a Brain by name, that projects take by listing it.
 
 **Link**:
-A symlink nerve makes in a project's `.claude/` to one skill folder or agent file; deleting it takes the item out of the project.
+A symlink nerve makes in a project's `.claude/` to one skill folder or agent file; a link that is gone is made again at the next sync, and only `skill rm` or `agent rm` takes the item out.
 _Avoid_: copy, install
 
 **Pin**:
