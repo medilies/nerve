@@ -1,6 +1,6 @@
 ---
 name: nerve
-description: Tend this project's place in the user's Brain, the git repo of skills, agents, hooks, plugins and settings that nerve carries to the projects that list them. Use for /nerve, "use my <skill> here", "stop <setting> everywhere", "remember that in this project…", settings drift, the session report, pushing or syncing the Brain, or moving a skill pin.
+description: Tend this project's place in the user's Brain, the git repo of skills, agents, hooks, plugins and settings that nerve carries to the projects that list them. Use for /nerve, any change to Claude Code's settings, permissions or tools in a project, "use my <skill> here", "stop <setting> everywhere", "remember that in this project…", settings drift, the session report, pushing or syncing the Brain, or moving a skill pin.
 ---
 
 # nerve
@@ -97,6 +97,8 @@ A source's `repo` is on GitHub; `path`, optional, is where its skills are when n
 - **`pinned`** and **`already-pinned`**: `update` moved and pushed a source's pin, or found it there already.
 
 ## Changing the Brain
+
+To change what Claude Code does, find the setting made for it first: know Claude Code's settings, or search its settings docs. `enableArtifact: false` turns artifacts off, for one. A permission rule on a tool's name is the fallback, when no setting does it. A key nerve does not allow goes in `allowedSettings` before `--common` takes it.
 
 1. Prefer the CLI. Write a new own skill or agent in the Brain's `skills/` or `agents/`, `nerve check --json`, then `nerve push --json "<message>"` it, as in step 4, before `nerve skill add` (or `agent add`) puts it in `brain.json`.
 2. Ask whether a change is for this project or every project, when it is unclear. Default to this project: nothing should reach a project that does not need it.
