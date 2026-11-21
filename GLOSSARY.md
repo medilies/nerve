@@ -50,7 +50,7 @@ The exact commit a third-party skill, or the Nervous system itself, is used at.
 _Avoid_: version, lock
 
 **Project**:
-An entry in a Brain naming what one codebase, or one claude.ai account, gets from it; nothing reaches a project it does not list.
+An entry in a Brain naming what one codebase gets from it; nothing reaches a project it does not list.
 _Avoid_: repo, workspace
 
 **Checkout**:
@@ -75,10 +75,6 @@ _Avoid_: base, defaults, global
 **Allowed setting**:
 A settings key a Brain may hold: one nerve allows on its own, or one the Brain's `allowed-settings` adds; any other stays in a local overlay, and a key that may hold secrets is never allowed.
 _Avoid_: whitelist, safe setting
-
-**Surface**:
-Where a project is used: a Claude Code checkout, or a claude.ai account.
-_Avoid_: target, platform
 
 **Autosync**:
 The session-start hook that brings a project in step with its Brain and hands the user a report.

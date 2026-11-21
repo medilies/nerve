@@ -13,9 +13,6 @@ import (
 // ManifestFile is the Brain's manifest, as users know it.
 const ManifestFile = "brain.toml"
 
-// ClaudeAI is the surface of a project that stands for a claude.ai account.
-const ClaudeAI = "claude.ai"
-
 var (
 	TagPattern  = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
 	RepoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
@@ -67,7 +64,6 @@ type Hook struct {
 
 // Project is one project's entry: what reaches it, and nothing else does.
 type Project struct {
-	Surface  string // "" for a Claude Code project, or ClaudeAI
 	Autosync *bool
 	Skills   []string
 	Agents   []string
@@ -131,9 +127,6 @@ func (m Manifest) Validate() error {
 		if !NamePattern.MatchString(name) {
 			return fmt.Errorf("%s: project %q must be lowercase words joined by hyphens", ManifestFile, name)
 		}
-		if p.Surface != "" && p.Surface != ClaudeAI {
-			return fmt.Errorf("%s: project %s: surface must be %q or left out", ManifestFile, name, ClaudeAI)
-		}
 		// Skills, agents and hooks name files and folders: a name must not
 		// lead out of them.
 		for _, kind := range []string{"skill", "agent", "hook"} {
@@ -183,12 +176,9 @@ func (m Manifest) SourceOf(skill string) (Source, bool) {
 // Describe sums up a project in a line.
 func (m Manifest) Describe(p *Project) string {
 	var parts []string
-	switch {
-	case p.Surface == ClaudeAI:
-		parts = append(parts, "claude.ai account")
-	case m.AutosyncFor(p):
+	if m.AutosyncFor(p) {
 		parts = append(parts, "autosync on")
-	default:
+	} else {
 		parts = append(parts, "autosync off")
 	}
 	for _, x := range []struct {

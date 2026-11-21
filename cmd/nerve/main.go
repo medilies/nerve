@@ -193,19 +193,14 @@ func cli(args []string, stdout, stderr io.Writer) int {
 }
 
 // wire builds nerve on the Brain at brainDir.
-func wire(brainDir string, machine infra.MachineFiles) (app.App, error) {
-	zips, err := infra.NewZipCache()
-	if err != nil {
-		return app.App{}, err
-	}
+func wire(brainDir string, machine infra.MachineFiles) app.App {
 	return app.App{
 		Brain:   infra.NewBrainCheckout(brainDir),
 		Sources: infra.SourceCache{},
 		Machine: machine,
 		Trees:   infra.LocalTrees{},
 		Self:    infra.Nerve{SkillMD: selfSkill, Ver: infra.Version(version), Path: infra.RanAs},
-		Zips:    zips,
-	}, nil
+	}
 }
 
 // onMachine builds nerve on this machine's Brain. A machine without its
@@ -216,7 +211,7 @@ func onMachine() (app.App, error) {
 		return app.App{}, err
 	}
 	m, _ := machine.Load() // a missing or broken file is the use cases' to report
-	return wire(m.Brain, machine)
+	return wire(m.Brain, machine), nil
 }
 
 // onBrainHere builds nerve on the Brain around the working directory, else
@@ -230,7 +225,7 @@ func onBrainHere(wd string) (app.App, error) {
 	m, merr := machine.Load()
 	dir, stray := brainAround(wd)
 	if dir != "" && (merr != nil || !inCheckout(m, wd)) {
-		return wire(dir, machine)
+		return wire(dir, machine), nil
 	}
 	switch {
 	case merr != nil && stray != "":
@@ -238,7 +233,7 @@ func onBrainHere(wd string) (app.App, error) {
 	case merr != nil:
 		return app.App{}, fmt.Errorf("no %s in this directory or above, and %w", domain.ManifestFile, merr)
 	}
-	return wire(m.Brain, machine)
+	return wire(m.Brain, machine), nil
 }
 
 // brainAround finds the Brain around dir: from dir up, the top of a git
@@ -313,11 +308,7 @@ func run(args []string, r *infra.Report) error {
 		if err != nil {
 			return err
 		}
-		a, err := wire(brain, machine)
-		if err != nil {
-			return err
-		}
-		return a.Init(r)
+		return wire(brain, machine).Init(r)
 	case cmd == "check" && len(rest) == 0:
 		brainHere, do = true, func(a app.App) error { return a.Check(r) }
 	case cmd == "skill" && len(rest) > 1 && rest[0] == "update" && len(rest) <= 3:

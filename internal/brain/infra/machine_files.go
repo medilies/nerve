@@ -274,14 +274,3 @@ func (f MachineFiles) States() ([]domain.TreeState, []string, error) {
 	}
 	return states, unreadable, nil
 }
-
-func (f MachineFiles) builtPath() string { return filepath.Join(f.dir, "state", "claude-ai.json") }
-
-func (f MachineFiles) Built() (map[string]map[string]string, error) {
-	built := map[string]map[string]string{}
-	return built, readJSON(f.builtPath(), &built)
-}
-
-func (f MachineFiles) SaveBuilt(built map[string]map[string]string) error {
-	return writeJSON(f.builtPath(), built, true)
-}

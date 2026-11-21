@@ -1,8 +1,6 @@
 package app
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -40,7 +38,7 @@ type workingTree struct {
 
 // Sync pulls the Brain and carries it to every checkout this machine lists
 // and the worktrees of them a sync reached before, or only to the tree
-// around the working directory, then reports which claude.ai zips changed.
+// around the working directory.
 // A tree that fails is reported, and the others still sync; what the run
 // changed in the Brain and on this machine is saved either way.
 func (a App) Sync(o SyncOptions, r Reporter) error {
@@ -96,18 +94,15 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 	failed, drifted := 0, 0
 	for _, t := range trees {
 		p := l.m.Projects[t.project]
-		if t.lost != nil && p != nil && p.Surface != domain.ClaudeAI {
+		if t.lost != nil && p != nil {
 			r.Add(Event{Kind: EvProblem, Path: t.dir, Detail: "git cannot locate it, so nerve leaves it as it is: " + t.lost.Error()})
 			failed++
 			continue
 		}
-		if p == nil || p.Surface == domain.ClaudeAI {
+		if p == nil {
 			why := fmt.Sprintf("project %s left the Brain", t.project)
-			switch {
-			case t.project == "":
+			if t.project == "" {
 				why = "no checkout this machine lists holds it"
-			case p != nil:
-				why = fmt.Sprintf("project %s is now a claude.ai account", t.project)
 			}
 			if err := a.clean(t.dir, why, r); err != nil {
 				r.Add(Event{Kind: EvProblem, Path: t.dir, Detail: err.Error()})
@@ -140,9 +135,6 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 			}
 		}
 		errs = append(errs, err)
-	}
-	if !o.Here {
-		errs = append(errs, s.claudeAI())
 	}
 	if failed > 0 {
 		errs = append(errs, fmt.Errorf("%d of %d working trees did not sync", failed, len(trees)))
@@ -567,75 +559,4 @@ func (a App) clean(dir, why string, r Reporter) error {
 	}
 	r.Add(Event{Kind: EvCleaned, Path: dir, Detail: why})
 	return nil
-}
-
-// claudeAI builds a zip per skill of each claude.ai project, and reports
-// which to upload or delete on the account: those that changed since the
-// last build. A skill it cannot build or write is reported, and keeps the
-// zip last built.
-func (s *syncer) claudeAI() error {
-	built, err := s.Machine.Built()
-	if err != nil {
-		return err
-	}
-	next := map[string]map[string]string{}
-	for _, name := range domain.SortedKeys(s.m.Projects) {
-		p := s.m.Projects[name]
-		if p.Surface != domain.ClaudeAI {
-			continue
-		}
-		next[name] = map[string]string{}
-		for _, n := range p.Skills {
-			hash, why := s.build(name, n, built[name][n])
-			if why != "" {
-				// The account keeps what was uploaded last: no delete for it.
-				if hash, ok := built[name][n]; ok {
-					next[name][n] = hash
-				}
-				s.r.Add(Event{Kind: EvProblem, Path: domain.ManifestFile, Key: "project." + name, Detail: why})
-				continue
-			}
-			next[name][n] = hash
-		}
-	}
-	for _, name := range domain.SortedKeys(built) {
-		for _, n := range domain.SortedKeys(built[name]) {
-			if _, ok := next[name][n]; ok {
-				continue
-			}
-			if path, err := s.Zips.Remove(name, n); err != nil {
-				s.r.Add(Event{Kind: EvProblem, Path: path, Detail: "cannot remove it: " + err.Error() + ": delete it by hand"})
-			}
-			s.r.Add(Event{Kind: EvUnload, Project: name, Item: "skill " + n})
-		}
-	}
-	return s.Machine.SaveBuilt(next)
-}
-
-// build zips skill n of claude.ai project name, writes it when it differs
-// from the zip last built (whose hash is last), and returns its hash, or
-// why it could not.
-func (s *syncer) build(name, n, last string) (hash, why string) {
-	sk, err := s.skill(s.m, n)
-	if err != nil {
-		return "", err.Error()
-	}
-	if why := sk.ClaudeAIRejection(); why != "" {
-		return "", n + ": " + why
-	}
-	zip, err := s.Zips.Zip(sk)
-	if err != nil {
-		return "", n + ": " + err.Error()
-	}
-	sum := sha256.Sum256(zip)
-	hash = hex.EncodeToString(sum[:])
-	if hash == last && s.Zips.Has(name, n) {
-		return hash, ""
-	}
-	path, err := s.Zips.Write(name, n, zip)
-	if err != nil {
-		return "", n + ": " + err.Error()
-	}
-	s.r.Add(Event{Kind: EvUpload, Project: name, Item: "skill " + n, Path: path})
-	return hash, ""
 }

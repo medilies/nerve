@@ -17,9 +17,6 @@ type Skill struct {
 	Meta   map[string]string // frontmatter, flattened to strings
 }
 
-// claudeAIKeys are the only frontmatter keys claude.ai accepts on upload.
-var claudeAIKeys = []string{"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
-
 // Problems lists what makes a skill invalid.
 func (s Skill) Problems() []string {
 	var p []string
@@ -36,22 +33,6 @@ func (s Skill) Problems() []string {
 		p = append(p, fmt.Sprintf("description is %d characters, over 1024", utf8.RuneCountInString(d)))
 	}
 	return p
-}
-
-// ClaudeAIRejection says which of the skill's frontmatter keys claude.ai
-// would refuse, or "".
-func (s Skill) ClaudeAIRejection() string {
-	var bad []string
-	for k := range s.Meta {
-		if !slices.Contains(claudeAIKeys, k) {
-			bad = append(bad, k)
-		}
-	}
-	if len(bad) == 0 {
-		return ""
-	}
-	slices.Sort(bad)
-	return "frontmatter keys claude.ai rejects: " + strings.Join(bad, ", ")
 }
 
 // ParseFrontmatter reads the top-level keys of a Markdown file's YAML

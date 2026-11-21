@@ -67,10 +67,6 @@ type Machine interface {
 	// States reads every state it can, and names the state files it
 	// cannot read, which State refuses to their own trees.
 	States() (states []domain.TreeState, unreadable []string, err error)
-	// Built maps each claude.ai project to the hash of each skill zip last
-	// built.
-	Built() (map[string]map[string]string, error)
-	SaveBuilt(map[string]map[string]string) error
 }
 
 // Trees are the working trees of checkouts on this machine, and git in
@@ -114,19 +110,6 @@ type Self interface {
 	Version() string
 }
 
-// Zips are the skill zips built for claude.ai accounts.
-type Zips interface {
-	// Zip zips a skill folder, leaving out what is named with a leading
-	// dot. It refuses a link that leads to a folder, to nothing, or out of
-	// the skill, and a file that is not a regular one, which a zip cannot
-	// hold.
-	Zip(domain.Skill) ([]byte, error)
-	Write(project, name string, zip []byte) (path string, err error)
-	Has(project, name string) bool
-	// Remove deletes a skill's zip, returning its path.
-	Remove(project, name string) (path string, err error)
-}
-
 // App carries a Brain through its ports.
 type App struct {
 	Brain   Brain
@@ -134,5 +117,4 @@ type App struct {
 	Machine Machine
 	Trees   Trees
 	Self    Self
-	Zips    Zips
 }

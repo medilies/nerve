@@ -20,7 +20,7 @@ agents/<name>.md    # own agents
 hooks/<script>      # scripts hooks run, as {{brain}}/hooks/<script>
 ```
 
-A project entry lists `skills`, `agents`, `hooks`, `plugins` and `settings`. `common.settings` reach every project; nothing else does. A `surface = "claude.ai"` project is a claude.ai account and takes skills only. The project's settings are laid: common, then the project, then what nerve adds for plugins, hooks and autosync, then the local overlay, a file in nerve's config folder that never leaves the machine.
+A project entry lists `skills`, `agents`, `hooks`, `plugins` and `settings`. `common.settings` reach every project; nothing else does. The project's settings are laid: common, then the project, then what nerve adds for plugins, hooks and autosync, then the local overlay, a file in nerve's config folder that never leaves the machine.
 
 Never edit what nerve writes: `settings.local.json` and the links. Change the Brain through the CLI, then sync.
 
@@ -33,7 +33,7 @@ Always add `--json`, then tell the user what happened in plain words. A command 
 | Command | Use |
 | --- | --- |
 | `nerve status` | Where things stand. |
-| `nerve sync --here` | Carry the Brain to this project. `nerve sync` does every checkout on the machine and builds claude.ai zips. |
+| `nerve sync --here` | Carry the Brain to this project. `nerve sync` does every checkout on the machine. |
 | `nerve project add <name>` | List this checkout. Settings it already has stay, as personal settings. |
 | `nerve project ls` | The Brain's projects, and their checkouts on this machine. |
 | `nerve project rm <name>` | Clean its checkouts here, and drop it from the Brain. Its overlay stays. Ask first. |
@@ -65,10 +65,9 @@ command = "{{brain}}/hooks/go-fmt.sh"   # {{brain}} is the Brain's path
 
 - **`drift`**: Claude Code or the user changed a setting here that the Brain sets, and nerve left it as is. With `item`, it is one item of a list. For each, ask: keep it for this project (`setting set`, or `setting add` for an item), for every project (`--common`), or drop it. `nerve sync --here --discard` drops all of this checkout's drift at once: say so, and run it only after the user agrees to lose all of it. A value or key shown as `(hidden)` is sensitive: never ask the user to paste it.
 - **`personal`**: a setting here the Brain does not set, such as an approval in `permissions.allow` or one the project had before nerve. nerve keeps it, and reports it once. Offer to share it (`setting set`, `setting add`, `--common`) only when it looks useful elsewhere; otherwise leave it.
-- **`unlisted`**: this machine no longer lists a checkout: its folder is gone, or its project left the Brain or became a claude.ai account, as `detail` says. `nerve project add` lists it again.
+- **`unlisted`**: this machine no longer lists a checkout: its folder is gone, or its project left the Brain, as `detail` says. `nerve project add` lists it again.
 - **`problem`**: propose a fix for each.
 - **`diff`** from `skill update`: summarize what changed in the source, and call out anything that widens what a skill can do (new tools, scripts, network access) before the user commits the new pin.
-- **`upload`** and **`unload`**: tell the user which zip to upload to which claude.ai account, or which skill to delete there. Neither you nor nerve can do it.
 - **`pull-skipped`**: the Brain was not pulled. Say why, and offer to commit, pull, or check the remote.
 - **`cleaned`**: nerve took its links and settings out of a working tree, for the reason `detail` gives. Say so; nothing to do.
 - **`kept`**: nerve left a file it made, such as the local overlay of a removed project, which may hold a secret. Say where it is; delete it only when the user asks.
@@ -85,5 +84,4 @@ command = "{{brain}}/hooks/go-fmt.sh"   # {{brain}} is the Brain's path
 ## Left to the user
 
 - Installing `nerve` on a machine, and `nerve init <brain>`.
-- Uploading and deleting skills on claude.ai.
 - Setting `syncClaudeAiSkills: false` in their user `settings.json`, if claude.ai's skills should not reach every project.

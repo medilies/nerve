@@ -66,7 +66,6 @@ func TestAddProjectJoinsAnExistingOneOrRefuses(t *testing.T) {
 	e.listed("app", "/w/app")
 	e.checkout("/w/app2")
 	e.checkout("/w/app3")
-	e.brain.m.Projects["claude-ai-work"] = &domain.Project{Surface: domain.ClaudeAI}
 	r := &recorder{}
 
 	e.must(r, e.app.AddProject("/w/app2", "app", r))
@@ -78,7 +77,6 @@ func TestAddProjectJoinsAnExistingOneOrRefuses(t *testing.T) {
 	for _, c := range []struct{ dir, name, want string }{
 		{"/w/app", "app", "already listed"},
 		{"/w/app", "other", "/w/app is listed as project app"},
-		{"/w/app3", "claude-ai-work", "is a claude.ai account"},
 		{"/w/app3", "App", "must be lowercase words"},
 	} {
 		name, want := c.name, c.want
@@ -188,17 +186,6 @@ func TestSetAutosyncForAProjectOrTheBrain(t *testing.T) {
 		t.Errorf("project %v, brain %v", p.Autosync, e.brain.m.Autosync)
 	}
 	contains(t, r, "autosync off for app", "autosync off by default")
-}
-
-func TestSetAutosyncRefusesAClaudeAIAccount(t *testing.T) {
-	e := newEnv(t)
-	e.brain.m.Projects["acct"] = &domain.Project{Surface: domain.ClaudeAI, Skills: []string{"x"}}
-
-	err := e.app.SetAutosync(app.ProjectRef{Project: "acct"}, false, false, &recorder{})
-
-	if err == nil || !strings.Contains(err.Error(), "is a claude.ai account") || e.brain.saves != 0 {
-		t.Errorf("got %v", err)
-	}
 }
 
 func TestInitNamesTheBrainOnce(t *testing.T) {

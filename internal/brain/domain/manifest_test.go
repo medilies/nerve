@@ -21,7 +21,6 @@ func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 		"needs an event and a command":     {Hooks: map[string]domain.Hook{"fmt": {Event: "Stop"}}},
 		`hook "Fmt" must be lowercase`:     {Hooks: map[string]domain.Hook{"Fmt": {Event: "Stop", Command: "x"}}},
 		`project "App" must be lowercase`:  {Projects: map[string]*domain.Project{"App": {}}},
-		`surface must be "claude.ai"`:      {Projects: map[string]*domain.Project{"app": {Surface: "web"}}},
 		`skill "../x" must be lowercase`:   {Projects: map[string]*domain.Project{"app": {Skills: []string{"../x"}}}},
 		`agent "a/b" must be lowercase`:    {Projects: map[string]*domain.Project{"app": {Agents: []string{"a/b"}}}},
 		`hook "Fmt" must be lowercase w`:   {Projects: map[string]*domain.Project{"app": {Hooks: []string{"Fmt"}}}},
@@ -60,8 +59,9 @@ func TestDescribeSumsUpAProject(t *testing.T) {
 	if got := m.Describe(p); got != "autosync on, 2 skills, 1 hook, 1 setting" {
 		t.Errorf("described as %q", got)
 	}
-	if got := m.Describe(&domain.Project{Surface: domain.ClaudeAI}); got != "claude.ai account" {
-		t.Errorf("a claude.ai project is described as %q", got)
+	off := false
+	if got := m.Describe(&domain.Project{Autosync: &off}); got != "autosync off" {
+		t.Errorf("a project with autosync off is described as %q", got)
 	}
 }
 

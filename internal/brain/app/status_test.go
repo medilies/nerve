@@ -168,14 +168,6 @@ func TestCheckRefusesAProjectSettingThatEqualsCommon(t *testing.T) {
 	}
 }
 
-func TestCheckRefusesAClaudeAIAccountThatTakesMoreThanSkills(t *testing.T) {
-	e := newEnv(t)
-	e.brain.m.Projects["acct"] = &domain.Project{Surface: domain.ClaudeAI, Plugins: []string{"x@y"}}
-	if out := check(t, e); !strings.Contains(out, "project.acct: a claude.ai account takes skills only") {
-		t.Errorf("check says:\n%s", out)
-	}
-}
-
 func TestCheckRefusesSensitiveValues(t *testing.T) {
 	e := newEnv(t)
 	e.brain.m.Common = map[string]any{"apiKeyHelper": "x"}

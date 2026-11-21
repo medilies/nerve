@@ -33,8 +33,6 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 	}
 	p := l.m.Projects[name]
 	switch {
-	case p != nil && p.Surface == domain.ClaudeAI:
-		return fmt.Errorf("project %s is a claude.ai account, not a checkout", name)
 	case p != nil:
 		r.Add(Event{Kind: EvProject, Project: name, Detail: "already in the Brain: this checkout joins it"})
 	default:
@@ -131,7 +129,7 @@ func (a App) RemoveProject(name string, r Reporter) error {
 		}
 	}
 	for _, dir := range trees {
-		if p := l.m.Projects[name]; p != nil && p.Surface != domain.ClaudeAI {
+		if p := l.m.Projects[name]; p != nil {
 			if err := a.adopt(l.m, p, overlay, dir); err != nil {
 				return err
 			}
@@ -226,9 +224,6 @@ func (a App) SetAutosync(ref ProjectRef, on, all bool, r Reporter) error {
 	name, p, err := a.project(l, ref)
 	if err != nil {
 		return err
-	}
-	if p.Surface == domain.ClaudeAI {
-		return fmt.Errorf("project %s is a claude.ai account, which has no sessions to sync", name)
 	}
 	p.Autosync = &on
 	if err := a.Brain.Save(l.m); err != nil {

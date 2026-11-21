@@ -21,9 +21,6 @@ func (a App) AddItem(ref ProjectRef, kind, name string, r Reporter) error {
 	if err != nil {
 		return err
 	}
-	if p.Surface == domain.ClaudeAI && kind != "skill" {
-		return fmt.Errorf("project %s is a claude.ai account, which takes skills only", project)
-	}
 	if why := a.offers(l.m, kind, name); why != "" {
 		return errors.New(why)
 	}

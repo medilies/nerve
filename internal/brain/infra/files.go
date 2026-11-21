@@ -1,5 +1,5 @@
 // Package infra holds nerve's adapters: the TOML and JSON files it reads and
-// writes, git, the source cache, links, zips, its own skill and version, and
+// writes, git, the source cache, links, its own skill and version, and
 // how it prints reports.
 package infra
 

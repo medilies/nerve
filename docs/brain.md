@@ -42,10 +42,6 @@ plugins = ["gopls-lsp@claude-plugins-official"]
 
 [project.billing.settings]
 model = "opus"
-
-[project.claude-ai-work]          # a claude.ai account: skills only
-surface = "claude.ai"
-skills = ["research"]
 ```
 
 - **`nerve`** pins the release that carries the Brain. When another
@@ -67,8 +63,6 @@ skills = ["research"]
   and plugins are never common.
 - **`[project.<name>]`** lists what one project gets. A name you choose,
   never a path or a remote. `autosync = false` turns autosync off for it.
-- **`surface = "claude.ai"`** makes a project a claude.ai account,
-  which takes skills only. See [Syncing](sync.md#claudeai).
 
 nerve rewrites `brain.toml` in this layout when a command changes it,
 so comments in it are not kept; `nerve skill update` only moves the pin.
@@ -112,8 +106,7 @@ The commands that write the Brain keep them out:
 - `plugin add` refuses such a plugin ID, and says how to enable it on
   this machine only.
 
-Nor does a Brain say where a project lives, or name a claude.ai account
-by its email.
+Nor does a Brain say where a project lives.
 
 ## This machine
 
@@ -122,7 +115,7 @@ nerve keeps this machine's files in its config folder:
 - Linux: `~/.config/nerve`, or `$XDG_CONFIG_HOME/nerve` when set.
 - macOS: `~/Library/Application Support/nerve`.
 
-Fetched skills and claude.ai zips go in its cache folder:
+Fetched skills go in its cache folder:
 `~/.cache/nerve` (or `$XDG_CACHE_HOME/nerve`) on Linux,
 `~/Library/Caches/nerve` on macOS.
 

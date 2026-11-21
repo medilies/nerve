@@ -38,7 +38,6 @@ func TestAddItemAddsWhatTheBrainOffers(t *testing.T) {
 func TestAddItemRefusesWhatTheBrainDoesNotOffer(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
-	e.brain.m.Projects["claude-ai-work"] = &domain.Project{Surface: domain.ClaudeAI}
 	e.brain.agents["Reviewer"] = true // agents/Reviewer.md
 	e.ownSkill("foo/")                // skills/foo/, as a trailing slash finds it
 	e.ownSkill("grill")
@@ -53,7 +52,6 @@ func TestAddItemRefusesWhatTheBrainDoesNotOffer(t *testing.T) {
 		{"", "hook", "fmt", `brain.toml defines no hook "fmt"`},
 		{"", "plugin", "gopls", `plugin "gopls" must be <plugin>@<marketplace>`},
 		{"", "plugin", "a@b@c", "must be <plugin>@<marketplace>"},
-		{"claude-ai-work", "plugin", "a@b", "is a claude.ai account, which takes skills only"},
 		{"", "agent", "Reviewer", `agent "Reviewer" must be lowercase words joined by hyphens`},
 		{"", "skill", "foo/", `skill "foo/" must be lowercase words joined by hyphens`},
 		{"", "skill", "grill", "skill grill comes from both skills/ and acme/up: drop one of them"},

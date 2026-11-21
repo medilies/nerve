@@ -221,19 +221,6 @@ func TestSyncCleansACheckoutWhoseProjectLeftTheBrain(t *testing.T) {
 	contains(t, r, "cleaned  /w/app: project app left the Brain", "unlisted /w/app, a checkout of app: project app left the Brain")
 }
 
-func TestSyncCleansACheckoutWhoseProjectBecameAClaudeAIAccount(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app")
-	e.must(e.sync("/w/app", app.SyncOptions{}))
-	e.brain.m.Projects["app"].Surface = domain.ClaudeAI
-
-	r := e.must(e.sync("/w/app", app.SyncOptions{}))
-
-	contains(t, r,
-		"cleaned  /w/app: project app is now a claude.ai account",
-		"unlisted /w/app, a checkout of app: project app is now a claude.ai account")
-}
-
 func TestSyncHereUnlistsACheckoutWhoseProjectLeftTheBrain(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
@@ -263,50 +250,6 @@ func TestSyncRefusesSensitiveValuesInTheBrain(t *testing.T) {
 		"problem  brain.toml: project.app.settings.env.TOKEN: env may hold secrets",
 		"problem  brain.toml: common.settings.statusLine.command: holds a home path",
 		"problem  brain.toml: hook.guard.matcher: holds a home path")
-}
-
-func TestClaudeAIProjectReportsEachZipOnceAndSkillsToDelete(t *testing.T) {
-	e := newEnv(t)
-	e.ownSkill("research")
-	e.ownSkill("notes")
-	e.brain.m.Projects["claude-ai-work"] = &domain.Project{Surface: domain.ClaudeAI, Skills: []string{"research", "notes"}}
-
-	r := e.must(e.sync("/w", app.SyncOptions{}))
-
-	contains(t, r,
-		"upload   /cache/nerve/claude.ai/claude-ai-work/research.zip to claude.ai account claude-ai-work (skill research)",
-		"upload   /cache/nerve/claude.ai/claude-ai-work/notes.zip")
-	if r := e.must(e.sync("/w", app.SyncOptions{})); strings.Contains(r.String(), "upload") {
-		t.Errorf("unchanged skills were reported again:\n%s", r)
-	}
-
-	s := e.brain.own["research"]
-	s.Meta["description"] = "Researches better."
-	e.brain.m.Projects["claude-ai-work"].Skills = []string{"research"}
-	r = e.must(e.sync("/w", app.SyncOptions{}))
-
-	contains(t, r, "upload   /cache/nerve/claude.ai/claude-ai-work/research.zip", "delete   skill notes from claude.ai account claude-ai-work")
-	if e.zips.Has("claude-ai-work", "notes") {
-		t.Errorf("the dropped skill's zip is kept")
-	}
-}
-
-func TestClaudeAIProjectRefusesWhatAZipCannotHold(t *testing.T) {
-	e := newEnv(t)
-	s := e.ownSkill("research")
-	s.Meta["model"] = "opus"
-	e.ownSkill("notes")
-	e.zips.refused["/brain/skills/notes"] = "refs links out of the skill, which a zip cannot hold"
-	e.brain.m.Projects["claude-ai-work"] = &domain.Project{Surface: domain.ClaudeAI, Skills: []string{"research", "notes"}}
-
-	r := e.must(e.sync("/w", app.SyncOptions{}))
-
-	contains(t, r,
-		"problem  brain.toml: project.claude-ai-work: research: frontmatter keys claude.ai rejects: model",
-		"problem  brain.toml: project.claude-ai-work: notes: refs links out of the skill, which a zip cannot hold")
-	if len(e.zips.written) > 0 {
-		t.Errorf("zipped %v", e.zips.written)
-	}
 }
 
 func TestSyncReportsAFailedCleanAndStillSyncsTheOthers(t *testing.T) {
@@ -580,22 +523,6 @@ func TestSyncNeverReportsASecret(t *testing.T) {
 	contains(t, r, "set      env.TOKEN = (hidden)")
 }
 
-func TestClaudeAIProjectKeepsAZipWhoseSkillCannotBeBuiltNow(t *testing.T) {
-	e := newEnv(t)
-	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
-	e.sources.skills["acme/up@"+pinA+"/grilling"] = domain.Skill{Name: "grilling", Dir: "/cache/grilling", Meta: map[string]string{"name": "grilling"}}
-	e.brain.m.Projects["claude-ai-work"] = &domain.Project{Surface: domain.ClaudeAI, Skills: []string{"grilling"}}
-	e.must(e.sync("/w", app.SyncOptions{}))
-	delete(e.sources.skills, "acme/up@"+pinA+"/grilling") // say, the network is down
-
-	r := e.must(e.sync("/w", app.SyncOptions{}))
-
-	if strings.Contains(r.String(), "delete") {
-		t.Errorf("a skill that failed to build is to be deleted:\n%s", r)
-	}
-	contains(t, r, `problem  brain.toml: project.claude-ai-work: acme/up@5863806: no skill "grilling"`)
-}
-
 func TestADamagedExcludeBlockRefusesTheTreeBeforeAnyLink(t *testing.T) {
 	e := newEnv(t)
 	e.ownSkill("go-stack")
@@ -611,21 +538,6 @@ func TestADamagedExcludeBlockRefusesTheTreeBeforeAnyLink(t *testing.T) {
 		t.Errorf("a refused tree got links git can see: %v", e.trees.links)
 	}
 	contains(t, r, "problem  /w/app: info/exclude: nerve's block is damaged")
-}
-
-func TestClaudeAIBuildKeepsWhatItBuiltWhenAnotherSkillFails(t *testing.T) {
-	e := newEnv(t)
-	e.ownSkill("research")
-	e.ownSkill("notes")
-	e.zips.refused["/brain/skills/notes"] = "x links to nothing, which a zip cannot hold"
-	e.brain.m.Projects["claude-ai-work"] = &domain.Project{Surface: domain.ClaudeAI, Skills: []string{"research", "notes"}}
-	e.must(e.sync("/w", app.SyncOptions{}))
-
-	r := e.must(e.sync("/w", app.SyncOptions{}))
-
-	if strings.Contains(r.String(), "upload") {
-		t.Errorf("a zip built before is reported again:\n%s", r)
-	}
 }
 
 func TestWorktreesOfABareRepoShareItsExcludeBlock(t *testing.T) {
@@ -858,19 +770,6 @@ func TestASettingTheBrainDoesNotSetIsPersonalAndReportedOnce(t *testing.T) {
 	if got := r.String(); strings.Contains(got, "outputStyle") || !strings.Contains(got, `personal permissions.allow has "Bash(make)": kept, the Brain does not set it`) {
 		t.Errorf("want only the new approval reported:\n%s", got)
 	}
-}
-
-func TestClaudeAIZipThatCannotBeRemovedIsReported(t *testing.T) {
-	e := newEnv(t)
-	e.ownSkill("notes")
-	e.brain.m.Projects["claude-ai-work"] = &domain.Project{Surface: domain.ClaudeAI, Skills: []string{"notes"}}
-	e.must(e.sync("/w", app.SyncOptions{}))
-	e.brain.m.Projects["claude-ai-work"].Skills = nil
-	e.zips.removeErr = errors.New("notes.zip: permission denied")
-
-	r, _ := e.sync("/w", app.SyncOptions{})
-
-	contains(t, r, "problem  /cache/nerve/claude.ai/claude-ai-work/notes.zip: cannot remove it: notes.zip: permission denied: delete it by hand")
 }
 
 func TestAListedCheckoutGitCannotLocateNamesTheFix(t *testing.T) {

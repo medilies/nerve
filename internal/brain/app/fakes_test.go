@@ -154,7 +154,6 @@ type fakeMachine struct {
 	overlays   map[string]map[string]any
 	states     map[string]domain.TreeState
 	unreadable []string // state files States cannot read
-	built      map[string]map[string]string
 }
 
 func (m *fakeMachine) Load() (domain.Machine, error) {
@@ -244,22 +243,6 @@ func (m *fakeMachine) States() ([]domain.TreeState, []string, error) {
 		states = append(states, copyState(m.states[dir]))
 	}
 	return states, slices.Clone(m.unreadable), nil
-}
-
-func (m *fakeMachine) Built() (map[string]map[string]string, error) {
-	c := map[string]map[string]string{}
-	for k, v := range m.built {
-		c[k] = v
-	}
-	return c, nil
-}
-
-func (m *fakeMachine) SaveBuilt(b map[string]map[string]string) error {
-	if err := m.fail["SaveBuilt"]; err != nil {
-		return err
-	}
-	m.built = b
-	return nil
 }
 
 // fakeTrees is working trees in memory: folders, links, the team's real
@@ -477,36 +460,6 @@ func (s *fakeSelf) Version() string {
 	return s.version
 }
 
-// fakeZips zips a skill as its name and description, so a changed
-// description is a changed zip.
-type fakeZips struct {
-	written   map[string][]byte // project/name
-	refused   map[string]string // skill dir -> why Zip refuses it
-	removeErr error
-}
-
-func (z *fakeZips) Zip(s domain.Skill) ([]byte, error) {
-	if why, ok := z.refused[s.Dir]; ok {
-		return nil, errors.New(why)
-	}
-	return []byte(s.Name + ":" + s.Meta["description"]), nil
-}
-
-func (z *fakeZips) Write(project, name string, b []byte) (string, error) {
-	z.written[project+"/"+name] = b
-	return "/cache/nerve/claude.ai/" + project + "/" + name + ".zip", nil
-}
-
-func (z *fakeZips) Has(project, name string) bool { return z.written[project+"/"+name] != nil }
-func (z *fakeZips) Remove(project, name string) (string, error) {
-	path := "/cache/nerve/claude.ai/" + project + "/" + name + ".zip"
-	if z.removeErr != nil {
-		return path, z.removeErr
-	}
-	delete(z.written, project+"/"+name)
-	return path, nil
-}
-
 // recorder keeps a use case's events.
 type recorder struct{ events []app.Event }
 
@@ -528,7 +481,6 @@ type env struct {
 	machine *fakeMachine
 	trees   *fakeTrees
 	self    *fakeSelf
-	zips    *fakeZips
 	app     app.App
 }
 
@@ -537,16 +489,15 @@ func newEnv(t *testing.T) *env {
 		t:       t,
 		brain:   &fakeBrain{own: map[string]domain.Skill{}, agents: map[string]bool{}, head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		sources: &fakeSources{skills: map[string]domain.Skill{}, heads: map[string]string{}},
-		machine: &fakeMachine{machine: domain.Machine{Brain: "/brain"}, fail: map[string]error{}, overlays: map[string]map[string]any{}, states: map[string]domain.TreeState{}, built: map[string]map[string]string{}},
+		machine: &fakeMachine{machine: domain.Machine{Brain: "/brain"}, fail: map[string]error{}, overlays: map[string]map[string]any{}, states: map[string]domain.TreeState{}},
 		trees: &fakeTrees{dirs: map[string]bool{}, links: map[string]string{}, dangling: map[string]bool{}, files: map[string]bool{},
 			settings: map[string]map[string]any{}, unignored: map[string]bool{}, tracked: map[string]bool{},
 			excludes: map[string][]string{}, damaged: map[string]bool{}, lost: map[string]bool{},
 			removeErr: map[string]error{}, readErr: map[string]error{}, frontmatter: map[string]map[string]string{}},
 		self: &fakeSelf{},
-		zips: &fakeZips{written: map[string][]byte{}, refused: map[string]string{}},
 	}
 	e.brain.m.Projects = map[string]*domain.Project{}
-	e.app = app.App{Brain: e.brain, Sources: e.sources, Machine: e.machine, Trees: e.trees, Self: e.self, Zips: e.zips}
+	e.app = app.App{Brain: e.brain, Sources: e.sources, Machine: e.machine, Trees: e.trees, Self: e.self}
 	return e
 }
 

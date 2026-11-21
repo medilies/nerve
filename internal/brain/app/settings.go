@@ -118,9 +118,6 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 	if err != nil {
 		return err
 	}
-	if p.Surface == domain.ClaudeAI {
-		return fmt.Errorf("project %s is a claude.ai account, which takes skills only", project)
-	}
 	if why != "" {
 		overlay, file, err := a.Machine.Overlay(project)
 		if err != nil {
@@ -256,9 +253,6 @@ func (a App) RemoveSetting(ref ProjectRef, arg string, common, all bool, r Repor
 	overlays := map[string]*map[string]any{}
 	addProject := func(name string, p *domain.Project) error {
 		layers = append(layers, layer{name, false, &p.Settings})
-		if p.Surface == domain.ClaudeAI {
-			return nil
-		}
 		o, _, err := a.Machine.Overlay(name)
 		if err != nil {
 			return err

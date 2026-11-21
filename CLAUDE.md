@@ -37,7 +37,7 @@ If your output contradicts an ADR in `docs/adr/`, say so explicitly rather than 
   - this file
 - Before committing, grep the docs for each command, flag, `brain.toml` key, file and identifier the change renames or removes.
 - Each fact lives in one doc, and the others link to it:
-  - Users: the README (what nerve is, install, usage), `brain.md` (`brain.toml`, this machine, checking a Brain), `sync.md` (what sync writes, autosync, drift, claude.ai).
+  - Users: the README (what nerve is, install, usage), `brain.md` (`brain.toml`, this machine, checking a Brain), `sync.md` (what sync writes, autosync, drift).
   - Agents in users' projects: the nerve skill.
   - Contributors: `development.md` (commands, design, releasing), `backlog.md` (ideas left out).
   - Agents here: this file.

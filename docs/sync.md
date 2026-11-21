@@ -41,8 +41,6 @@ the one around the working directory, a worktree included.
   worktree that is. A worktree git cannot locate is left as it is, and
   reported, while its project is in the Brain.
 - **Reports what it did**, with secrets and emails shown as `(hidden)`.
-- **Builds the claude.ai zips**, on a full sync only. See
-  [below](#claudeai).
 
 ## Autosync
 
@@ -124,22 +122,6 @@ reports a problem: rename yours in the Brain to use it in that project.
 `nerve skill ls` shows nerve's links, the team's skills, and links you
 made or pointed elsewhere, as yours.
 
-## claude.ai
-
-A project with `surface = "claude.ai"` stands for an account. claude.ai
-has no API for skills, so `nerve sync` builds a zip per skill in
-`claude.ai/<project>/` under nerve's [cache folder](brain.md#this-machine),
-and says which to upload, once each time one changes, and which skills
-to delete on the account. A skill it cannot build is reported, and
-never marked for deletion. A link in a skill is zipped as the file it
-points to in the skill; one to a folder, to nothing, or out of the
-skill is refused, so nothing outside the skill reaches a zip. Files and
-folders whose name starts with a dot, such as `.env`, stay out of it.
-
-Skills on claude.ai reach every Claude Code session signed into that
-account. `syncClaudeAiSkills: false`, in your user settings or
-`common`, stops that.
-
 ## Notes
 
 - Third-party skills and the nerve skill link into nerve's cache
@@ -148,3 +130,6 @@ account. `syncClaudeAiSkills: false`, in your user settings or
 - The exclude block also hides from `git add` a new folder of the same
   name, in every worktree of the repo. Files the team already committed
   are not affected.
+- Skills you upload to claude.ai reach every Claude Code session signed
+  into that account. `syncClaudeAiSkills: false`, in your user settings
+  or `common`, stops that.

@@ -156,15 +156,6 @@ func TestStateAndOverlaysStayOnTheMachine(t *testing.T) {
 	if all, _, _ := files.States(); len(all) != 1 || all[0].Path != "/w/app" {
 		t.Errorf("states are %+v", all)
 	}
-	if err := files.SaveBuilt(map[string]map[string]string{"acct": {"x": "h"}}); err != nil {
-		t.Fatal(err)
-	}
-	if all, unreadable, _ := files.States(); len(all) != 1 || len(unreadable) > 0 {
-		t.Errorf("the claude.ai record counts as a tree: %+v, %v", all, unreadable)
-	}
-	if built, _ := files.Built(); built["acct"]["x"] != "h" {
-		t.Errorf("built is %v", built)
-	}
 	if err := files.DropState("/w/app"); err != nil {
 		t.Fatal(err)
 	}

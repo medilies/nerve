@@ -81,17 +81,6 @@ func TestSkillProblems(t *testing.T) {
 	}
 }
 
-func TestClaudeAIRejectionNamesTheKeysItRefuses(t *testing.T) {
-	s := domain.Skill{Meta: map[string]string{"name": "x", "description": "y", "model": "opus", "context": "fork"}}
-	if got := s.ClaudeAIRejection(); got != "frontmatter keys claude.ai rejects: context, model" {
-		t.Errorf("got %q", got)
-	}
-	s.Meta = map[string]string{"name": "x", "description": "y", "allowed-tools": "Bash"}
-	if got := s.ClaudeAIRejection(); got != "" {
-		t.Errorf("an accepted skill is refused: %q", got)
-	}
-}
-
 func TestAgentProblem(t *testing.T) {
 	if err := domain.AgentProblem("reviewer", map[string]string{"name": "reviewer", "description": "Reviews."}); err != nil {
 		t.Errorf("a valid agent: %v", err)

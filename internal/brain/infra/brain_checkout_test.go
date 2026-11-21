@@ -76,9 +76,10 @@ func TestLoadRefusesUnknownKeysAndInvalidValues(t *testing.T) {
 	e := newTestEnv(t)
 	brain := NewBrainCheckout(e.path("brain"))
 	for content, want := range map[string]string{
-		"profiles = []\n":                  "brain.toml: unknown keys [profiles]",
-		"[project.app]\nskill = [\"x\"]\n": "brain.toml: unknown keys [project.app.skill]",
-		"nerve = \"latest\"\n":             "must be a release tag",
+		"profiles = []\n":                          "brain.toml: unknown keys [profiles]",
+		"[project.app]\nskill = [\"x\"]\n":         "brain.toml: unknown keys [project.app.skill]",
+		"[project.app]\nsurface = \"claude.ai\"\n": "brain.toml: unknown keys [project.app.surface]",
+		"nerve = \"latest\"\n":                     "must be a release tag",
 	} {
 		e.write(e.path("brain/brain.toml"), content)
 		if _, err := brain.Load(); err == nil || !strings.Contains(err.Error(), want) {

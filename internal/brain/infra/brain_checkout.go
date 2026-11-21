@@ -60,7 +60,6 @@ type commonTable struct {
 }
 
 type projectTable struct {
-	Surface  string         `toml:"surface,omitempty"`
 	Autosync *bool          `toml:"autosync,omitempty"`
 	Skills   []string       `toml:"skills,omitempty"`
 	Agents   []string       `toml:"agents,omitempty"`
@@ -109,8 +108,8 @@ func (b BrainCheckout) Load() (domain.Manifest, error) {
 			return domain.Manifest{}, err
 		}
 		m.Projects[name] = &domain.Project{
-			Surface: p.Surface, Autosync: p.Autosync,
-			Skills: p.Skills, Agents: p.Agents, Hooks: p.Hooks, Plugins: p.Plugins,
+			Autosync: p.Autosync,
+			Skills:   p.Skills, Agents: p.Agents, Hooks: p.Hooks, Plugins: p.Plugins,
 			Settings: settings,
 		}
 	}
@@ -150,8 +149,8 @@ func (b BrainCheckout) Save(m domain.Manifest) error {
 		for name, p := range m.Projects {
 			settings, _ := forTOML(p.Settings).(map[string]any)
 			f.Projects[name] = projectTable{
-				Surface: p.Surface, Autosync: p.Autosync,
-				Skills: p.Skills, Agents: p.Agents, Hooks: p.Hooks, Plugins: p.Plugins,
+				Autosync: p.Autosync,
+				Skills:   p.Skills, Agents: p.Agents, Hooks: p.Hooks, Plugins: p.Plugins,
 				Settings: settings,
 			}
 		}

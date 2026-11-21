@@ -97,7 +97,7 @@ nerve skill rm grilling --all        # take a skill out of every project
 nerve setting rm permissions.deny=Cron --all   # revoke one denied tool everywhere
 nerve skill update acme/skills       # read how its skills changed, then move the pin
 nerve project autosync off           # no sync at session start for this project
-nerve sync                           # every checkout on this machine, and the claude.ai zips
+nerve sync                           # every checkout on this machine
 nerve check                          # validate the Brain, as its CI does
 ```
 
@@ -111,7 +111,7 @@ what happened. A settings key that holds a dot goes in double quotes:
 ## Documentation
 
 - [The Brain](docs/brain.md): `brain.toml`, projects, sources, hooks, common settings, this machine, overlays
-- [Syncing](docs/sync.md): what sync writes, autosync, drift, revoking, the team's own, claude.ai
+- [Syncing](docs/sync.md): what sync writes, autosync, drift, revoking, the team's own
 - [Glossary](GLOSSARY.md): the words nerve uses
 - [Decisions](docs/adr/) and [what is left out](docs/backlog.md)
 - [Development](docs/development.md): building, testing, architecture

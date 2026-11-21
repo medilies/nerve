@@ -15,7 +15,7 @@ Ideas left out of [ADR 0005](adr/0005-projects-opt-in.md) to keep it minimal. Ta
   - nerve's own hook, written by an earlier sync, must not be imported.
   - What moves to the overlay must come back to the file when the project is removed, or a secret is lost.
 - **A drift resolver.** Open drift in a diff tool to move each key into the project, `common` or the overlay, rather than going through it with the nerve skill.
-- **Verified claude.ai state.** Read what an account actually holds, rather than reporting which zips changed.
+- **claude.ai accounts.** A project that stands for a claude.ai account, whose skills sync zips and tells the user to upload ([ADR 0008](adr/0008-drop-claude-ai-accounts.md)). Worth it once claude.ai has an API for skills, which would let nerve upload them, and see what an account holds.
 - **Sweeping a killed run's temp files.** A run killed mid-write leaves `.<file>.<random>` beside the file, such as one in the Brain that git shows as untracked. A sweep needs a name only nerve makes, so it never deletes a file of the user's.
 - **Picking a source skill by folder.** A source with two folders of the skill's name, such as `skills/x` and `examples/x`, is refused as ambiguous. A `path` in `[[source]]` could pick one.
 - **Autosync in `nerve hook ls`.** List nerve's own hook beside the Brain's, marked as nerve's.

@@ -49,8 +49,6 @@ const (
 	EvItem         = "item"           // Item of Project; Detail says where it comes from
 	EvValue        = "value"          // Key of Project is Brain; Detail says which layers give it
 	EvAutosync     = "autosync"       // autosync is Detail for Project, or for the Brain when Project is ""
-	EvUpload       = "upload"         // the zip at Path holds Item, new or changed: upload it to claude.ai account Project
-	EvUnload       = "unload"         // Item left claude.ai account Project: delete it there
 	EvCleaned      = "cleaned"        // nerve took its links and settings out of Path; Detail says why
 	EvUnlisted     = "unlisted"       // this machine no longer lists Path, a checkout of Project: it is gone, or Detail says why
 	EvSynced       = "synced"         // Project at Path is at Brain commit Target
@@ -140,10 +138,6 @@ func (e Event) String() string {
 			return fmt.Sprintf("autosync %s by default", e.Detail)
 		}
 		return fmt.Sprintf("autosync %s for %s", e.Detail, e.Project)
-	case EvUpload:
-		return fmt.Sprintf("upload   %s to claude.ai account %s (%s)", e.Path, e.Project, e.Item)
-	case EvUnload:
-		return fmt.Sprintf("delete   %s from claude.ai account %s", e.Item, e.Project)
 	case EvCleaned:
 		return fmt.Sprintf("cleaned  %s: %s", e.Path, e.Detail)
 	case EvUnlisted:

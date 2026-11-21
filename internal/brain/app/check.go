@@ -73,9 +73,6 @@ func (a App) Check(r Reporter) error {
 				}
 			}
 		}
-		if pr.Surface == domain.ClaudeAI && (len(pr.Agents)+len(pr.Hooks)+len(pr.Plugins)+len(pr.Settings) > 0 || pr.Autosync != nil) {
-			problem(domain.ManifestFile, key, "a claude.ai account takes skills only")
-		}
 		for _, k := range domain.OverridesOfCommon(pr, m.Common) {
 			problem(domain.ManifestFile, key+".settings."+k, "equals common: drop it from the project")
 		}
