@@ -19,9 +19,15 @@ type Brain interface {
 	// State says what the checkout holds that others cannot see yet.
 	State() string
 	OwnSkill(name string) (domain.Skill, bool, error)
-	OwnSkills() ([]domain.Skill, error)
+	OwnSkills() ([]OwnSkill, error)
 	AgentFile(name string) (string, bool)
 	Agents() ([]Agent, error)
+}
+
+// OwnSkill is an own skill folder, as read.
+type OwnSkill struct {
+	domain.Skill
+	Err error // reading its SKILL.md
 }
 
 // Agent is an own agent file, as read.

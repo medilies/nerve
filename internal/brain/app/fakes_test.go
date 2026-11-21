@@ -56,6 +56,7 @@ type fakeBrain struct {
 	failSaves int // how many saves fail from now on, as a read-only Brain does
 	pullErr   error
 	own       map[string]domain.Skill
+	ownErr    map[string]error // own skills that cannot be read, by name
 	agents    map[string]bool
 	head      string
 	pulls     int
@@ -92,14 +93,20 @@ func (b *fakeBrain) MovePin(old, new string) error {
 }
 
 func (b *fakeBrain) OwnSkill(name string) (domain.Skill, bool, error) {
+	if err := b.ownErr[name]; err != nil {
+		return domain.Skill{Name: name, Dir: "/brain/skills/" + name}, true, err
+	}
 	s, ok := b.own[name]
 	return s, ok, nil
 }
 
-func (b *fakeBrain) OwnSkills() ([]domain.Skill, error) {
-	var skills []domain.Skill
-	for _, name := range domain.SortedKeys(b.own) {
-		skills = append(skills, b.own[name])
+func (b *fakeBrain) OwnSkills() ([]app.OwnSkill, error) {
+	names := slices.Concat(domain.SortedKeys(b.own), domain.SortedKeys(b.ownErr))
+	slices.Sort(names)
+	var skills []app.OwnSkill
+	for _, name := range slices.Compact(names) {
+		s, _, err := b.OwnSkill(name)
+		skills = append(skills, app.OwnSkill{Skill: s, Err: err})
 	}
 	return skills, nil
 }

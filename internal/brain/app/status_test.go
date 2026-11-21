@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -88,6 +89,20 @@ func TestCheckRefusesAnInvalidOwnSkill(t *testing.T) {
 	e.ownSkill("go-stack").Meta["description"] = ""
 	if out := check(t, e); !strings.Contains(out, "problem  skills/go-stack: no description") {
 		t.Errorf("check says:\n%s", out)
+	}
+}
+
+func TestCheckReportsAnOwnSkillItCannotReadAndGoesOn(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go-stack").Meta["description"] = ""
+	e.brain.ownErr = map[string]error{"notes": errors.New("open skills/notes/SKILL.md: no such file or directory")}
+
+	out := check(t, e)
+
+	for _, want := range []string{"problem  skills/notes: open skills/notes/SKILL.md: no such file or directory", "problem  skills/go-stack: no description"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lacks %q:\n%s", want, out)
+		}
 	}
 }
 

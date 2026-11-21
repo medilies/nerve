@@ -26,6 +26,10 @@ func (a App) Check(r Reporter) error {
 	for _, s := range own {
 		ownNames[s.Name] = true
 		rel, _ := filepath.Rel(a.Brain.Root(), s.Dir)
+		if s.Err != nil {
+			problem(rel, "", s.Err.Error())
+			continue
+		}
 		for _, msg := range s.Problems() {
 			problem(rel, "", msg)
 		}

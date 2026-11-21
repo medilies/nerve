@@ -419,7 +419,9 @@ func (b BrainCheckout) OwnSkill(name string) (domain.Skill, bool, error) {
 	return s, true, err
 }
 
-func (b BrainCheckout) OwnSkills() ([]domain.Skill, error) {
+// OwnSkills reads every folder in skills/, linked ones too, each with the
+// error reading it.
+func (b BrainCheckout) OwnSkills() ([]app.OwnSkill, error) {
 	dir := filepath.Join(b.root, "skills")
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -428,16 +430,15 @@ func (b BrainCheckout) OwnSkills() ([]domain.Skill, error) {
 	if err != nil {
 		return nil, err
 	}
-	var skills []domain.Skill
+	var skills []app.OwnSkill
 	for _, e := range entries {
-		if !e.IsDir() {
+		path := filepath.Join(dir, e.Name())
+		if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
 			continue
 		}
-		s, err := readSkill(e.Name(), filepath.Join(dir, e.Name()), "own")
-		if err != nil {
-			return nil, err
-		}
-		skills = append(skills, s)
+		s, err := readSkill(e.Name(), path, "own")
+		s.Name, s.Dir = e.Name(), path
+		skills = append(skills, app.OwnSkill{Skill: s, Err: err})
 	}
 	return skills, nil
 }

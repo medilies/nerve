@@ -1,6 +1,7 @@
 package infra
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -237,6 +238,25 @@ func TestStateSaysWhenGitFails(t *testing.T) {
 
 	if got := NewBrainCheckout(e.path("brain")).State(); !strings.HasPrefix(got, "cannot read its git state: ") {
 		t.Errorf("state is %q", got)
+	}
+}
+
+func TestOwnSkillsReadEveryFolderAndLinkedFolder(t *testing.T) {
+	e := newTestEnv(t)
+	e.write(e.path("brain/skills/ok/SKILL.md"), skillMD("ok", ""))
+	e.write(e.path("brain/skills/notes/todo.txt"), "x")
+	e.write(e.path("real/linked/SKILL.md"), "---\nname: linked\n---\n")
+	e.link(e.path("brain/skills/linked"), e.path("real/linked"))
+	e.write(e.path("brain/skills/README.md"), "x")
+
+	all, err := NewBrainCheckout(e.path("brain")).OwnSkills()
+
+	got := map[string]string{}
+	for _, s := range all {
+		got[s.Name] = fmt.Sprintf("%v %s", s.Err != nil, s.Meta["name"])
+	}
+	if want := map[string]string{"ok": "false ok", "notes": "true ", "linked": "false linked"}; err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("own skills are %v (%v), want %v", got, err, want)
 	}
 }
 
