@@ -104,7 +104,8 @@ To resolve drift:
 nerve never touches what it did not make. Where the team already has a
 skill or agent of the same name, nerve does not link yours there, and
 reports a problem: rename yours in the Brain to use it in that project.
-`nerve skill ls` shows yours and the team's.
+`nerve skill ls` shows nerve's links, the team's skills, and links you
+made or pointed elsewhere, as yours.
 
 ## claude.ai
 

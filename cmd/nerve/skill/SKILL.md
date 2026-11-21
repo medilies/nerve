@@ -38,7 +38,7 @@ Always add `--json`, then tell the user what happened in plain words. A command 
 | `nerve project ls` | The Brain's projects, and their checkouts on this machine. |
 | `nerve project rm <name>` | Clean its checkouts here, delete its overlay here, and drop it from the Brain. Ask first. |
 | `nerve skill add\|rm <name>`, `agent …`, `hook …`, `plugin add\|rm <plugin>@<marketplace>` | Change what the project lists. `rm --all` takes it out of every project. |
-| `nerve skill ls`, `agent ls`, `hook ls`, `plugin ls` | What the project lists and where each comes from; for skills and agents, the team's own too. |
+| `nerve skill ls`, `agent ls`, `hook ls`, `plugin ls` | What the project lists and where each comes from; for skills and agents, the team's own and links the user made (`yours`) too. |
 | `nerve setting set <key> <value>` | Value is JSON or text. `--common` for every project. A setting the Brain does not allow, or a sensitive value, goes to the overlay on its own; `allowed-settings` in `brain.toml` allows more keys, never one that may hold secrets. A key that holds a dot goes in double quotes: `enabledPlugins."x@y.z"`. |
 | `nerve setting add <key> <value>` | Add one item to a list, such as `permissions.allow`. `--common` and the overlay as for `set`. |
 | `nerve setting rm <key>[=<value>]` | Remove a key, or one item of a list, from the project and its overlay. `--common` from common; `--all` revokes it from common and every project. |

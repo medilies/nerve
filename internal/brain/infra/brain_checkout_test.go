@@ -15,7 +15,6 @@ import (
 type events []app.Event
 
 func (e *events) Add(ev app.Event) { *e = append(*e, ev) }
-func (e *events) Count() int       { return len(*e) }
 
 func (e events) String() string {
 	var lines []string

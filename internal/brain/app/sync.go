@@ -236,7 +236,10 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 		}
 	}()
 	st.Project, st.Repo = name, tree.Repo
-	before := s.r.Count()
+	r := s.r
+	c := &changes{Reporter: r}
+	s.r = c
+	defer func() { s.r = r }()
 	if err := s.throughLink(dir); err != nil {
 		return false, err
 	}
@@ -298,11 +301,24 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 		return held, err
 	}
 	kind := EvSynced
-	if s.r.Count() == before {
+	if c.n == 0 {
 		kind = EvUpToDate
 	}
 	s.r.Add(Event{Kind: kind, Project: name, Path: dir, Target: st.Commit})
 	return held, nil
+}
+
+// changes passes events on, counting those that say something changed.
+type changes struct {
+	Reporter
+	n int
+}
+
+func (c *changes) Add(e Event) {
+	if e.Kind != EvProblem && e.Kind != EvDrift {
+		c.n++
+	}
+	c.Reporter.Add(e)
 }
 
 // refusals says what a project lists that the Brain cannot give it, as
@@ -388,8 +404,8 @@ func (a App) ours(dir, rel string, l domain.Link) bool {
 
 // link makes dir hold each link, and removes the links nerve made that are
 // no longer wanted. A link that is gone is made again. Where the team
-// already has a skill or agent of that name, or someone pointed nerve's link
-// elsewhere, it leaves it, skips that item, and says so. A link that already
+// already has a skill or agent of that name, it leaves it, skips that item,
+// and says so; a link someone pointed elsewhere is theirs, and left alone. A link that already
 // points where nerve would point it, as one left by a checkout that moved,
 // becomes nerve's.
 func (s *syncer) link(dir string, links []domain.Link, st *domain.TreeState) error {
@@ -409,16 +425,16 @@ func (s *syncer) link(dir string, links []domain.Link, st *domain.TreeState) err
 		rel := l.Rel()
 		path := filepath.Join(dir, rel)
 		if taken(rel, l) {
-			s.r.Add(Event{Kind: EvProblem, Path: path, Detail: fmt.Sprintf("the team has it, so %s %s is not linked here: rename yours in the Brain to use it", l.Kind, l.Name)})
+			if _, isLink := s.Trees.LinkTarget(path); !isLink {
+				s.r.Add(Event{Kind: EvProblem, Path: path, Detail: fmt.Sprintf("the team has it, so %s %s is not linked here: rename yours in the Brain to use it", l.Kind, l.Name)})
+			} // else a link someone pointed elsewhere: theirs, left alone
 			continue
 		}
-		if !same(rel, l) {
+		if !same(rel, l) { // else already as nerve would make it: adopted
 			if err := s.Trees.Link(path, l.Target); err != nil {
 				return err
 			}
 			s.r.Add(Event{Kind: EvLinked, Path: path, Target: l.Target})
-		} else if _, known := st.Links[rel]; !known {
-			s.r.Add(Event{Kind: EvLinked, Path: path, Target: l.Target}) // adopted
 		}
 		next[rel] = l
 		st.Links[rel] = l // ours from here on, should a later link collide

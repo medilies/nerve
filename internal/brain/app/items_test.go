@@ -104,6 +104,7 @@ func TestListItemsShowsLinksAndTheTeamsOwn(t *testing.T) {
 	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
 	e.sources.skills["acme/up@"+pinA+"/grilling"] = domain.Skill{Name: "grilling", Dir: "/cache/grilling"}
 	e.trees.mkdirs("/w/app/.claude/skills/go-stack")
+	e.trees.files["/w/app/.claude/skills/go-stack/SKILL.md"] = true
 	e.must(e.sync("/w/app", app.SyncOptions{}))
 	r := &recorder{}
 
@@ -182,5 +183,23 @@ func TestListItemsShowsOnlyMarkdownFilesAsTheTeamsAgents(t *testing.T) {
 
 	if strings.Contains(r.String(), "README") {
 		t.Errorf("a file that is not an agent is listed as one:\n%s", r)
+	}
+}
+
+func TestListItemsShowsALinkSomeonePointedElsewhereAsTheirs(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go-stack")
+	e.listed("app", "/w/app").Skills = []string{"go-stack"}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	e.trees.links["/w/app/.claude/skills/go-stack"] = "/home/me/my-go-stack"
+	e.trees.files["/w/app/.claude/README.md"] = true
+	e.trees.files["/w/app/.claude/skills/README.md"] = true
+	r := &recorder{}
+
+	e.must(r, e.app.ListItems(target("/w/app"), "skill", r))
+
+	contains(t, r, "skill go-stack own, not linked: yours at .claude/skills/go-stack", "skill go-stack yours")
+	if strings.Contains(r.String(), "the team") || strings.Contains(r.String(), "README") {
+		t.Errorf("lists a link or a file as the team's:\n%s", r)
 	}
 }

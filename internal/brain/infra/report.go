@@ -22,7 +22,6 @@ type Report struct {
 	w      io.Writer
 	mode   int
 	events []app.Event
-	count  int
 }
 
 var _ app.Reporter = (*Report)(nil)
@@ -31,15 +30,12 @@ var _ app.Reporter = (*Report)(nil)
 func NewReport(w io.Writer, mode int) *Report { return &Report{w: w, mode: mode} }
 
 func (r *Report) Add(e app.Event) {
-	r.count++
 	if r.mode != AsText {
 		r.events = append(r.events, e)
 		return
 	}
 	_, _ = fmt.Fprintln(r.w, e)
 }
-
-func (r *Report) Count() int { return r.count }
 
 // gathered is the events gathered so far, nil when printed as they come.
 func (r *Report) gathered() []app.Event {

@@ -135,8 +135,10 @@ func (a App) ListItems(ref ProjectRef, kind string, r Reporter) error {
 			detail = "enabled"
 		}
 		link := domain.Link{Kind: kind, Name: name}
-		if rel, ok := linkedAs[link.Item()]; ok {
+		if rel, ok := linkedAs[link.Item()]; ok && a.ours(dir, rel, st.Links[rel]) {
 			detail += ", linked as " + rel
+		} else if _, isLink := a.Trees.LinkTarget(filepath.Join(dir, link.Rel())); dir != "" && isLink {
+			detail += ", not linked: yours at " + link.Rel()
 		} else if dir != "" && (kind == "skill" || kind == "agent") && a.Trees.Present(filepath.Join(dir, link.Rel())) {
 			detail += ", not linked: the team has " + link.Rel()
 		} else if dir != "" {
@@ -150,24 +152,35 @@ func (a App) ListItems(ref ProjectRef, kind string, r Reporter) error {
 	if kind == "skill" {
 		r.Add(Event{Kind: EvItem, Project: project, Item: "skill nerve", Detail: "nerve's own"})
 	}
-	for _, name := range a.teamItems(dir, kind, st) {
-		r.Add(Event{Kind: EvItem, Project: project, Item: kind + " " + name, Detail: "the team's"})
+	for _, e := range a.othersItems(dir, kind, st) {
+		e.Project = project
+		r.Add(e)
 	}
 	return nil
 }
 
-// teamItems lists the skills or agents in a working tree that nerve did not
-// link.
-func (a App) teamItems(dir, kind string, st domain.TreeState) []string {
+// othersItems lists the skills or agents in a working tree that nerve did
+// not link, each as the team's or, for a link someone made, as yours. A
+// skill is a folder holding a SKILL.md, and an agent a .md file.
+func (a App) othersItems(dir, kind string, st domain.TreeState) []Event {
 	sub := map[string]string{"skill": "skills", "agent": "agents"}[kind]
-	var names []string
+	var events []Event
 	for _, e := range a.Trees.Entries(filepath.Join(dir, ".claude", sub)) {
-		if _, ours := st.Links[path.Join(".claude", sub, e)]; ours || strings.HasPrefix(e, ".") || kind == "agent" && !strings.HasSuffix(e, ".md") {
+		rel := path.Join(".claude", sub, e)
+		l, known := st.Links[rel]
+		_, isLink := a.Trees.LinkTarget(filepath.Join(dir, rel))
+		isItem := kind == "agent" && strings.HasSuffix(e, ".md") ||
+			kind == "skill" && (isLink || a.Trees.Exists(filepath.Join(dir, rel, "SKILL.md")))
+		if known && a.ours(dir, rel, l) || strings.HasPrefix(e, ".") || !isItem {
 			continue
 		}
-		names = append(names, strings.TrimSuffix(e, ".md"))
+		whose := "the team's"
+		if isLink {
+			whose = "yours"
+		}
+		events = append(events, Event{Kind: EvItem, Project: st.Project, Item: kind + " " + strings.TrimSuffix(e, ".md"), Detail: whose})
 	}
-	return names
+	return events
 }
 
 // UpdatePin prints how each skill used from repo differs between its pin and

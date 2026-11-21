@@ -15,7 +15,7 @@ func TestTextReportPrintsEachEventAsItComes(t *testing.T) {
 
 	r.Add(app.Event{Kind: app.EvWrote, Path: "/x"})
 
-	if out.String() != "wrote    /x\n" || r.Finish(errors.New("boom")) || r.gathered() != nil || r.Count() != 1 {
+	if out.String() != "wrote    /x\n" || r.Finish(errors.New("boom")) || r.gathered() != nil {
 		t.Errorf("printed %q", out.String())
 	}
 }

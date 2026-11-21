@@ -161,6 +161,4 @@ func Short(sha string) string {
 // Reporter takes the events of a use case as they happen.
 type Reporter interface {
 	Add(Event)
-	// Count is how many events were added so far.
-	Count() int
 }

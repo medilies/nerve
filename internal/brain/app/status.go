@@ -69,8 +69,9 @@ func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir s
 		r.Add(Event{Kind: EvItem, Project: name, Item: st.Links[rel].Item(), Detail: "linked as " + rel})
 	}
 	for _, kind := range []string{"skill", "agent"} {
-		for _, item := range a.teamItems(dir, kind, st) {
-			r.Add(Event{Kind: EvItem, Project: name, Item: kind + " " + item, Detail: "the team's"})
+		for _, e := range a.othersItems(dir, kind, st) {
+			e.Project = name
+			r.Add(e)
 		}
 	}
 	cmd, err := a.Self.Command()

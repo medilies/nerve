@@ -471,7 +471,6 @@ func (z *fakeZips) Remove(project, name string)   { delete(z.written, project+"/
 type recorder struct{ events []app.Event }
 
 func (r *recorder) Add(e app.Event) { r.events = append(r.events, e) }
-func (r *recorder) Count() int      { return len(r.events) }
 
 func (r *recorder) String() string {
 	var lines []string

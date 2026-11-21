@@ -520,7 +520,11 @@ func TestSyncLeavesALinkSomeonePointedElsewhere(t *testing.T) {
 	e.must(e.sync("/w/app", app.SyncOptions{}))
 	e.trees.links["/w/app/.claude/skills/go-stack"] = "/home/me/my-go-stack"
 
-	e.must(e.sync("/w/app", app.SyncOptions{}))
+	r := e.must(e.sync("/w/app", app.SyncOptions{}))
+
+	if strings.Contains(r.String(), "problem") {
+		t.Errorf("reports the user's own link as a problem:\n%s", r)
+	}
 
 	if got := e.trees.links["/w/app/.claude/skills/go-stack"]; got != "/home/me/my-go-stack" || len(e.trees.links) != 2 {
 		t.Errorf("links are %v, want the user's go-stack kept and no second one", e.trees.links)
@@ -792,4 +796,31 @@ func TestASourceSkillThatCannotBeFetchedKeepsItsLink(t *testing.T) {
 		t.Errorf("link is %q, want it kept", got)
 	}
 	contains(t, r, `problem  /w/app/.claude/skills/grilling: left as last linked: acme/up@1111111: no skill "grilling"`)
+}
+
+func TestASyncThatChangesNothingIsUpToDateDespiteAStandingProblem(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go-stack")
+	e.listed("app", "/w/app").Skills = []string{"go-stack"}
+	e.trees.mkdirs("/w/app/.claude/skills/go-stack")
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+
+	r := e.must(e.sync("/w/app", app.SyncOptions{}))
+
+	contains(t, r, "app is up to date at aaaaaaa")
+}
+
+func TestALinkThatAlreadyPointsWhereNerveWouldIsAdoptedQuietly(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.trees.links["/w/app/.claude/skills/nerve"] = "/cache/nerve/skill/nerve" // left by a checkout that moved
+
+	r := e.must(e.sync("/w/app", app.SyncOptions{}))
+
+	if strings.Contains(r.String(), "linked") {
+		t.Errorf("reports a link nerve did not make:\n%s", r)
+	}
+	if _, ok := e.machine.states["/w/app"].Links[".claude/skills/nerve"]; !ok {
+		t.Errorf("the link was not adopted")
+	}
 }
