@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/medilies/nerve/internal/brain/domain"
 )
@@ -143,5 +144,52 @@ func TestTwoFetchesOfOnePinAtOnceBothSucceed(t *testing.T) {
 	}
 	if leftovers, _ := filepath.Glob(e.path(".cache/nerve/sources/acme/up/*.tmp-*")); len(leftovers) > 0 {
 		t.Errorf("left %v", leftovers)
+	}
+}
+
+func TestSkillFromASourceCarriesNoLink(t *testing.T) {
+	e := newTestEnv(t)
+	e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	e.link(e.path("github/acme/up.git/skills/grilling/leak.txt"), "/etc/passwd")
+	sha := e.commit(e.path("github/acme/up.git"))
+
+	s, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling")
+
+	if err != nil || isLink(filepath.Join(s.Dir, "leak.txt")) {
+		t.Errorf("got %v, and the source's link reached the cache", err)
+	}
+}
+
+func TestDiffShowsBidiControlsAndCutsAHugeDiff(t *testing.T) {
+	e := newTestEnv(t)
+	old := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	next := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "") + "a\u202eb\n" + strings.Repeat("x\n", 300_000)})
+
+	d, err := SourceCache{}.Diff("acme/up", "grilling", old, next)
+
+	if err != nil || strings.ContainsRune(d, '‮') || !strings.Contains(d, "a<U+202E>b") {
+		t.Errorf("got %v, and the bidi control is not shown as such: %q", err, d[:min(len(d), 300)])
+	}
+	if len(d) > 300_000 || !strings.Contains(d, "the diff is cut") {
+		t.Errorf("the diff is %d bytes, uncut", len(d))
+	}
+}
+
+func TestFetchSweepsAFolderAKilledFetchLeft(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	stale := e.path(".cache/nerve/sources/acme/up/" + strings.Repeat("0", 40) + ".tmp-123")
+	e.write(filepath.Join(stale, "x"), "x")
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := (SourceCache{}).Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling"); err != nil {
+		t.Fatal(err)
+	}
+
+	if fileExists(stale) {
+		t.Errorf("the killed fetch's folder is still there")
 	}
 }
