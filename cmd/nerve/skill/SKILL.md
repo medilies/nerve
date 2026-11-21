@@ -98,7 +98,7 @@ A source's `repo` is on GitHub; `path`, optional, is where its skills are when n
 
 ## Changing the Brain
 
-To change what Claude Code does, find the setting made for it first: know Claude Code's settings, or search its settings docs. `enableArtifact: false` turns artifacts off, for one. A permission rule on a tool's name is the fallback, when no setting does it. A key nerve does not allow goes in `allowedSettings` before `--common` takes it.
+To change what Claude Code does, find the setting made for it first: know Claude Code's settings, or search its settings docs. `enableArtifact: false` turns artifacts off, for one. A permission rule on a tool's name is the fallback, when no setting does it. A key nerve does not allow goes in `allowedSettings` before `--common` takes it. nerve checks the value of a setting it allows, but not of one `allowedSettings` lists: check that value against Claude Code's settings docs before it goes in.
 
 1. Prefer the CLI. Write a new own skill or agent in the Brain's `skills/` or `agents/`, `nerve check --json`, then `nerve push --json "<message>"` it, as in step 4, before `nerve skill add` (or `agent add`) puts it in `brain.json`.
 2. Ask whether a change is for this project or every project, when it is unclear. Default to this project: nothing should reach a project that does not need it.
