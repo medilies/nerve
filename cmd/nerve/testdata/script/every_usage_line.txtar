@@ -51,6 +51,8 @@ exec nerve skill rm go-stack
 stdout '^dropped  skill go-stack from project app$'
 ! exec nerve update acme/up
 stderr 'acme/up is not a source in brain.json'
+exec nerve version
+stdout '^nerve version '
 exec nerve project rm app
 stdout 'project  app: dropped from brain.json'
 
@@ -71,6 +73,7 @@ stdout '^  plugin add\|rm <plugin>@<marketplace> '
 stdout '^  setting set <key> <value> '
 stdout '^  setting add <key> <value> '
 stdout '^  setting rm <key>\[=<value>\] '
+stdout '^  version, --version, -v '
 stdout '^  help, --help, -h '
 
 -- brain/brain.json --

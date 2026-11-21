@@ -48,6 +48,7 @@ const (
 	EvSynced       = "synced"           // Project at Path is at Brain commit Target
 	EvUpToDate     = "up-to-date"       // Project at Path is at Brain commit Target, and nothing changed
 	EvUsage        = "usage"            // Detail is how to run nerve
+	EvVersion      = "version"          // Detail is nerve's version
 )
 
 func (e Event) String() string {

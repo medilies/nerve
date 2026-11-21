@@ -1,0 +1,18 @@
+# version, --version and -v print nerve's version, and nothing else.
+
+exec nerve version
+stdout '^nerve version \S+$'
+! stdout usage
+! stderr .
+
+exec nerve --version
+stdout '^nerve version \S+$'
+
+exec nerve -v
+stdout '^nerve version \S+$'
+
+exec nerve version --json
+stdout '"kind": *"version"'
+
+! exec nerve version extra
+stderr '^  version, --version, -v '

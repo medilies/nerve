@@ -1,0 +1,38 @@
+# A command nerve knows, run the wrong way, prints why and its own usage
+# lines; a group alone, or a command with --help, prints them and succeeds.
+
+! exec nerve init
+! stdout .
+stderr '^nerve does not know this command line: init$'
+stderr '^  init <brain> '
+! stderr '^  sync '
+stderr '^nerve help lists every command'
+
+! exec nerve setting set model
+stderr '^  setting set '
+stderr '^  setting rm '
+! stderr '^  init '
+
+! exec nerve skill --bogus
+stderr '^--bogus is not a flag nerve knows'
+stderr '^  skill add\|rm '
+! stderr '^  init '
+
+exec nerve project
+stdout '^  project add '
+stdout '^  project ls '
+! stdout '^  init '
+! stderr .
+
+exec nerve agent
+stdout '^  skill add\|rm '
+stdout '^  agent add\|rm '
+! stdout '^  setting '
+
+exec nerve sync --help
+stdout '^  sync '
+! stdout '^  push '
+
+! exec nerve frobnicate
+stderr '^nerve does not know this command line: frobnicate$'
+stderr '^usage: nerve <command>$'

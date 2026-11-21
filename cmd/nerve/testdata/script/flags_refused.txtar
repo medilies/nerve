@@ -12,7 +12,7 @@ stderr 'each say where to act: pass one'
 
 ! exec nerve sync --project app
 stderr '^--project does not go with this command$'
-stderr '^usage: nerve'
+stderr '^  sync '
 ! exec nerve skill add a --common
 stderr '^--common does not go with this command$'
 ! exec nerve status --all

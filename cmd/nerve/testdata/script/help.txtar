@@ -1,8 +1,15 @@
-# help prints the usage; an unknown flag prints it as the error.
+# help, and nerve alone, print the usage; an unknown flag prints it after
+# the error.
 
 exec nerve help
 stdout '^usage: nerve <command>$'
+! stderr .
 
-! exec nerve skill --bogus
+exec nerve
+stdout '^usage: nerve <command>$'
+! stderr .
+
+! exec nerve --bogus
 ! stdout .
+stderr '^--bogus is not a flag nerve knows'
 stderr '^usage: nerve <command>$'

@@ -1,8 +1,11 @@
-# --help and -h print the usage after any word.
+# --help and -h print the usage after any word: the whole of it, or the
+# lines of the command they follow.
 
 exec nerve --help
-stdout '^usage: nerve'
+stdout '^usage: nerve <command>$'
 exec nerve skill -h
-stdout '^usage: nerve'
+stdout '^  skill add\|rm '
+! stdout '^  init '
 exec nerve setting set --help
-stdout '^usage: nerve'
+stdout '^  setting set '
+! stdout '^  init '

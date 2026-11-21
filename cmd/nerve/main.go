@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -48,6 +49,7 @@ const usage = `usage: nerve <command>
   setting rm <key>[=<value>]   remove a setting, or one item of a list, from the project and its local overlay
                                (--common: from common; --all: from common, every project and their overlays)
 
+  version, --version, -v       print nerve's version
   help, --help, -h             print this
 
 status, and the skill, agent, hook, plugin and setting commands act on the project around the
@@ -65,7 +67,47 @@ Commands that change brain.json first bring the remote's, then commit and push t
 var selfSkill []byte
 
 // errUsage is a command line nerve does not know; it prints the usage.
-var errUsage = errors.New(strings.TrimSpace(usage))
+var errUsage = errors.New("nerve does not know this command line")
+
+// usageErr is a command line nerve cannot run, and why; it prints the usage
+// too.
+type usageErr string
+
+func (e usageErr) Error() string        { return string(e) }
+func (e usageErr) Is(target error) bool { return target == errUsage }
+
+// usageError is a command line nerve cannot run, and why.
+func usageError(why string) error { return usageErr(why) }
+
+// helpFor is the usage for a command line: the lines of the command its
+// first word names, or the whole usage. The item kinds share their lines.
+func helpFor(words []string) string {
+	if len(words) == 0 || words[0] == "help" {
+		return strings.TrimSpace(usage)
+	}
+	names := []string{words[0]}
+	if slices.Contains(domain.ItemKinds, words[0]) {
+		names = domain.ItemKinds
+	}
+	var lines []string
+	in := false
+	for _, l := range strings.Split(usage, "\n") {
+		switch {
+		case strings.HasPrefix(l, "   "): // a command's line goes on
+		case strings.HasPrefix(l, "  "):
+			in = slices.Contains(names, strings.FieldsFunc(l, func(r rune) bool { return r == ' ' || r == ',' })[0])
+		default:
+			in = false
+		}
+		if in {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) == 0 {
+		return strings.TrimSpace(usage)
+	}
+	return "usage:\n" + strings.Join(lines, "\n") + "\n\nnerve help lists every command, and the flags they share."
+}
 
 // flags are the options a command may take.
 type flags struct {
@@ -74,6 +116,7 @@ type flags struct {
 	hook                     bool     // the session report: print status as a hook's output
 	json                     bool     // print one JSON document
 	help                     bool     // print the usage
+	version                  bool     // print nerve's version
 	given                    []string // each flag given, as written
 }
 
@@ -92,6 +135,8 @@ words:
 			break words
 		case a == "--help" || a == "-h":
 			f.help = true
+		case a == "--version" || a == "-v":
+			f.version = true
 		case a == "--json":
 			f.json = true
 		case a == "--all":
@@ -142,8 +187,11 @@ func isNumber(s string) bool {
 func (f flags) only(allowed ...string) error {
 	for _, g := range f.given {
 		long := g
-		if g == "-f" {
+		switch g {
+		case "-f":
 			long = "--force"
+		case "-v":
+			long = "--version"
 		}
 		if g != "--json" && !slices.Contains(allowed, long) {
 			return usageError(g + " does not go with this command")
@@ -152,9 +200,19 @@ func (f flags) only(allowed ...string) error {
 	return nil
 }
 
-// usageError is a command line nerve cannot run, and why; it prints the
-// usage too.
-func usageError(why string) error { return fmt.Errorf("%s\n\n%w", why, errUsage) }
+// printVersion reports nerve's version: the module version Go stamps in
+// the binary, "(devel)" when it has none.
+func printVersion(f flags, r *infra.Report) error {
+	if err := f.only("--version"); err != nil {
+		return err
+	}
+	v := "(devel)"
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" {
+		v = bi.Main.Version
+	}
+	r.Add(app.Event{Kind: app.EvVersion, Detail: "nerve version " + v})
+	return nil
+}
 
 func main() { os.Exit(cli(os.Args[1:], os.Stdout, os.Stderr)) }
 
@@ -181,19 +239,18 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	}
 	r := infra.NewReport(stdout, mode)
 	err = run(args, r)
-	if mode == infra.AsJSON && errors.Is(err, errUsage) { // the reason, not the usage
-		why, _, _ := strings.Cut(err.Error(), "\n\n")
-		if err == errUsage {
-			why = "nerve does not know this command line: " + strings.Join(slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == "--json" }), " ")
+	if err == errUsage { // the command line is the reason
+		shown := args
+		if mode == infra.AsJSON {
+			shown = slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == "--json" })
 		}
-		err = errors.New(why + ": nerve help lists the commands")
+		err = usageError(errUsage.Error() + ": " + strings.Join(shown, " "))
 	}
-	if mode == infra.AsHook && errors.Is(err, errUsage) { // one line, not the usage
-		why, _, _ := strings.Cut(err.Error(), "\n\n")
-		if err == errUsage {
-			why = "nerve does not know this command line: " + strings.Join(args, " ")
-		}
-		err = errors.New(why + "; run nerve help")
+	switch {
+	case mode == infra.AsJSON && errors.Is(err, errUsage): // the reason, not the usage
+		err = errors.New(err.Error() + ": nerve help lists the commands")
+	case mode == infra.AsHook && errors.Is(err, errUsage): // one line, not the usage
+		err = errors.New(err.Error() + "; run nerve help")
 	}
 	finished := r.Finish(err)
 	if werr := r.Err(); werr != nil { // nothing reached the user: say so where it can
@@ -203,7 +260,7 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	switch {
 	case finished || err == nil:
 	case errors.Is(err, errUsage):
-		_, _ = fmt.Fprintln(stderr, infra.Visible(err.Error()))
+		_, _ = fmt.Fprintf(stderr, "%s\n\n%s\n", infra.Visible(err.Error()), helpFor(words))
 	default:
 		_, _ = fmt.Fprintln(stderr, "error:", infra.Visible(err.Error()))
 	}
@@ -292,10 +349,16 @@ func run(args []string, r *infra.Report) error {
 	case err != nil:
 		return err
 	case f.help:
+		r.Add(app.Event{Kind: app.EvUsage, Detail: helpFor(pos)})
+		return nil
+	case f.version && len(pos) == 0:
+		return printVersion(f, r)
+	case len(pos) == 0:
+		if err := f.only(); err != nil {
+			return err
+		}
 		r.Add(app.Event{Kind: app.EvUsage, Detail: strings.TrimSpace(usage)})
 		return nil
-	case len(pos) == 0:
-		return errUsage
 	}
 	wd, err := os.Getwd()
 	if err != nil {
@@ -315,6 +378,8 @@ func run(args []string, r *infra.Report) error {
 		}
 		r.Add(app.Event{Kind: app.EvUsage, Detail: strings.TrimSpace(usage)})
 		return nil
+	case cmd == "version" && len(rest) == 0:
+		return printVersion(f, r)
 	case cmd == "init" && len(rest) == 1:
 		if err := f.only(); err != nil {
 			return err
@@ -363,6 +428,12 @@ func run(args []string, r *infra.Report) error {
 	case cmd == "setting" && len(rest) == 2 && rest[0] == "rm":
 		allowed = []string{"--project", "--common", "--all"}
 		do = func(a app.App) error { return a.RemoveSetting(ref, rest[1], f.common, f.all, r) }
+	case len(rest) == 0 && (item || cmd == "project" || cmd == "setting"): // a group alone
+		if err := f.only(); err != nil {
+			return err
+		}
+		r.Add(app.Event{Kind: app.EvUsage, Detail: helpFor(pos)})
+		return nil
 	default:
 		if slices.Contains(f.given, "-f") { // a value -f, read as a flag
 			return usageError("nerve does not know this command line: a value that starts with - goes after --, as in nerve setting set key -- -f")
