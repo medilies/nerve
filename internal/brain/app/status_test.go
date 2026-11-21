@@ -63,6 +63,17 @@ func TestCommandsOutsideAListedCheckoutSayHowToAddIt(t *testing.T) {
 	}
 }
 
+func TestSyncHereOutsideAListedCheckoutSaysOnlyHowToAddIt(t *testing.T) {
+	e := newEnv(t)
+	e.checkout("/w/app")
+
+	_, err := e.sync("/w/app", app.SyncOptions{Here: true})
+
+	if err == nil || err.Error() != "/w/app is not a listed checkout: run nerve project add <name> in it" {
+		t.Errorf("got %v", err)
+	}
+}
+
 func TestStatusRefusesAProjectTheBrainDoesNotList(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")

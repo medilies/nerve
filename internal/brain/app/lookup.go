@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -47,7 +48,14 @@ func (a App) here(machine domain.Machine, dir string) (domain.Tree, string, erro
 			return t, c.Project, nil
 		}
 	}
-	return t, "", fmt.Errorf("%s is not a listed checkout: run nerve project add <name> in it, or pass --project", t.Top)
+	return t, "", notListed{t.Top}
+}
+
+// notListed is a working tree no checkout this machine lists holds.
+type notListed struct{ top string }
+
+func (e notListed) Error() string {
+	return e.top + " is not a listed checkout: run nerve project add <name> in it"
 }
 
 // project returns the project ref names.
@@ -56,6 +64,9 @@ func (a App) project(l loaded, ref ProjectRef) (string, *domain.Project, error) 
 	if name == "" {
 		var err error
 		if _, name, err = a.here(l.machine, ref.Dir); err != nil {
+			if errors.As(err, new(notListed)) {
+				return "", nil, fmt.Errorf("%w, or pass --project", err)
+			}
 			return "", nil, err
 		}
 	}
