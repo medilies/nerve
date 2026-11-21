@@ -226,6 +226,9 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 	}()
 	st.Project, st.Repo = name, tree.Repo
 	before := s.r.Count()
+	if err := s.throughLink(dir); err != nil {
+		return false, err
+	}
 	if err := s.Trees.CheckIgnored(dir); err != nil {
 		return false, err
 	}
@@ -413,6 +416,21 @@ func (s *syncer) link(dir string, links []domain.Link, st *domain.TreeState) err
 	return nil
 }
 
+// throughLink refuses a tree where a folder or file nerve writes is a link:
+// nerve would write outside the tree, and git would see what it made.
+func (a App) throughLink(dir string) error {
+	for _, rel := range append(slices.Clone(domain.TreeFolders), domain.LocalSettings) {
+		if _, ok := a.Trees.LinkTarget(filepath.Join(dir, rel)); ok {
+			what := "folder"
+			if rel == domain.LocalSettings {
+				what = "file"
+			}
+			return fmt.Errorf("%s is a link, so nerve would write outside the tree: make it a plain %s", rel, what)
+		}
+	}
+	return nil
+}
+
 // clean takes out of a working tree what nerve put there: its links that
 // still point where it pointed them, its share of the exclude block, the
 // settings it wrote that were not changed since, and the folders it made
@@ -423,6 +441,9 @@ func (a App) clean(dir, why string, r Reporter) error {
 		return err
 	}
 	if a.Trees.Exists(dir) {
+		if err := a.throughLink(dir); err != nil {
+			return err
+		}
 		for _, rel := range domain.SortedKeys(st.Links) {
 			if !a.ours(dir, rel, st.Links[rel]) {
 				continue

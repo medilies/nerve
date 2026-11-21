@@ -16,6 +16,9 @@ the one around the working directory, a worktree included.
 - **Refuses a checkout** where git tracks `.claude/settings.local.json`,
   or does not ignore it: add `**/.claude/settings.local.json` to your
   global git ignore file. nerve never edits `.gitignore`.
+- **Refuses a checkout** where `.claude`, `.claude/skills`,
+  `.claude/agents` or `.claude/settings.local.json` is a link, since
+  nerve would write outside it. `nerve project rm` refuses it too.
 - **Refuses a checkout** whose project lists a skill, agent, hook or
   plugin the Brain does not offer, as `nerve check` reports it.
 - **Links** the project's skills into `.claude/skills/` and agents into

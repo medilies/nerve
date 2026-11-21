@@ -714,3 +714,38 @@ func TestSyncSaysNothingOfThePinWhenADevelopmentBuildRuns(t *testing.T) {
 		t.Errorf("a development build is told to install the pin:\n%s", r)
 	}
 }
+
+func TestSyncRefusesATreeWhereAFolderOrFileNerveWritesIsALink(t *testing.T) {
+	for _, rel := range []string{".claude/skills", ".claude/agents", ".claude/settings.local.json"} {
+		t.Run(rel, func(t *testing.T) {
+			e := newEnv(t)
+			e.listed("app", "/w/app")
+			e.trees.links["/w/app/"+rel] = "/home/me/elsewhere"
+
+			_, err := e.sync("/w/app", app.SyncOptions{})
+
+			if err == nil || len(e.trees.links) != 1 || e.settings("/w/app") != nil {
+				t.Errorf("got %v, links %v, settings %v: want the tree left as it is", err, e.trees.links, e.settings("/w/app"))
+			}
+		})
+	}
+}
+
+func TestCleaningATreeWhoseSettingsFileIsALinkLeavesItAndSaysSo(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	written := e.settings("/w/app")
+	delete(e.trees.settings, "/w/app/.claude/settings.local.json")
+	e.trees.links["/w/app/.claude/settings.local.json"] = "/home/me/dot/settings.json"
+	e.trees.settings["/home/me/dot/settings.json"] = written
+
+	err := e.app.RemoveProject("app", &recorder{})
+
+	if err == nil || !strings.Contains(err.Error(), ".claude/settings.local.json is a link") {
+		t.Errorf("got %v, want the link named", err)
+	}
+	if _, kept := e.trees.links["/w/app/.claude/settings.local.json"]; !kept || e.project("app") == nil {
+		t.Errorf("project rm went on through a link")
+	}
+}
