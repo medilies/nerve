@@ -4,9 +4,8 @@ Behaviour a review may take for a bug, kept on purpose. A review lists what it f
 
 ## Git and the Brain
 
-- **A Brain ahead of its remote pulls nothing, and says nothing.** There is nothing to pull; `status` shows what is not pushed.
 - **A global credential helper that opens a window is not stopped.** nerve stops git, ssh and askpass prompts; a helper with its own window is the user's choice.
-- **`check` and `skill update` need HOME.** The machine adapter finds its folder at startup. A Brain with a source needs the cache folder anyway, and CI runners set HOME.
+- **`check` and `update` need HOME.** The machine adapter finds its folder at startup. A Brain with a source needs the cache folder anyway, and CI runners set HOME.
 
 ## Checkouts and links
 
@@ -16,6 +15,9 @@ Behaviour a review may take for a bug, kept on purpose. A review lists what it f
 - **A checkout path reached through a link** in a hand-written machine file is not found. `project add` lists the path git gives, with links followed.
 - **A link is removed, then made again**, not swapped at once. A run that dies between the two leaves no link, and the next sync makes it.
 - **Writes follow a link at `brain.toml`**, and make a missing folder it points into. The Brain is the user's own; only a checkout's files are refused as links.
+- **The nerve skill is written through a link someone put at its `SKILL.md` in the cache.** The cache is the user's own, as the Brain is, and a fetched source holds no links.
+- **A relative link target holding `..` is read as written**, not through the links on its way. Only a hand-made link at `brain.toml` or in nerve's folders can hold one.
+- **After a move, an own skill whose `SKILL.md` cannot be read keeps its link at `project rm`.** nerve cannot tell its link from the user's; `check` reports the skill.
 - **Changes to the exclude block are not reported.** sync.md says links are kept out of git by it, and it follows them.
 
 ## Machine files and runs
@@ -27,20 +29,16 @@ Behaviour a review may take for a bug, kept on purpose. A review lists what it f
 - **An existing `settings.local.json` keeps its mode.** Only a file nerve makes is for the user only.
 - **`main.go` ignores the machine file's load error in `onMachine`.** Every use case loads it again and reports it.
 
-## Settings and secrets
+## Settings
 
-- **A URL with a user and no password passes**, such as `https://user@host`. A pattern for it would flag `ssh://git@github.com`. An email is refused as one.
-- **A key named like a secret is refused, even when it holds none**, such as `maxTokens`. Refusing too much keeps a secret out of a public Brain; the setting goes to the local overlay.
-- **Basic auth in unpadded base64 passes.** HTTP basic auth is padded.
 - **An overlay can add items to a Brain list, but not take one out.** Arrays join without repeats, as sync.md says.
-- **`nerve = ""` counts as no pin.**
 
 ## Sources
 
 - **nerve looks for a skill in fixed places**, not the whole repo: the root, `skills/<name>/`, `<name>/`, or where `path` says.
 - **A source's cache is trusted by its folder, and never evicted.** It is renamed into place whole, and named by its commit.
 - **A fetch checks out the whole repo, under git's two-minute bound.** A repo too big for it fails each time and caches nothing.
-- **`skill update` reads the whole diff before cutting it** at 256 KiB.
+- **`update` reads the whole diff before cutting it** at 256 KiB.
 
 ## Skills and frontmatter
 

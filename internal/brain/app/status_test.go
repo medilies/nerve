@@ -21,9 +21,8 @@ func TestStatusShowsTheProjectItsLinksAndDriftWithoutChangingIt(t *testing.T) {
 	e.must(r, e.app.Status(target("/w/app"), r))
 
 	contains(t, r,
-		"nerve    v0.3.0",
 		"brain    /brain",
-		"project  app: autosync on, 1 setting",
+		"project  app: 1 setting",
 		"checkout /w/app (app): synced at aaaaaaa",
 		"skill nerve linked as .claude/skills/nerve",
 		"agent team the team's",
@@ -40,7 +39,7 @@ func TestStatusOutsideACheckoutListsTheProjects(t *testing.T) {
 
 	e.must(r, e.app.Status(target("/elsewhere"), r))
 
-	contains(t, r, "project  app: autosync on", "checkout /w/app (app): never synced")
+	contains(t, r, "project  app: lists nothing yet", "checkout /w/app (app): never synced")
 }
 
 func TestStatusWithoutAMachineFileSaysSo(t *testing.T) {
@@ -50,7 +49,7 @@ func TestStatusWithoutAMachineFileSaysSo(t *testing.T) {
 
 	err := e.app.Status(target("/w"), r)
 
-	if err == nil || !strings.Contains(err.Error(), "run nerve init") || r.String() != "nerve    v0.3.0" {
+	if err == nil || !strings.Contains(err.Error(), "run nerve init") || r.String() != "" {
 		t.Errorf("got %v\n%s", err, r)
 	}
 }
@@ -168,10 +167,10 @@ func TestCheckRefusesAProjectSettingThatEqualsCommon(t *testing.T) {
 	}
 }
 
-func TestCheckRefusesSensitiveValues(t *testing.T) {
+func TestCheckRefusesASettingNoListAllows(t *testing.T) {
 	e := newEnv(t)
 	e.brain.m.Common = map[string]any{"apiKeyHelper": "x"}
-	if out := check(t, e); !strings.Contains(out, "common.settings.apiKeyHelper: apiKeyHelper may hold secrets") {
+	if out := check(t, e); !strings.Contains(out, "common.settings.apiKeyHelper: not an allowed setting") {
 		t.Errorf("check says:\n%s", out)
 	}
 	if err := e.app.Check(&recorder{}); err == nil || err.Error() != "1 problem" {
@@ -205,21 +204,7 @@ func TestStatusOfAProjectReportsEachOfItsCheckouts(t *testing.T) {
 	contains(t, r, "checkout /w/p1 (app): never synced", "checkout /w/p2 (app): never synced")
 }
 
-func TestStatusSaysNothingOfThePinToADevelopmentBuild(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app")
-	e.brain.m.Nerve = "v0.4.0"
-	e.self.version = "(devel)"
-	r := &recorder{}
-
-	e.must(r, e.app.Status(target("/w/app"), r))
-
-	if strings.Contains(r.String(), "install") {
-		t.Errorf("tells a development build to install the pin:\n%s", r)
-	}
-}
-
-func TestStatusReportsAListedSkillThatIsNotLinked(t *testing.T) {
+func TestStatusCountsAListedSkillThatIsNotLinkedAsWaiting(t *testing.T) {
 	e := newEnv(t)
 	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
 	e.listed("app", "/w/app").Skills = []string{"grilling"} // which the source does not serve
@@ -228,7 +213,7 @@ func TestStatusReportsAListedSkillThatIsNotLinked(t *testing.T) {
 
 	e.must(r, e.app.Status(target("/w/app"), r))
 
-	contains(t, r, "problem  /w/app/.claude/skills/grilling: listed, but not linked: nerve sync --here says why")
+	contains(t, r, "checkout /w/app (app): synced at aaaaaaa; 1 change waits for nerve sync")
 }
 
 func TestStatusSaysDriftFromTheOverlayIsTheOverlays(t *testing.T) {
@@ -242,4 +227,17 @@ func TestStatusSaysDriftFromTheOverlayIsTheOverlays(t *testing.T) {
 	e.must(r, e.app.Status(target("/w/app"), r))
 
 	contains(t, r, `drift    model is "sonnet" here, "opus" in the local overlay`)
+}
+
+func TestStatusCountsWhatWaitsForASync(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go-stack")
+	p := e.listed("app", "/w/app")
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	p.Skills, p.Settings = []string{"go-stack"}, map[string]any{"model": "opus"}
+	r := &recorder{}
+
+	e.must(r, e.app.Status(target("/w/app"), r))
+
+	contains(t, r, "checkout /w/app (app): synced at aaaaaaa; 2 changes wait for nerve sync")
 }

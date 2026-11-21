@@ -8,10 +8,8 @@ cd $HOME
 exec nerve skill add go-stack --project app
 exec nerve setting set model opus --project=app
 
-exec nerve skill ls --project app
-stdout 'skill go-stack own'
-exec nerve setting ls --project app
-stdout 'model = "opus"  \(project\)'
+exec nerve status --project app
+stdout '^project  app: 1 skill, 1 setting$'
 
 -- brain/skills/go-stack/SKILL.md --
 ---

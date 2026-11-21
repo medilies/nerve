@@ -6,7 +6,8 @@
 - `domain` holds the Brain and its rules. `app` holds the use cases, the events they report and the ports they need. `infra` holds every adapter, such as `brain.toml`, the machine file, git, caches, links and reports. A new adapter needs a port in `app` first.
 - Minimalism: add only what is needed now. No speculative abstractions, unused dependencies or placeholder files. Ideas wait in `docs/backlog.md`.
 - Only where needed ([ADR 0005](docs/adr/0005-projects-opt-in.md)): nerve writes only in listed projects, never at user level, and only what their entry names. Every effect is visible and reported. It removes only what it made, and never edits `.gitignore`.
-- Nothing sensitive in the Brain: no secrets, paths, repo remotes, client or employer names, or account emails. Those stay in this machine's files.
+- Explicit verbs ([ADR 0009](docs/adr/0009-explicit-verbs.md)): nerve changes the Brain, its remote or a project only when a command says so; otherwise it reports. `sync` brings the remote here, `push` sends the Brain there, `update` moves pins.
+- nerve writes nothing of this machine into the Brain: no checkout paths or repo remotes, which stay in this machine's files. What an allowed setting holds is the user's to judge.
 
 ## Ubiquitous language
 
@@ -37,7 +38,7 @@ If your output contradicts an ADR in `docs/adr/`, say so explicitly rather than 
   - this file
 - Before committing, grep the docs for each command, flag, `brain.toml` key, file and identifier the change renames or removes.
 - Each fact lives in one doc, and the others link to it:
-  - Users: the README (what nerve is, install, usage), `brain.md` (`brain.toml`, this machine, checking a Brain), `sync.md` (what sync writes, autosync, drift).
+  - Users: the README (what nerve is, install, usage), `brain.md` (`brain.toml`, this machine, checking a Brain), `sync.md` (what sync and push do, the session report, drift).
   - Agents in users' projects: the nerve skill.
   - Contributors: `development.md` (commands, design, releasing), `backlog.md` (ideas left out), `not-bugs.md` (behaviour kept on purpose).
   - Agents here: this file.

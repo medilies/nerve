@@ -84,8 +84,8 @@ func TestSessionsStartingAtOnceReadAWholeSkill(t *testing.T) {
 
 func TestCommandQuotesAPathTheShellWouldSplit(t *testing.T) {
 	for path, want := range map[string]string{
-		"/home/u/go/bin/nerve": "/home/u/go/bin/nerve sync --here --hook",
-		"/opt/my tools/nerve":  "'/opt/my tools/nerve' sync --here --hook",
+		"/home/u/go/bin/nerve": "/home/u/go/bin/nerve status --hook",
+		"/opt/my tools/nerve":  "'/opt/my tools/nerve' status --hook",
 	} {
 		n := Nerve{Path: func() (string, error) { return path, nil }}
 		if got, _ := n.Command(); got != want {
@@ -116,13 +116,7 @@ func TestCommandKeepsTheLinkNerveRunsThrough(t *testing.T) {
 
 	out, err := run.Output()
 
-	if want := "command: " + link + " sync --here --hook (<nil>)\n"; err != nil || !strings.Contains(string(out), want) {
+	if want := "command: " + link + " status --hook (<nil>)\n"; err != nil || !strings.Contains(string(out), want) {
 		t.Errorf("got %q (%v), want %q", out, err, want)
-	}
-}
-
-func TestVersionFallsBackToTheBuildInfo(t *testing.T) {
-	if Version("v1.2.3") != "v1.2.3" || Version("") == "" {
-		t.Errorf("versions %q, %q", Version("v1.2.3"), Version(""))
 	}
 }

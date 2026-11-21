@@ -28,12 +28,7 @@ func (LocalTrees) Locate(dir string) (domain.Tree, error) {
 	if err != nil {
 		return domain.Tree{}, err
 	}
-	c := filepath.Clean(trim(common))
-	t := domain.Tree{Top: filepath.Clean(trim(top)), Main: filepath.Clean(trim(top)), Repo: c}
-	if filepath.Base(c) == ".git" {
-		t.Main = filepath.Dir(c)
-	}
-	return t, nil
+	return domain.Tree{Top: filepath.Clean(trim(top)), Repo: filepath.Clean(trim(common))}, nil
 }
 
 func (LocalTrees) Exists(path string) bool { return fileExists(path) }

@@ -81,6 +81,10 @@ func replace(path string, b []byte, who access) error {
 		_ = f.Close()
 		return err
 	}
+	if err := f.Sync(); err != nil { // whole on disk before it takes the name
+		_ = f.Close()
+		return err
+	}
 	if err := f.Close(); err != nil {
 		return err
 	}
@@ -238,16 +242,8 @@ func shortenHome(path string) string {
 }
 
 // gitTimeout bounds one git command, so a stalled network never holds a
-// session start for long.
+// run for long.
 const gitTimeout = 2 * time.Minute
-
-// deadline, when set, bounds every git command of this run, whatever its
-// own timeout: autosync must finish before Claude Code stops waiting.
-var deadline time.Time
-
-// SetDeadline makes every git command of this run stop by t; the zero time
-// lifts the bound.
-func SetDeadline(t time.Time) { deadline = t }
 
 // repoEnv are the variables that point git at one repo, as a git hook sets
 // them; nerve names each repo by its folder instead.
@@ -281,9 +277,8 @@ func exitCode(err error) int {
 }
 
 // git runs git in dir, and returns what it printed, even when it fails. It
-// never asks for a password, since autosync runs it with no one to answer:
-// it has no terminal or display, and runs no askpass helper, nor ssh's, so
-// a remote that needs one fails. The user's own ssh command is kept. It
+// never asks for a password: it has no terminal or display, and runs no
+// askpass helper, nor ssh's, so a remote that needs one fails. The user's own ssh command is kept. It
 // stops after gitTimeout.
 func git(dir string, args ...string) (string, error) { return gitWithin(gitTimeout, dir, args...) }
 
@@ -291,11 +286,6 @@ func git(dir string, args ...string) (string, error) { return gitWithin(gitTimeo
 func gitWithin(timeout time.Duration, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	late := !deadline.IsZero() && deadline.Before(time.Now().Add(timeout))
-	if late {
-		ctx, cancel = context.WithDeadline(ctx, deadline)
-		defer cancel()
-	}
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.askPass="}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool {
@@ -308,10 +298,7 @@ func gitWithin(timeout time.Duration, dir string, args ...string) (string, error
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		switch {
-		case ctx.Err() != nil && late:
-			return stdout.String(), fmt.Errorf("git %s: out of time for this run", subcommand(args))
-		case ctx.Err() != nil:
+		if ctx.Err() != nil {
 			return stdout.String(), fmt.Errorf("git %s: no answer after %s", subcommand(args), timeout)
 		}
 		var exit *exec.ExitError

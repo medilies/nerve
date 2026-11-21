@@ -67,20 +67,6 @@ func TestAddItemRefusesWhatTheBrainDoesNotOffer(t *testing.T) {
 	}
 }
 
-func TestAddItemRefusesAnIdentifyingName(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app")
-
-	err := e.app.AddItem(target("/w/app"), "plugin", "tool@bob.io", &recorder{})
-
-	if err == nil || err.Error() != `plugin "tool@bob.io" holds an email address, so it cannot go in the Brain: enable it on this machine only with nerve setting set 'enabledPlugins."tool@bob.io"' true` {
-		t.Errorf("got %v", err)
-	}
-	if e.brain.saves != 0 {
-		t.Errorf("the Brain was saved")
-	}
-}
-
 func TestRemoveItemFromTheProjectOrEveryProject(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app").Skills = []string{"go-stack", "tdd"}
@@ -105,65 +91,6 @@ func TestRemoveItemFromTheProjectOrEveryProject(t *testing.T) {
 	}
 }
 
-func TestListItemsShowsLinksAndTheTeamsOwn(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app").Skills = []string{"go-stack", "grilling"}
-	e.ownSkill("go-stack")
-	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
-	e.sources.skills["acme/up@"+pinA+"/grilling"] = domain.Skill{Name: "grilling", Dir: "/cache/grilling"}
-	e.trees.mkdirs("/w/app/.claude/skills/go-stack")
-	e.trees.files["/w/app/.claude/skills/go-stack/SKILL.md"] = true
-	e.must(e.sync("/w/app", app.SyncOptions{}))
-	r := &recorder{}
-
-	e.must(r, e.app.ListItems(target("/w/app"), "skill", r))
-
-	contains(t, r,
-		"skill go-stack own, not linked: the team has .claude/skills/go-stack",
-		"skill grilling from acme/up@5863806, linked as .claude/skills/grilling",
-		"skill nerve nerve's own",
-		"skill go-stack the team's")
-}
-
-func TestUpdatePinShowsEachSkillsDiffThenMovesThePin(t *testing.T) {
-	e := newEnv(t)
-	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
-	e.sources.heads["acme/up"] = pinB
-	e.sources.skills["acme/up@"+pinB+"/grilling"] = domain.Skill{}
-	r := &recorder{}
-
-	e.must(r, e.app.UpdatePin("https://github.com/acme/up.git", "", r))
-
-	if len(e.brain.moved) != 1 || e.brain.moved[0] != [2]string{pinA, pinB} {
-		t.Errorf("moved %v", e.brain.moved)
-	}
-	contains(t, r, "diff grilling 5863806..84b741e", "pinned   acme/up at "+pinB)
-
-	r = &recorder{}
-	e.must(r, e.app.UpdatePin("acme/up", pinB, r))
-	contains(t, r, "acme/up is already pinned at "+pinB)
-
-	for repo, want := range map[string]string{"acme/other": "acme/other is not a source in brain.toml"} {
-		if err := e.app.UpdatePin(repo, "", &recorder{}); err == nil || err.Error() != want {
-			t.Errorf("got %v", err)
-		}
-	}
-	if err := e.app.UpdatePin("acme/up", "main", &recorder{}); err == nil || !strings.Contains(err.Error(), "full 40-character") {
-		t.Errorf("got %v", err)
-	}
-}
-
-func TestUpdatePinRefusesAPinThatDropsASkill(t *testing.T) {
-	e := newEnv(t)
-	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
-
-	err := e.app.UpdatePin("acme/up", pinB, &recorder{})
-
-	if err == nil || !strings.Contains(err.Error(), "drop it from brain.toml first") || len(e.brain.moved) > 0 {
-		t.Errorf("got %v, moved %v", err, e.brain.moved)
-	}
-}
-
 func TestRemoveItemWhoseBrainSaveFailsReportsNothingDropped(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app").Skills = []string{"go-stack"}
@@ -179,38 +106,43 @@ func TestRemoveItemWhoseBrainSaveFailsReportsNothingDropped(t *testing.T) {
 	}
 }
 
-func TestListItemsShowsOnlyMarkdownFilesAsTheTeamsAgents(t *testing.T) {
+func TestUpdateShowsEachSkillsDiffThenMovesThePin(t *testing.T) {
 	e := newEnv(t)
-	e.listed("app", "/w/app")
-	e.must(e.sync("/w/app", app.SyncOptions{}))
-	e.trees.files["/w/app/.claude/agents/team.md"] = true
-	e.trees.frontmatter["/w/app/.claude/agents/team.md"] = map[string]string{"name": "team", "description": "Reviews."}
-	e.trees.files["/w/app/.claude/agents/README.txt"] = true
-	e.trees.files["/w/app/.claude/agents/README.md"] = true // no frontmatter
+	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
+	e.sources.heads["acme/up"] = pinB
+	e.sources.skills["acme/up@"+pinB+"/grilling"] = domain.Skill{}
 	r := &recorder{}
 
-	e.must(r, e.app.ListItems(target("/w/app"), "agent", r))
+	e.must(r, e.app.Update("https://github.com/acme/up.git", r))
 
-	if strings.Contains(r.String(), "README") {
-		t.Errorf("a file that is not an agent is listed as one:\n%s", r)
+	if got := e.brain.m.Sources[0].SHA; got != pinB {
+		t.Errorf("pinned at %s", got)
 	}
-	contains(t, r, "agent team the team's")
+	contains(t, r, "diff grilling 5863806..84b741e", "pinned   acme/up at 84b741e")
+
+	r = &recorder{}
+	e.must(r, e.app.Update("", r))
+	contains(t, r, "acme/up is already pinned at "+pinB)
+
+	if err := e.app.Update("acme/other", &recorder{}); err == nil || err.Error() != "acme/other is not a source in brain.toml" {
+		t.Errorf("got %v", err)
+	}
 }
 
-func TestListItemsShowsALinkSomeonePointedElsewhereAsTheirs(t *testing.T) {
+func TestUpdateLeavesASourceThatDropsASkillAndMovesTheOthers(t *testing.T) {
 	e := newEnv(t)
-	e.ownSkill("go-stack")
-	e.listed("app", "/w/app").Skills = []string{"go-stack"}
-	e.must(e.sync("/w/app", app.SyncOptions{}))
-	e.trees.links["/w/app/.claude/skills/go-stack"] = "/home/me/my-go-stack"
-	e.trees.files["/w/app/.claude/README.md"] = true
-	e.trees.files["/w/app/.claude/skills/README.md"] = true
+	e.brain.m.Sources = []domain.Source{
+		{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}},
+		{Repo: "acme/other", SHA: pinA, Skills: []string{"tdd"}},
+	}
+	e.sources.heads["acme/up"], e.sources.heads["acme/other"] = pinB, pinB
+	e.sources.skills["acme/other@"+pinB+"/tdd"] = domain.Skill{}
 	r := &recorder{}
 
-	e.must(r, e.app.ListItems(target("/w/app"), "skill", r))
+	err := e.app.Update("", r)
 
-	contains(t, r, "skill go-stack own, not linked: yours at .claude/skills/go-stack", "skill go-stack yours")
-	if strings.Contains(r.String(), "the team") || strings.Contains(r.String(), "README") {
-		t.Errorf("lists a link or a file as the team's:\n%s", r)
+	if err == nil || e.brain.m.Sources[0].SHA != pinA || e.brain.m.Sources[1].SHA != pinB {
+		t.Errorf("got %v, sources %v", err, e.brain.m.Sources)
 	}
+	contains(t, r, "problem  brain.toml: acme/up: at 84b741e: no skill \"grilling\"; drop it from brain.toml first")
 }

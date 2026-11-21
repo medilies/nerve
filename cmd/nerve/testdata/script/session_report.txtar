@@ -1,0 +1,27 @@
+# The session report says how the project stands, and changes nothing. Sync
+# writes the hook that runs it, and that hook runs from anywhere in the
+# project.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+exec nerve skill add go-stack
+
+exec nerve status --hook
+stdout '^\{"systemMessage":"nerve: checkout [^"]*/proj \(app\): never synced; 2 changes wait for nerve sync"\}$'
+! exists .claude
+
+exec nerve sync --here
+grep '"command": "[^"]* status --hook"' .claude/settings.local.json
+
+mkdir src
+cd src
+exec sh -c 'eval "$(sed -n "s/.*\"command\": \"\(.*\)\",*$/\1/p" ../.claude/settings.local.json)"'
+stdout '^\{"systemMessage":"nerve: checkout [^"]*/proj \(app\): synced at an uncommitted Brain"\}$'
+! stderr .
+
+-- brain/skills/go-stack/SKILL.md --
+---
+name: go-stack
+description: Does go-stack.
+---

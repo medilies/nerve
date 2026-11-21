@@ -235,15 +235,3 @@ func TestGitIgnoresTheRepoAGitHookPointsAt(t *testing.T) {
 		t.Errorf("git ran in %q (%v), want %s", trim(top), err, inner)
 	}
 }
-
-func TestGitStopsAtTheRunsDeadline(t *testing.T) {
-	e := newTestEnv(t)
-	SetDeadline(time.Now().Add(-time.Second))
-	t.Cleanup(func() { SetDeadline(time.Time{}) })
-
-	_, err := git(e.path("."), "-c", "x.y=z", "version")
-
-	if err == nil || err.Error() != "git version: out of time for this run" {
-		t.Errorf("got %v, want git version stopped", err)
-	}
-}

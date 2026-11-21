@@ -28,12 +28,10 @@ func (m Machine) CheckoutAt(dir string) (Checkout, bool) {
 	return Checkout{}, false
 }
 
-// Tree is a git working tree: where nerve writes (Top), the main checkout
-// it belongs to (Main), which differs in a linked worktree, and the git
-// folder its worktrees share (Repo), with their info/exclude.
+// Tree is a git working tree: where nerve writes (Top), and the git folder
+// its worktrees share (Repo), with their info/exclude.
 type Tree struct {
 	Top  string
-	Main string
 	Repo string
 }
 

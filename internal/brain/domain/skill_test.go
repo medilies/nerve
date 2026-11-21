@@ -129,3 +129,33 @@ func TestParseFrontmatterKeepsAHashLineInsideABlock(t *testing.T) {
 		}
 	}
 }
+
+func TestParseFrontmatterReadsAQuotedValueThatLooksLikeABlock(t *testing.T) {
+	meta, err := domain.ParseFrontmatter("SKILL.md", "---\nname: \"> x\"\ndescription: '| y'\n---\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta["name"] != "> x" || meta["description"] != "| y" {
+		t.Errorf("read %q", meta)
+	}
+}
+
+func TestParseFrontmatterTakesATabBeforeHashForAComment(t *testing.T) {
+	meta, err := domain.ParseFrontmatter("SKILL.md", "---\nname: a\t# c\n---\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta["name"] != "a" {
+		t.Errorf("name is %q", meta["name"])
+	}
+}
+
+func TestParseFrontmatterReadsAnEscapedBackslashBeforeASlash(t *testing.T) {
+	meta, err := domain.ParseFrontmatter("SKILL.md", "---\nname: \"a\\\\/b\\/c\"\n---\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta["name"] != `a\/b/c` {
+		t.Errorf("name is %q", meta["name"])
+	}
+}

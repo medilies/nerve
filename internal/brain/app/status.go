@@ -1,28 +1,23 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
-// Status says which nerve runs, where the Brain is and what it holds that is
-// not pushed, and how the target project stands: autosync, links, the
-// team's skills, and drift. Outside a listed checkout, it lists the projects
-// instead.
+// Status says where the Brain is and what it holds that is not pushed, and
+// how the target project stands: what waits for a sync, links, the team's
+// skills, and drift. Outside a listed checkout, it lists the projects
+// instead. It changes nothing.
 func (a App) Status(ref ProjectRef, r Reporter) error {
 	machine, err := a.Machine.Load()
 	if err != nil {
-		r.Add(Event{Kind: EvVersion, Detail: a.Self.Version()})
 		return err
 	}
 	m, err := a.Brain.Load()
-	v := Event{Kind: EvVersion, Detail: a.Self.Version()}
-	if domain.TagPattern.MatchString(v.Detail) { // a development build is left be
-		v.Target = m.Nerve
-	}
-	r.Add(v)
 	if err != nil {
 		return err
 	}
@@ -62,33 +57,48 @@ func (a App) Status(ref ProjectRef, r Reporter) error {
 	return nil
 }
 
-// treeStatus says how one working tree of project name stands: its sync
-// state, links, the team's skills and agents, and drift.
+// treeStatus says how one checkout of project name stands: its sync state
+// and what waits for a sync, links, the team's skills and agents, and drift.
 func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir string, r Reporter) error {
-	r.Add(Event{Kind: EvCheckout, Path: dir, Project: name, Detail: a.syncState(dir, a.Brain.Head())})
 	st, err := a.Machine.State(dir)
+	if errors.Is(err, ErrUnreadable) {
+		r.Add(Event{Kind: EvProblem, Path: dir, Detail: err.Error() + ": nerve sync replaces it"})
+		st, err = domain.TreeState{Path: dir, Links: map[string]domain.Link{}}, nil
+	}
 	if err != nil {
 		return err
 	}
+	var events []Event
+	pending := 0 // links and settings a sync would change
+	wanted := map[string]bool{"skill nerve": true}
+	for _, kind := range []string{"skill", "agent"} {
+		for _, n := range *p.List(kind) {
+			wanted[kind+" "+n] = true
+		}
+	}
 	linked := map[string]bool{}
 	for _, rel := range domain.SortedKeys(st.Links) {
-		linked[st.Links[rel].Item()] = true
-		r.Add(Event{Kind: EvItem, Project: name, Item: st.Links[rel].Item(), Detail: "linked as " + rel})
+		l := st.Links[rel]
+		linked[l.Item()] = true
+		if !wanted[l.Item()] {
+			pending++
+		}
+		events = append(events, Event{Kind: EvItem, Project: name, Item: l.Item(), Detail: "linked as " + rel})
 	}
-	// A listed item with nothing in its place: one sync could not link,
-	// such as a skill it could not fetch.
+	// A listed item with nothing in its place waits for a sync, which links
+	// it or says why not.
 	for _, kind := range []string{"skill", "agent"} {
 		for _, n := range *p.List(kind) {
 			l := domain.Link{Kind: kind, Name: n}
-			if path := filepath.Join(dir, l.Rel()); !linked[l.Item()] && !a.Trees.Present(path) {
-				r.Add(Event{Kind: EvProblem, Path: path, Detail: "listed, but not linked: nerve sync --here says why"})
+			if !linked[l.Item()] && !a.Trees.Present(filepath.Join(dir, l.Rel())) {
+				pending++
 			}
 		}
 	}
 	for _, kind := range []string{"skill", "agent"} {
 		for _, e := range a.othersItems(dir, kind, st) {
 			e.Project = name
-			r.Add(e)
+			events = append(events, e)
 		}
 	}
 	cmd, err := a.Self.Command()
@@ -105,6 +115,18 @@ func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir s
 		return err
 	}
 	rc := domain.Reconcile(current, st.Settings, domain.Want(m, p, cmd, overlay, a.Brain.Root()), false)
+	pending += len(rc.Changes)
+	detail := syncState(st, a.Brain.Head())
+	switch {
+	case pending == 1:
+		detail += "; 1 change waits for nerve sync"
+	case pending > 1:
+		detail += fmt.Sprintf("; %d changes wait for nerve sync", pending)
+	}
+	r.Add(Event{Kind: EvCheckout, Path: dir, Project: name, Detail: detail})
+	for _, e := range events {
+		r.Add(e)
+	}
 	for _, c := range rc.Drift {
 		e := driftEvent(path, c)
 		if domain.FromOverlay(c, overlay) {

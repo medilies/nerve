@@ -1,0 +1,14 @@
+# The session report always hands Claude Code one short message, even for a
+# command line nerve refuses.
+
+exec nerve status --hook extra
+stdout '"systemMessage":"nerve: error: nerve does not know this command line: status --hook extra; run nerve help'
+! stdout 'init <brain>'
+! stderr .
+
+exec nerve status --hook --project
+stdout '"systemMessage":"nerve: error: --project needs a project name; run nerve help'
+! stderr .
+
+exec nerve status --hook --json
+stdout '"systemMessage":"nerve: error: --hook and --json each say how to print: pass one; run nerve help'

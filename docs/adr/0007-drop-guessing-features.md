@@ -1,6 +1,6 @@
 # Drop write-back, owner-prefixed links and self-upgrade
 
-Status: accepted, 2026-11-21. Supersedes, in [ADR 0005](0005-projects-opt-in.md), the bullets on deleting a link and on a name the team has.
+Status: accepted, 2026-11-21. Supersedes, in [ADR 0005](0005-projects-opt-in.md), the bullets on deleting a link and on a name the team has The `nerve` pin it kept is dropped by [ADR 0009](0009-explicit-verbs.md).
 
 ## Context
 

@@ -46,7 +46,7 @@ A symlink nerve makes in a project's `.claude/` to one skill folder or agent fil
 _Avoid_: copy, install
 
 **Pin**:
-The exact commit a third-party skill, or the Nervous system itself, is used at.
+The exact commit a third-party skill is used at.
 _Avoid_: version, lock
 
 **Project**:
@@ -54,38 +54,54 @@ An entry in a Brain naming what one codebase gets from it; nothing reaches a pro
 _Avoid_: repo, workspace
 
 **Checkout**:
-A project's working tree on one machine, linked to its project in the machine's own file, never in the Brain.
+A project's working tree on one machine, a git worktree included, linked to its project in the machine's own file, never in the Brain.
 _Avoid_: clone, path
 
 **Brain checkout**:
-The Brain's own working tree on one machine, named in the machine file, from which nerve reads and pulls; not a project's checkout.
+The Brain's own working tree on one machine, named in the machine file; sync makes it equal to its remote, and push sends it there; not a project's checkout.
 
 **Machine file**:
 `config.toml` in nerve's config folder: this machine's Brain checkout and each checkout's project, never in the Brain.
 _Avoid_: config, settings
 
-**Working tree**:
-Where nerve writes in a project: a checkout, or a git worktree of one, which shares the checkout's project and `info/exclude`.
-_Avoid_: workspace
+**Sync**:
+Bringing the remote to this machine: the Brain checkout made equal to its remote, then carried into each listed checkout.
+_Avoid_: pull, install
+
+**Push**:
+Bringing this machine to the remote: everything in the Brain checkout committed, then force-pushed.
+_Avoid_: publish, upload
+
+**Update**:
+Moving each source's pin to its latest commit, after showing how its skills changed.
+_Avoid_: upgrade, bump
+
+**State**:
+What nerve last did to one checkout: its links, the settings it wrote, and what the file held before; kept in nerve's config folder, never in the project.
+_Avoid_: cache, lock
+
+**Exclude block**:
+The marked lines nerve keeps in a repo's `info/exclude`, which hide its links from git.
+_Avoid_: gitignore
 
 **Common settings**:
 Settings every listed project gets; the only thing a Brain gives to more than one project at once.
 _Avoid_: base, defaults, global
 
 **Allowed setting**:
-A settings key a Brain may hold: one nerve allows on its own, or one the Brain's `allowed-settings` adds; any other stays in a local overlay, and a key that may hold secrets is never allowed.
+A settings key a Brain may hold: one nerve allows on its own, or one the Brain's `allowed-settings` adds; any other stays in a local overlay.
 _Avoid_: whitelist, safe setting
 
-**Autosync**:
-The session-start hook that brings a project in step with its Brain and hands the user a report.
-_Avoid_: auto-update
+**Session report**:
+The session-start hook in every listed project: it says how the project stands against the Brain, its drift and problems, and changes nothing.
+_Avoid_: autosync, auto-update
 
 **Report**:
-What a command says it did and found, one event at a time: links made or removed, settings set or revoked, drift, problems; autosync shows it to the user as one message.
+What a command says it did and found, one event at a time: links made or removed, settings set or revoked, drift, problems; the session report shows it to the user as one message.
 _Avoid_: log, output
 
 **Local overlay**:
-A project's settings kept on one machine and never in the Brain, for anything sensitive or identifying, or that `brain.toml` cannot hold.
+A project's settings kept on one machine and never in the Brain: those the Brain does not allow, and anything `brain.toml` cannot hold.
 _Avoid_: secrets file, private settings
 
 **Drift**:

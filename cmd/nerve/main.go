@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/medilies/nerve/internal/brain/app"
 	"github.com/medilies/nerve/internal/brain/domain"
@@ -23,37 +22,36 @@ import (
 const usage = `usage: nerve <command>
 
   init <brain>                 write this machine's file, naming the Brain's checkout
-  sync [--here] [--discard]    pull the Brain and carry it to each checkout this machine lists
+  sync [--here] [--discard]    make the Brain its remote's, dropping local commits and changes,
+                               then carry it to each checkout this machine lists
                                (--here: only the one around the working directory);
                                --discard drops drift: settings the Brain sets, changed here
-  status                       the Brain, and the project around the working directory
+  push [<message>]             commit everything in the Brain, then force-push it to its remote
+  update [<repo>]              show how each source's skills changed, then pin its latest commit
+  status                       the Brain, and how the project around the working directory stands
   check                        validate the Brain (run by its CI)
 
   project add <name>           list this checkout as project <name>
   project ls                   the projects, and their checkouts on this machine
   project rm <name>            clean its checkouts here, and drop it from the Brain
-  project autosync on|off      sync at each session start in the project (--all: the Brain's default)
 
   skill add|rm <name>          add a skill to the project, or take it out (rm --all: out of every project)
-  skill ls                     the project's skills, and the team's
-  skill update <repo> [sha]    show how a source's skills changed since their pin, then move it
-  agent add|rm <name>, agent ls                      the same for own agents
-  hook add|rm <name>, hook ls                        the same for hooks defined in the Brain
-  plugin add|rm <plugin>@<marketplace>, plugin ls    the same for Claude Code plugins
+  agent add|rm <name>          the same for own agents
+  hook add|rm <name>           the same for hooks defined in the Brain
+  plugin add|rm <plugin>@<marketplace>   the same for Claude Code plugins
 
   setting set <key> <value>    set a setting in the project (--common: in common, for every project); value is JSON or text
   setting add <key> <value>    add one item to a list setting in the project (--common: in common)
   setting rm <key>[=<value>]   remove a setting, or one item of a list, from the project and its local overlay
                                (--common: from common; --all: from common, every project and their overlays)
-  setting ls                   the project's settings, and where each comes from
 
   help, --help, -h             print this
 
-status, project autosync, and the skill, agent, hook, plugin and setting commands act on the
-project around the working directory; --project <name> names another.
+status, and the skill, agent, hook, plugin and setting commands act on the project around the
+working directory; --project <name> names another.
 A key that holds a dot is written in double quotes: enabledPlugins."x@y.z".
 -- ends the flags, so a value after it may start with --.
-Commands that change the Brain edit brain.toml and never commit.
+Commands that change the Brain edit brain.toml; push commits them.
 --json, with any command, prints one JSON document of its events and error instead of text.
 `
 
@@ -63,9 +61,6 @@ Commands that change the Brain edit brain.toml and never commit.
 //go:embed skill/SKILL.md
 var selfSkill []byte
 
-// version is set at release time.
-var version string
-
 // errUsage is a command line nerve does not know; it prints the usage.
 var errUsage = errors.New(strings.TrimSpace(usage))
 
@@ -73,7 +68,7 @@ var errUsage = errors.New(strings.TrimSpace(usage))
 type flags struct {
 	project                    string
 	all, common, here, discard bool
-	hook                       bool     // autosync: print the report as a hook's output
+	hook                       bool     // the session report: print status as a hook's output
 	json                       bool     // print one JSON document
 	help                       bool     // print the usage
 	given                      []string // each flag given, as written
@@ -83,12 +78,15 @@ type flags struct {
 func parseFlags(args []string) ([]string, flags, error) {
 	var f flags
 	var pos []string
+	noProject := false // --project with no name, refused unless help is asked
+words:
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		name, _, _ := strings.Cut(a, "=")
 		switch {
 		case a == "--":
-			return append(pos, args[i+1:]...), f, nil
+			pos = append(pos, args[i+1:]...)
+			break words
 		case a == "--help" || a == "-h":
 			f.help = true
 		case a == "--json":
@@ -116,10 +114,11 @@ func parseFlags(args []string) ([]string, flags, error) {
 			pos = append(pos, a)
 			continue
 		}
-		if f.project == "" && name == "--project" {
-			return nil, f, usageError("--project needs a project name")
-		}
+		noProject = noProject || f.project == "" && name == "--project"
 		f.given = append(f.given, name)
+	}
+	if noProject && !f.help {
+		return nil, f, usageError("--project needs a project name")
 	}
 	if f.hook && f.json {
 		return nil, f, usageError("--hook and --json each say how to print: pass one")
@@ -150,11 +149,6 @@ func usageError(why string) error { return fmt.Errorf("%s\n\n%w", why, errUsage)
 
 func main() { os.Exit(cli(os.Args[1:], os.Stdout, os.Stderr)) }
 
-// hookBudget bounds autosync's git commands, well under the 600 seconds
-// Claude Code gives a command hook before it cancels it and drops its
-// report.
-const hookBudget = 5 * time.Minute
-
 // cli runs nerve on args, printing to stdout and stderr, and returns its
 // exit code.
 func cli(args []string, stdout, stderr io.Writer) int {
@@ -163,10 +157,13 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	if i := slices.Index(args, "--"); i >= 0 {
 		flagArgs = args[:i]
 	}
+	word := "" // the command, wherever its flags are
+	if i := slices.IndexFunc(flagArgs, func(a string) bool { return !strings.HasPrefix(a, "-") }); i >= 0 {
+		word = flagArgs[i]
+	}
 	switch {
-	case len(args) > 0 && args[0] == "sync" && slices.Contains(flagArgs, "--hook"): // only autosync's sync
+	case word == "status" && slices.Contains(flagArgs, "--hook"): // the session report
 		mode = infra.AsHook
-		infra.SetDeadline(time.Now().Add(hookBudget))
 	case slices.Contains(flagArgs, "--json"): // even on a command line nerve refuses
 		mode = infra.AsJSON
 	}
@@ -199,7 +196,7 @@ func wire(brainDir string, machine infra.MachineFiles) app.App {
 		Sources: infra.SourceCache{},
 		Machine: machine,
 		Trees:   infra.LocalTrees{},
-		Self:    infra.Nerve{SkillMD: selfSkill, Ver: infra.Version(version), Path: infra.RanAs},
+		Self:    infra.Nerve{SkillMD: selfSkill, Path: infra.RanAs},
 	}
 }
 
@@ -255,16 +252,14 @@ func brainAround(dir string) (brain, stray string) {
 	}
 }
 
-// inCheckout says whether dir is in a checkout machine lists, or a
-// worktree of one.
+// inCheckout says whether dir is in a checkout machine lists.
 func inCheckout(m domain.Machine, dir string) bool {
 	t, err := infra.LocalTrees{}.Locate(dir)
 	if err != nil {
 		return false
 	}
-	_, top := m.CheckoutAt(t.Top)
-	_, main := m.CheckoutAt(t.Main)
-	return top || main
+	_, ok := m.CheckoutAt(t.Top)
+	return ok
 }
 
 func run(args []string, r *infra.Report) error {
@@ -311,18 +306,16 @@ func run(args []string, r *infra.Report) error {
 		return wire(brain, machine).Init(r)
 	case cmd == "check" && len(rest) == 0:
 		brainHere, do = true, func(a app.App) error { return a.Check(r) }
-	case cmd == "skill" && len(rest) > 1 && rest[0] == "update" && len(rest) <= 3:
-		sha := ""
-		if len(rest) == 3 {
-			sha = rest[2]
-		}
-		brainHere, do = true, func(a app.App) error { return a.UpdatePin(rest[1], sha, r) }
+	case cmd == "update" && len(rest) <= 1:
+		brainHere, do = true, func(a app.App) error { return a.Update(strings.Join(rest, ""), r) }
+	case cmd == "push" && len(rest) <= 1:
+		brainHere, do = true, func(a app.App) error { return a.Push(strings.Join(rest, ""), r) }
 	case cmd == "status" && len(rest) == 0:
-		allowed, do = []string{"--project"}, func(a app.App) error { return a.Status(ref, r) }
+		allowed, do = []string{"--project", "--hook"}, func(a app.App) error { return a.Status(ref, r) }
 	case cmd == "sync" && len(rest) == 0:
-		allowed = []string{"--here", "--discard", "--hook"}
+		allowed = []string{"--here", "--discard"}
 		do = func(a app.App) error {
-			return a.Sync(app.SyncOptions{Dir: wd, Here: f.here, Discard: f.discard, Hook: f.hook}, r)
+			return a.Sync(app.SyncOptions{Dir: wd, Here: f.here, Discard: f.discard}, r)
 		}
 	case cmd == "project" && len(rest) == 2 && rest[0] == "add":
 		do = func(a app.App) error { return a.AddProject(wd, rest[1], r) }
@@ -330,15 +323,10 @@ func run(args []string, r *infra.Report) error {
 		do = func(a app.App) error { return a.ListProjects(r) }
 	case cmd == "project" && len(rest) == 2 && rest[0] == "rm":
 		do = func(a app.App) error { return a.RemoveProject(rest[1], r) }
-	case cmd == "project" && len(rest) == 2 && rest[0] == "autosync" && (rest[1] == "on" || rest[1] == "off"):
-		allowed = []string{"--project", "--all"}
-		do = func(a app.App) error { return a.SetAutosync(ref, rest[1] == "on", f.all, r) }
 	case item && len(rest) == 2 && rest[0] == "add":
 		allowed, do = []string{"--project"}, func(a app.App) error { return a.AddItem(ref, cmd, rest[1], r) }
 	case item && len(rest) == 2 && rest[0] == "rm":
 		allowed, do = []string{"--project", "--all"}, func(a app.App) error { return a.RemoveItem(ref, cmd, rest[1], f.all, r) }
-	case item && len(rest) == 1 && rest[0] == "ls":
-		allowed, do = []string{"--project"}, func(a app.App) error { return a.ListItems(ref, cmd, r) }
 	case cmd == "setting" && len(rest) == 3 && rest[0] == "set":
 		allowed = []string{"--project", "--common"}
 		do = func(a app.App) error { return a.SetSetting(ref, rest[1], domain.ParseValue(rest[2]), f.common, r) }
@@ -348,8 +336,6 @@ func run(args []string, r *infra.Report) error {
 	case cmd == "setting" && len(rest) == 2 && rest[0] == "rm":
 		allowed = []string{"--project", "--common", "--all"}
 		do = func(a app.App) error { return a.RemoveSetting(ref, rest[1], f.common, f.all, r) }
-	case cmd == "setting" && len(rest) == 1 && rest[0] == "ls":
-		allowed, do = []string{"--project"}, func(a app.App) error { return a.ListSettings(ref, r) }
 	default:
 		return errUsage
 	}

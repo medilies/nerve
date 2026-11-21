@@ -1,20 +1,25 @@
 # Syncing
 
-`nerve sync` carries the Brain to every checkout this machine lists,
-and to the worktrees of them it reached before; `nerve sync --here`, to
-the one around the working directory, a worktree included.
+nerve changes a project only when you tell it to. Each direction has
+one command:
+
+- `nerve sync` brings the remote to this machine: the Brain, then every
+  checkout this machine lists. `nerve sync --here` does the one around
+  the working directory.
+- `nerve push` brings this machine to the remote.
+- At each session start, the [session report](#the-session-report) says
+  what waits for a sync. It changes nothing.
 
 ## What sync does
 
-- **Pulls the Brain**, fast-forward only. It skips the pull, and says
-  why, while tracked files have uncommitted changes, untracked files
-  stand where it would bring files, the checkout has no upstream or a
-  detached HEAD, or its remote cannot be reached or no longer has the
-  branch. It fails if the checkout has diverged.
+- **Makes the Brain its remote's.** It fetches, then resets the Brain's
+  branch and tracked files to its upstream, and says which local commits
+  and changes it dropped. Untracked files stay, but for one where the
+  remote has a file. Push first what you want to keep.
+  - It skips this, and says why, when the Brain has no upstream or a
+    detached HEAD, or its remote cannot be reached or no longer has the
+    branch. It then carries the Brain as it is.
   - It never asks for a password: a remote that needs one is skipped.
-- **Checks nerve against the Brain's pin**, and reports a release that
-  differs: install the pinned one. It never replaces itself, and says
-  nothing to a development build.
 - **Refuses a checkout** where git tracks `.claude/settings.local.json`,
   or does not ignore it: add `**/.claude/settings.local.json` to your
   global git ignore file. nerve never edits `.gitignore`.
@@ -36,34 +41,40 @@ the one around the working directory, a worktree included.
   - If the block is damaged, say its end line is gone, sync refuses
     the checkout, before it links anything, until you fix it by hand.
 - **Writes `.claude/settings.local.json`**: common settings, then the
-  project's, then its plugins (`enabledPlugins`), hooks and autosync
-  hook, then the local overlay. Objects merge key by key, arrays are
-  joined without repeats, and anything else in a later layer wins.
-  Personal settings stay, as [below](#personal-settings). A file nerve
-  makes is readable by you only, since the overlay may hold secrets.
-- **Unlists a checkout that is gone**, on a full sync, and forgets a
-  worktree that is. A worktree git cannot locate is left as it is, and
-  reported, while its project is in the Brain.
-- **Reports what it did**, with secrets and emails shown as `(hidden)`.
+  project's, then its plugins (`enabledPlugins`), hooks and the session
+  report's hook, then the local overlay. Objects merge key by key,
+  arrays are joined without repeats, and anything else in a later layer
+  wins. Personal settings stay, as [below](#personal-settings). A file
+  nerve makes is readable by you only, since the overlay may hold
+  secrets.
+- **Unlists a checkout that is gone**, on a full sync.
+- **Reports what it did.**
 
-## Autosync
+A worktree is a checkout like any other: it gets nerve once
+`nerve project add` lists it.
 
-With autosync on, the project's `settings.local.json` holds a
-`SessionStart` hook that runs `nerve sync --here --hook`. Each session
-in the project then starts in step with the Brain, and hands you a
-report: what it linked or removed, which settings it set or revoked,
-what it held back as drift, and whether it skipped the pull. When
-nothing changed, it is one line, which also says why the pull was
-skipped, if it was.
+## Push
 
+`nerve push [message]` commits everything in the Brain checkout, then
+force-pushes it to its upstream.
+
+- A change needs a message, as in `nerve push "add go-stack"`.
+- It refuses a Brain that holds a setting no list allows, as `sync`
+  does.
+- The remote's commits this machine lacks are overwritten: sync first
+  on a machine that may be behind.
+
+## The session report
+
+Every listed project's `settings.local.json` holds a `SessionStart`
+hook that runs `nerve status --hook`. Each session in the project starts
+with a short report: how the checkout stands against the Brain, how many
+changes wait for `nerve sync`, drift, and problems.
+
+- It changes nothing, and reads only this machine: commits on the
+  remote count once a sync brings them.
 - The report reaches you, not Claude's context.
-- When it links a skill, Claude Code rescans skills, so the skill is
-  usable in that session.
 - It never fails the session: an error is part of the report.
-- It gives up on git before Claude Code stops waiting. A skill it could
-  not fetch in time is reported, and comes at a later sync.
-- `nerve project autosync off`, or `--all` for the Brain's default,
-  takes the hook out at the next sync.
 
 ## Personal settings
 
@@ -77,15 +88,16 @@ or `nerve setting add`.
 A setting the checkout had before nerve first wrote its file, that the
 Brain sets the same, is the Brain's from then on, but `project rm`
 leaves it while it holds that value. A checkout that moved holds
-nerve's links: there, every setting as the Brain sets it is nerve's.
+nerve's links: there, every setting as the Brain sets it is nerve's. So
+is a checkout whose state nerve cannot read: sync reports it, and starts
+the state again.
 
 ## Drift
 
 A setting nerve wrote or the Brain sets, changed in the checkout
 since nerve last wrote it, by `/model` or `/config` say, that the Brain
 disagrees with, is drift. nerve leaves it as it is, writes the rest,
-and reports it at every sync until it is resolved. A sync by hand fails
-on drift; autosync only reports it.
+and reports it at every sync and session start. A sync fails on drift.
 
 A list is taken item by item: an item of the Brain's removed in the
 checkout is drift of that one item, and the Brain's other changes to
@@ -118,13 +130,14 @@ To resolve drift:
   another machine, is cleaned out of its checkouts: nerve's links, its
   exclude block, the settings and list items it wrote that were not
   changed since, and the folders it made that are left empty.
+  `settings.local.json` stays, if only as `{}`: nerve never deletes it.
 
 ## The team's own
 
 nerve never touches what it did not make. Where the team already has a
 skill or agent of the same name, nerve does not link yours there, and
 reports a problem: rename yours in the Brain to use it in that project.
-`nerve skill ls` shows nerve's links, the team's skills, and links you
+`nerve status` shows nerve's links, the team's skills, and links you
 made or pointed elsewhere, as yours.
 
 ## Notes

@@ -39,7 +39,7 @@ func TestRemovingAProjectKeepsTheSettingsItsCheckoutHadBefore(t *testing.T) {
 	e.checkout("/w/app")
 	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus", "env": map[string]any{"TOKEN": "x"}}
 	e.must(&recorder{}, e.app.AddProject("/w/app", "app", &recorder{}))
-	if _, err := e.sync("/w/app", app.SyncOptions{Hook: true}); err != nil {
+	if _, err := e.sync("/w/app", app.SyncOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -50,15 +50,15 @@ func TestRemovingAProjectKeepsTheSettingsItsCheckoutHadBefore(t *testing.T) {
 	}
 }
 
-func TestAddProjectFromAWorktreeListsTheMainCheckout(t *testing.T) {
+func TestAddProjectFromAWorktreeListsTheWorktree(t *testing.T) {
 	e := newEnv(t)
-	e.trees.trees = []domain.Tree{{Top: "/w/app-feature", Main: "/w/app", Repo: "/w/app/.git"}}
+	e.worktree("/w/app-feature", "/w/app")
 	r := &recorder{}
 
 	e.must(r, e.app.AddProject("/w/app-feature", "app", r))
 
-	if got := e.machine.machine.Checkouts[0].Path; got != "/w/app" {
-		t.Errorf("listed %s, want the main checkout", got)
+	if got := e.machine.machine.Checkouts[0].Path; got != "/w/app-feature" {
+		t.Errorf("listed %s, want the worktree", got)
 	}
 }
 
@@ -109,7 +109,7 @@ func TestListProjectsShowsEachCheckoutsSyncState(t *testing.T) {
 	e.must(r, e.app.ListProjects(r))
 
 	contains(t, r,
-		"project  app: autosync on, 2 skills",
+		"project  app: 2 skills",
 		"checkout /w/app (app): synced at bbbbbbb, behind the Brain at aaaaaaa",
 		"checkout /w/gone (gone): its project left the Brain: sync cleans it")
 }
@@ -129,7 +129,7 @@ func TestRemoveProjectCleansItsTreesAndDropsIt(t *testing.T) {
 	if _, ok := e.brain.m.Projects["app"]; ok {
 		t.Errorf("the project is still in the Brain")
 	}
-	if len(e.machine.machine.Checkouts) != 1 || e.settings("/w/app") != nil {
+	if len(e.machine.machine.Checkouts) != 1 || jsonText(e.settings("/w/app")) != "{}" {
 		t.Errorf("checkouts %v, settings %v", e.machine.machine.Checkouts, e.settings("/w/app"))
 	}
 	for link := range e.trees.links {
@@ -153,7 +153,7 @@ func TestRemoveProjectCleansItsTreesAndDropsIt(t *testing.T) {
 	}
 }
 
-func TestRemoveProjectRemovesTheFoldersNerveMadeAndNoOthers(t *testing.T) {
+func TestRemoveProjectRemovesTheFoldersNerveMadeLeftEmptyAndNoOthers(t *testing.T) {
 	e := newEnv(t)
 	e.ownSkill("go-stack")
 	e.listed("app", "/w/app").Skills = []string{"go-stack"}
@@ -170,23 +170,9 @@ func TestRemoveProjectRemovesTheFoldersNerveMadeAndNoOthers(t *testing.T) {
 	e.listed("other", "/w/other")
 	e.must(e.sync("/w/other", app.SyncOptions{}))
 	e.must(&recorder{}, e.app.RemoveProject("other", &recorder{}))
-	if e.trees.dirs["/w/other/.claude"] {
-		t.Errorf(".claude is left, though nerve made it")
+	if e.trees.dirs["/w/other/.claude/skills"] || jsonText(e.settings("/w/other")) != "{}" {
+		t.Errorf("want .claude/skills gone, and settings.local.json kept as {}, never deleted")
 	}
-}
-
-func TestSetAutosyncForAProjectOrTheBrain(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app")
-	r := &recorder{}
-
-	e.must(r, e.app.SetAutosync(target("/w/app"), false, false, r))
-	e.must(r, e.app.SetAutosync(target("/w"), false, true, r))
-
-	if p := e.project("app"); p.Autosync == nil || *p.Autosync || e.brain.m.Autosync == nil || *e.brain.m.Autosync {
-		t.Errorf("project %v, brain %v", p.Autosync, e.brain.m.Autosync)
-	}
-	contains(t, r, "autosync off for app", "autosync off by default")
 }
 
 func TestInitNamesTheBrainOnce(t *testing.T) {
@@ -280,7 +266,7 @@ func TestRemovingAProjectKeepsWhatItsCheckoutHadAsTheBrainSetsIt(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus", "permissions": map[string]any{"allow": []any{"Read", "Edit"}}}
 	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus", "permissions": map[string]any{"allow": []any{"Read"}}}
-	if _, err := e.sync("/w/app", app.SyncOptions{Hook: true}); err != nil {
+	if _, err := e.sync("/w/app", app.SyncOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -333,5 +319,35 @@ func TestAddProjectWhoseMachineSaveFailsJoinsTheBrainsEntryOnARetry(t *testing.T
 	contains(t, r, "project  app: already in the Brain: this checkout joins it")
 	if len(e.machine.machine.Checkouts) != 1 {
 		t.Errorf("checkouts are %v", e.machine.machine.Checkouts)
+	}
+}
+
+func TestRemoveProjectCleansACheckoutWhoseStateItCannotRead(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("mine")
+	e.listed("app", "/w/app").Skills = []string{"mine"}
+	e.listedWorktree("/w/app-feature", "/w/app")
+	e.must(e.sync("/w", app.SyncOptions{}))
+	e.machine.unreadable["/w/app-feature"] = true
+	r := &recorder{}
+
+	e.must(r, e.app.RemoveProject("app", r))
+
+	for link := range e.trees.links {
+		t.Errorf("%s is left", link)
+	}
+	contains(t, r, "problem  /w/app-feature: nerve cannot read its state", "cleaned  /w/app-feature: project app removed")
+}
+
+func TestRemoveProjectKeepsASettingsFileTheCheckoutHadEmpty(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
+	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+
+	e.must(&recorder{}, e.app.RemoveProject("app", &recorder{}))
+
+	if got, ok := e.trees.settings["/w/app/.claude/settings.local.json"]; !ok || len(got) > 0 {
+		t.Errorf("settings are %v, want the checkout's own {} kept", got)
 	}
 }

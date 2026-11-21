@@ -1,11 +1,13 @@
 package infra
 
 import (
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/medilies/nerve/internal/brain/app"
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
@@ -66,11 +68,11 @@ func TestAStateFileNerveCannotReadStopsOnlyItsOwnTree(t *testing.T) {
 	}
 	e.write(files.statePath("/w/app"), "")
 
-	if all, unreadable, err := files.States(); err != nil || len(all) != 1 || all[0].Path != "/w/other" || !reflect.DeepEqual(unreadable, []string{files.statePath("/w/app")}) {
-		t.Errorf("states are %+v, unreadable %v (%v), want the other tree's, and the file named", all, unreadable, err)
+	if all, err := files.States(); err != nil || len(all) != 1 || all[0].Path != "/w/other" {
+		t.Errorf("states are %+v (%v), want the other tree's", all, err)
 	}
-	if _, err := files.State("/w/app"); err == nil || !strings.Contains(err.Error(), "is not a state nerve can read: delete it, then sync again") {
-		t.Errorf("got %v, want the fix named", err)
+	if _, err := files.State("/w/app"); !errors.Is(err, app.ErrUnreadable) || !strings.Contains(err.Error(), files.statePath("/w/app")) {
+		t.Errorf("got %v, want the file named as unreadable", err)
 	}
 }
 
@@ -82,8 +84,8 @@ func TestStatesReadOnlyFilesNamedLikeAState(t *testing.T) {
 	}
 	e.write(e.config("state/stray.json"), "{}")
 
-	if all, unreadable, err := files.States(); err != nil || len(all) != 1 || all[0].Path != "/w/app" || len(unreadable) > 0 {
-		t.Errorf("states are %+v, unreadable %v (%v)", all, unreadable, err)
+	if all, err := files.States(); err != nil || len(all) != 1 || all[0].Path != "/w/app" {
+		t.Errorf("states are %+v (%v)", all, err)
 	}
 }
 
@@ -95,7 +97,7 @@ func TestStatesAreReadUnderAConfigFolderNamedLikeAPattern(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if all, _, err := files.States(); err != nil || len(all) != 1 {
+	if all, err := files.States(); err != nil || len(all) != 1 {
 		t.Errorf("states are %+v (%v)", all, err)
 	}
 }
@@ -153,7 +155,7 @@ func TestStateAndOverlaysStayOnTheMachine(t *testing.T) {
 	if got, _ := files.State("/w/app"); got.Project != "app" || got.Repo != "/w/app/.git" || got.Links[".claude/skills/x"] != link || !reflect.DeepEqual(got.Before, st.Before) {
 		t.Errorf("read back %+v", got)
 	}
-	if all, _, _ := files.States(); len(all) != 1 || all[0].Path != "/w/app" {
+	if all, _ := files.States(); len(all) != 1 || all[0].Path != "/w/app" {
 		t.Errorf("states are %+v", all)
 	}
 	if err := files.DropState("/w/app"); err != nil {

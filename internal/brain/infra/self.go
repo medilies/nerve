@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime/debug"
 	"strings"
 
 	"github.com/medilies/nerve/internal/brain/app"
@@ -41,29 +40,14 @@ func RanAs() (string, error) {
 	return name, nil
 }
 
-// Version is the version a release set, else what the Go toolchain recorded,
-// such as a go install tag or "(devel)".
-func Version(set string) string {
-	if set != "" {
-		return set
-	}
-	if info, ok := debug.ReadBuildInfo(); ok {
-		return info.Main.Version
-	}
-	return "(devel)"
-}
-
-// Nerve is the running nerve: its embedded skill, its version, and the
-// path it was run by.
+// Nerve is the running nerve: its embedded skill, and the path it was run
+// by.
 type Nerve struct {
 	SkillMD []byte
-	Ver     string
 	Path    func() (string, error)
 }
 
 var _ app.Self = Nerve{}
-
-func (n Nerve) Version() string { return n.Ver }
 
 // Skill writes the binary's skill into the user cache, where sync links it
 // from, so the two always match.
@@ -92,5 +76,5 @@ func (n Nerve) Command() (string, error) {
 	if !shellSafe.MatchString(path) {
 		path = "'" + strings.ReplaceAll(path, "'", `'\''`) + "'"
 	}
-	return path + " sync --here --hook", nil
+	return path + " status --hook", nil
 }

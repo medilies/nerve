@@ -74,12 +74,14 @@ func ParseFrontmatter(file, text string) (map[string]string, error) {
 			}
 			key, block = k, false
 			v = strings.TrimSpace(v)
-			if sv, closed := scalarQuoted(v); !closed {
+			sv, closed := scalarQuoted(v)
+			switch {
+			case !closed:
 				quoted = v
-			} else if v = sv; strings.HasPrefix(v, ">") || strings.HasPrefix(v, "|") {
-				v, block = "", true
+			case strings.HasPrefix(v, ">") || strings.HasPrefix(v, "|"): // unquoted only
+				sv, block = "", true
 			}
-			meta[key] = v
+			meta[key] = sv
 		case key != "":
 			meta[key] = strings.TrimSpace(meta[key] + " " + trimmed)
 		}
@@ -140,8 +142,10 @@ func scalar(v string) string {
 	if strings.HasPrefix(v, "#") {
 		return ""
 	}
-	if i := strings.Index(v, " #"); i >= 0 {
-		v = strings.TrimSpace(v[:i])
+	for i := 1; i < len(v); i++ {
+		if v[i] == '#' && (v[i-1] == ' ' || v[i-1] == '\t') {
+			return strings.TrimSpace(v[:i])
+		}
 	}
 	return v
 }
@@ -152,7 +156,18 @@ func unquote(q string) string {
 	if q[0] == '\'' {
 		return strings.ReplaceAll(q[1:len(q)-1], "''", "'")
 	}
-	if s, err := strconv.Unquote(strings.ReplaceAll(q, `\/`, "/")); err == nil {
+	// YAML's \/ is Go's /; an escaped backslash before a slash stays.
+	var b strings.Builder
+	for i := 0; i < len(q); i++ {
+		if q[i] == '\\' && i+1 < len(q) {
+			if q[i+1] != '/' {
+				b.WriteByte('\\')
+			}
+			i++
+		}
+		b.WriteByte(q[i])
+	}
+	if s, err := strconv.Unquote(b.String()); err == nil {
 		return s
 	}
 	return q[1 : len(q)-1]

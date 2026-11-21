@@ -217,7 +217,7 @@ func (f MachineFiles) statePath(dir string) string {
 func (f MachineFiles) State(dir string) (domain.TreeState, error) {
 	st := treeState{Path: dir}
 	if err := readJSON(f.statePath(dir), &st); err != nil {
-		return domain.TreeState{}, fmt.Errorf("%s is not a state nerve can read: delete it, then sync again (%w)", f.statePath(dir), err)
+		return domain.TreeState{}, fmt.Errorf("%w at %s: %v", app.ErrUnreadable, f.statePath(dir), err)
 	}
 	return st.domain(), nil
 }
@@ -237,19 +237,17 @@ func (f MachineFiles) DropState(dir string) error {
 // state folder.
 var statePattern = regexp.MustCompile(`^[0-9a-f]{16}\.json$`)
 
-// States reads every tree's state it can, and names the files it cannot
-// read, which State refuses to their own trees. Other files in the state
-// folder are left alone.
-func (f MachineFiles) States() ([]domain.TreeState, []string, error) {
+// States reads every tree's state it can; State reports the others to their
+// own trees. Other files in the state folder are left alone.
+func (f MachineFiles) States() ([]domain.TreeState, error) {
 	entries, err := os.ReadDir(filepath.Join(f.dir, "state"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, nil
+		return nil, nil
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	var states []domain.TreeState
-	var unreadable []string
 	for _, e := range entries {
 		if !statePattern.MatchString(e.Name()) {
 			continue
@@ -264,10 +262,9 @@ func (f MachineFiles) States() ([]domain.TreeState, []string, error) {
 			err = errors.New("no path")
 		}
 		if err != nil {
-			unreadable = append(unreadable, file)
 			continue
 		}
 		states = append(states, st.domain())
 	}
-	return states, unreadable, nil
+	return states, nil
 }

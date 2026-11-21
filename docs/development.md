@@ -7,8 +7,6 @@
 | Lint | `golangci-lint run` (v2.14.0, as in CI): vet, the standard linters, gofmt, goimports, and depguard for the layers |
 | Release | Tag `vX.Y.Z` on `main` and push the tag. [release.yml](../.github/workflows/release.yml) tests, builds Linux and macOS binaries, and publishes them with `checksums.txt`. |
 
-A build without a release tag reports its version as `(devel)` or a Go pseudo-version, and `sync` says nothing of the pin to it.
-
 ## Design
 
 One bounded context in hexagonal layers ([ADR 0006](adr/0006-hexagonal-layers.md)):

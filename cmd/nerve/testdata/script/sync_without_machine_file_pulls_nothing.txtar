@@ -10,8 +10,8 @@ exec git remote add origin ../up
 exec git fetch -q origin
 exec git branch -q -u origin/main
 
-exec nerve sync --here --hook
+! exec nerve sync --here
 
-stdout 'error: no machine file at .*: run nerve init'
+stderr 'error: no machine file at .*: run nerve init'
 exec git rev-list --count HEAD
 stdout '^1$'

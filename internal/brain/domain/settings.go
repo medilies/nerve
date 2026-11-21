@@ -1,8 +1,6 @@
 package domain
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -21,18 +19,18 @@ const BrainPlaceholder = "{{brain}}"
 
 // Want is what a project's settings.local.json should hold: common settings,
 // then the project's, then what nerve adds for its plugins, hooks and
-// autosync, then the local overlay; {{brain}} filled in.
-func Want(m Manifest, p *Project, autosyncCmd string, overlay map[string]any, brainDir string) map[string]any {
+// session report, then the local overlay; {{brain}} filled in.
+func Want(m Manifest, p *Project, reportCmd string, overlay map[string]any, brainDir string) map[string]any {
 	want := Merge(nil, m.Common)
 	want = Merge(want, p.Settings)
-	want = Merge(want, Generated(m, p, autosyncCmd))
+	want = Merge(want, Generated(m, p, reportCmd))
 	want = Merge(want, overlay)
 	return FillBrain(want, brainDir).(map[string]any)
 }
 
-// Generated is what a project's plugins, hooks and autosync add to its
-// settings.
-func Generated(m Manifest, p *Project, autosyncCmd string) map[string]any {
+// Generated is what a project's plugins, hooks and session report add to
+// its settings.
+func Generated(m Manifest, p *Project, reportCmd string) map[string]any {
 	g := map[string]any{}
 	if len(p.Plugins) > 0 {
 		enabled := map[string]any{}
@@ -55,12 +53,8 @@ func Generated(m Manifest, p *Project, autosyncCmd string) map[string]any {
 			add(h.Event, h.Matcher, h.Command)
 		}
 	}
-	if m.AutosyncFor(p) {
-		add("SessionStart", "", autosyncCmd)
-	}
-	if len(hooks) > 0 {
-		g["hooks"] = hooks
-	}
+	add("SessionStart", "", reportCmd)
+	g["hooks"] = hooks
 	return g
 }
 
@@ -74,10 +68,9 @@ func Merge(dst, src map[string]any) map[string]any {
 	for k, v := range src {
 		switch sv := v.(type) {
 		case map[string]any:
-			if dv, ok := out[k].(map[string]any); ok {
-				out[k] = Merge(dv, sv)
-				continue
-			}
+			dv, _ := out[k].(map[string]any) // nil when dst holds none: src's lists lose their repeats too
+			out[k] = Merge(dv, sv)
+			continue
 		case []any:
 			dv, _ := out[k].([]any)
 			out[k] = distinct(slices.Concat(dv, sv))
@@ -124,18 +117,6 @@ func Dotted(key string) string {
 		}
 	}
 	return strings.Join(parts, ".")
-}
-
-// ShowKey shows a leaf path as Dotted does, with each key that is
-// identifying or secret shown as Hidden.
-func ShowKey(key string) string {
-	parts := strings.Split(key, Sep)
-	for i, p := range parts {
-		if SensitiveText(p) != "" {
-			parts[i] = Hidden
-		}
-	}
-	return Dotted(strings.Join(parts, Sep))
 }
 
 // ErrKey is a settings key a user wrote that nerve cannot read.
@@ -341,26 +322,17 @@ func Same(a, b map[string]any, k string) bool {
 	return aok == bok && reflect.DeepEqual(av, bv)
 }
 
-// Hidden stands for a sensitive value in what nerve reports, so a secret
-// never reaches a report, or Claude through one.
-const Hidden = "(hidden)"
-
-// Show writes a leaf's value as JSON, "unset" when absent, and Hidden when
-// it is sensitive.
+// Show writes a leaf's value as JSON, "unset" when absent.
 func Show(m map[string]any, k string) string {
 	v, ok := m[k]
 	if !ok {
 		return "unset"
 	}
-	return ShowValue(k, v)
+	return ShowValue(v)
 }
 
-// ShowValue writes a value at leaf k as JSON, or Hidden when it is secret
-// or identifying. A home path shows: it is this machine's own.
-func ShowValue(k string, v any) string {
-	if secret(k, v) != "" {
-		return Hidden
-	}
+// ShowValue writes a value as JSON.
+func ShowValue(v any) string {
 	var b strings.Builder
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
@@ -410,8 +382,8 @@ func lists(k string, layers ...map[string]any) bool {
 // SortedKeys returns a map's keys in order.
 func SortedKeys[V any](m map[string]V) []string { return slices.Sorted(maps.Keys(m)) }
 
-// Change is a settings key going from one value to another, each as JSON,
-// "unset" or Hidden. For one item of a list, Item is set, and Before and
+// Change is a settings key going from one value to another, each as JSON
+// or "unset". For one item of a list, Item is set, and Before and
 // After are that item, or "unset" on the side that lacks it.
 type Change struct {
 	Key    string // dotted
@@ -493,11 +465,11 @@ func Reconcile(current, last, want map[string]any, discard bool) Reconciliation 
 		}
 		setOrDelete(result, k, have)
 		setOrDelete(next, k, prev)
-		rc.Drift = append(rc.Drift, Change{Key: ShowKey(k), Before: Show(goal, k), After: Show(have, k), Leaf: k})
+		rc.Drift = append(rc.Drift, Change{Key: Dotted(k), Before: Show(goal, k), After: Show(have, k), Leaf: k})
 	}
 	for _, k := range unionKeys(have, result) {
 		if !Same(have, result, k) {
-			rc.Changes = append(rc.Changes, Change{Key: ShowKey(k), Before: Show(have, k), After: Show(result, k)})
+			rc.Changes = append(rc.Changes, Change{Key: Dotted(k), Before: Show(have, k), After: Show(result, k)})
 		}
 	}
 	rc.Result = Unflatten(result)
@@ -548,15 +520,15 @@ func reconcileList(k string, have, prev, goal map[string]any, discard bool, resu
 			}
 			continue
 		}
-		c := Change{Key: ShowKey(k), Item: true, Before: "unset", After: "unset", Leaf: k, Value: x}
+		c := Change{Key: Dotted(k), Item: true, Before: "unset", After: "unset", Leaf: k, Value: x}
 		if inH {
-			kept, c.After = append(kept, x), ShowValue(k, x)
+			kept, c.After = append(kept, x), ShowValue(x)
 		}
 		if inP {
 			means = append(means, x)
 		}
 		if inG {
-			c.Before = ShowValue(k, x)
+			c.Before = ShowValue(x)
 		}
 		drift = append(drift, c)
 	}
@@ -593,41 +565,27 @@ func reconcileList(k string, have, prev, goal map[string]any, discard bool, resu
 }
 
 // PersonalKeys names each personal setting, and each personal item of a
-// list, with the value or item as shown, sensitive ones hidden: a key or an
-// item, and its shown value.
+// list as key=item, as setting rm takes it, with its value or item as
+// shown. A key that holds = is quoted, so no two names meet.
 func PersonalKeys(personal map[string]any) (names []string, shown map[string]Change) {
 	shown = map[string]Change{}
 	l := Leaves(personal)
 	for _, k := range SortedKeys(l) {
-		key := ShowKey(k)
-		name := key
-		if key != Dotted(k) {
-			name += " " + fingerprint(k)
-		}
+		key := Dotted(k)
 		items, isList := l[k].([]any)
 		if !isList || len(items) == 0 {
-			names = append(names, name)
-			shown[name] = Change{Key: key, After: ShowValue(k, l[k])}
+			names = append(names, key)
+			shown[key] = Change{Key: key, After: ShowValue(l[k])}
 			continue
 		}
 		for _, x := range items {
-			item := ShowValue(k, x)
-			iname := name + " " + item
-			if item == Hidden {
-				iname += " " + fingerprint(x)
-			}
-			names = append(names, iname)
-			shown[iname] = Change{Key: key, Item: true, After: item}
+			item := ShowValue(x)
+			name := key + "=" + item
+			names = append(names, name)
+			shown[name] = Change{Key: key, Item: true, After: item}
 		}
 	}
 	return names, shown
-}
-
-// fingerprint tells hidden values apart in a name, without showing them.
-func fingerprint(v any) string {
-	b, _ := json.Marshal(v)
-	sum := sha256.Sum256(b)
-	return "#" + hex.EncodeToString(sum[:4])
 }
 
 // Strip takes out of current the keys nerve wrote (last) that were not
@@ -675,7 +633,7 @@ func OverridesOfCommon(p *Project, common map[string]any) []string {
 			continue // an empty object holds no setting
 		}
 		if v, ok := base[k]; ok && reflect.DeepEqual(v, l[k]) {
-			same = append(same, ShowKey(k))
+			same = append(same, Dotted(k))
 		}
 	}
 	return same

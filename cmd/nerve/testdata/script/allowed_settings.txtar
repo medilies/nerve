@@ -1,6 +1,6 @@
 # A Brain holds only allowed settings: nerve's own, and those its
-# allowed-settings adds. Any other goes to the local overlay, and a key that
-# may hold secrets is never allowed, at any depth.
+# allowed-settings adds. Any other goes to the local overlay. What an
+# allowed setting holds is the user's to judge.
 
 exec nerve init brain
 cd proj
@@ -17,22 +17,22 @@ stdout '^set      statusLine.command = "~/bin/line"$'
 grep '^allowed-settings = \["statusLine", "mcpServers"\]$' $HOME/brain/brain.toml
 
 exec nerve setting set mcpServers.db.headers.X-Api-Key k
-stdout '^overlay  mcpServers.db.headers.X-Api-Key set in .*: headers may hold secrets$'
+stdout '^set      mcpServers.db.headers.X-Api-Key = "k"$'
 
-cp $HOME/secret.toml $HOME/brain/brain.toml
+cp $HOME/other.toml $HOME/brain/brain.toml
 ! exec nerve check
-stdout '^problem  brain.toml: common.settings.mcpServers.db.env.DB_PASSWORD: env may hold secrets: '
 stdout '^problem  brain.toml: common.settings.sandbox.enabled: not an allowed setting: list it in allowed-settings, or '
+! stdout DB_PASSWORD
 
 cp $HOME/never.toml $HOME/brain/brain.toml
 ! exec nerve check
-stderr 'allowed-settings: "sandbox.env" may hold secrets, so it is never allowed'
+stderr 'allowed-settings: "hooks.Stop" is written by nerve from hooks and plugins'
 
 -- allowed.toml --
 allowed-settings = ["statusLine", "mcpServers"]
 
 [project.app]
--- secret.toml --
+-- other.toml --
 allowed-settings = ["mcpServers"]
 
 [common.settings.mcpServers.db.env]
@@ -43,4 +43,4 @@ enabled = true
 
 [project.app]
 -- never.toml --
-allowed-settings = ["sandbox.env"]
+allowed-settings = ["hooks.Stop"]

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/medilies/nerve/internal/brain/domain"
 )
@@ -34,8 +33,8 @@ func settingKey(key string) ([]string, error) {
 }
 
 // SetSetting sets a value in the target project's entry, or with common in
-// common. A sensitive value goes to the project's local overlay instead,
-// never into the Brain.
+// common. A setting the Brain does not allow goes to the project's local
+// overlay instead.
 func (a App) SetSetting(ref ProjectRef, key string, v any, common bool, r Reporter) error {
 	return a.changeSetting(ref, key, v, common, false, r, func(obj map[string]any, path []string) (map[string]any, error) {
 		obj, err := domain.SetPath(obj, path, v)
@@ -47,8 +46,8 @@ func (a App) SetSetting(ref ProjectRef, key string, v any, common bool, r Report
 }
 
 // AddSetting adds one item to the list at key in the target project's entry,
-// or with common in common. A sensitive item goes to the project's local
-// overlay instead, never into the Brain.
+// or with common in common. A setting the Brain does not allow goes to the
+// project's local overlay instead.
 func (a App) AddSetting(ref ProjectRef, key string, item any, common bool, r Reporter) error {
 	return a.changeSetting(ref, key, item, common, true, r, func(obj map[string]any, path []string) (map[string]any, error) {
 		obj, added, err := domain.AddPath(obj, path, item)
@@ -98,11 +97,11 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 		return err
 	}
 	k := domain.LeafKey(path)
-	shown := domain.ShowKey(k)
+	shown := domain.Dotted(k)
 	why := l.m.SettingRefusal(k, v)
 	report := func(where string, before, after map[string]any, err error) error {
 		if errors.Is(err, errAlready) {
-			r.Add(Event{Kind: EvOK, Detail: fmt.Sprintf("%s already holds %s in %s", shown, domain.ShowValue(k, v), where)})
+			r.Add(Event{Kind: EvOK, Detail: fmt.Sprintf("%s already holds %s in %s", shown, domain.ShowValue(v), where)})
 			return nil
 		}
 		if err != nil {
@@ -114,12 +113,10 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 	if common {
 		switch {
 		case why == "":
-		case why == domain.NotAllowed && domain.WrittenByNerve(k):
+		case domain.WrittenByNerve(k):
 			return fmt.Errorf("%s is %s: %s, or set it per project, where it goes to the local overlay", key, why, domain.ShareNerves)
-		case why == domain.NotAllowed:
-			return fmt.Errorf("%s is %s: list it in allowed-settings in %s, or set it per project, where it goes to the local overlay", key, why, domain.ManifestFile)
 		default:
-			return fmt.Errorf("%s: %s, so it cannot go in common: set it per project, where it goes to the local overlay", key, why)
+			return fmt.Errorf("%s is %s: list it in allowed-settings in %s, or set it per project, where it goes to the local overlay", key, why, domain.ManifestFile)
 		}
 		before := l.m.Common
 		after, err := change(copySettings(before), path)
@@ -154,10 +151,9 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 		if err != nil {
 			return report(file, nil, nil, err)
 		}
-		switch {
-		case why == domain.NotAllowed && domain.WrittenByNerve(k):
+		if domain.WrittenByNerve(k) {
 			why += ": " + domain.ShareNerves
-		case why == domain.NotAllowed:
+		} else {
 			why += ": list it in allowed-settings to share it"
 		}
 		r.Add(Event{Kind: EvOverlay, Project: project, Key: shown, Path: file, Detail: why})
@@ -209,14 +205,14 @@ func (a App) dropOverlaid(project string, path []string, item bool, r Reporter) 
 		if err != nil {
 			return err
 		}
-		r.Add(Event{Kind: EvDropped, Project: project, Item: "setting " + domain.ShowKey(domain.LeafKey(path[:i+1])), Detail: "local overlay"})
+		r.Add(Event{Kind: EvDropped, Project: project, Item: "setting " + domain.Dotted(domain.LeafKey(path[:i+1])), Detail: "local overlay"})
 		return nil
 	}
 	return nil
 }
 
 // showAt shows the value at a path of keys in settings, an object included,
-// as ShowValue does, or "unset".
+// as JSON, or "unset".
 func showAt(settings map[string]any, path []string) string {
 	var v any = settings
 	for _, key := range path {
@@ -227,7 +223,7 @@ func showAt(settings map[string]any, path []string) string {
 		}
 		v = x
 	}
-	return domain.ShowValue(domain.LeafKey(path), v)
+	return domain.ShowValue(v)
 }
 
 // copySettings deep-copies settings, so a change that fails leaves them
@@ -252,12 +248,9 @@ func (a App) RemoveSetting(ref ProjectRef, arg string, common, all bool, r Repor
 		return err
 	}
 	var item any
-	shown := domain.ShowKey(domain.LeafKey(path)) // the argument, nothing sensitive in it
+	shown := domain.Dotted(domain.LeafKey(path))
 	if hasValue {
 		item = domain.ParseValue(raw)
-		if domain.Sensitive(domain.LeafKey(path), item) != "" {
-			raw = domain.Hidden
-		}
 		shown += "=" + raw
 	}
 	l, err := a.load()
@@ -348,50 +341,6 @@ func (a App) RemoveSetting(ref ProjectRef, arg string, common, all bool, r Repor
 			return err
 		}
 		r.Add(inOverlay[name])
-	}
-	return nil
-}
-
-// ListSettings lists the target project's effective settings, each with the
-// layers that give it.
-func (a App) ListSettings(ref ProjectRef, r Reporter) error {
-	l, err := a.load()
-	if err != nil {
-		return err
-	}
-	project, p, err := a.project(l, ref)
-	if err != nil {
-		return err
-	}
-	cmd, err := a.Self.Command()
-	if err != nil {
-		return err
-	}
-	overlay, _, err := a.Machine.Overlay(project)
-	if err != nil {
-		return err
-	}
-	layers := []struct {
-		name string
-		l    map[string]any
-	}{
-		{"common", domain.Leaves(l.m.Common)},
-		{"project", domain.Leaves(p.Settings)},
-		{"nerve: plugins, hooks, autosync", domain.Leaves(domain.Generated(l.m, p, cmd))},
-		{"local overlay", domain.Leaves(overlay)},
-	}
-	final := domain.Leaves(domain.Want(l.m, p, cmd, overlay, a.Brain.Root()))
-	for _, k := range domain.SortedKeys(final) {
-		var from []string
-		for _, layer := range layers {
-			if _, ok := layer.l[k]; ok {
-				from = append(from, layer.name)
-			}
-		}
-		r.Add(Event{Kind: EvValue, Project: project, Key: domain.ShowKey(k), Brain: domain.Show(final, k), Detail: strings.Join(from, " + ")})
-	}
-	if len(final) == 0 {
-		r.Add(Event{Kind: EvOK, Detail: "project " + project + " has no settings"})
 	}
 	return nil
 }

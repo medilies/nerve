@@ -1,6 +1,6 @@
 // Package domain is the Brain and the rules for carrying it to projects:
-// what a project gets, how settings are laid and reconciled, and what must
-// never enter the Brain. It knows no file format, git or filesystem.
+// what a project gets, how settings are laid and reconciled, and which
+// settings a Brain may hold. It knows no file format, git or filesystem.
 package domain
 
 import (
@@ -14,19 +14,16 @@ import (
 const ManifestFile = "brain.toml"
 
 var (
-	TagPattern  = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
 	RepoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 	SHAPattern  = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	NamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 	pathPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$`)
 )
 
-// Manifest is a Brain's brain.toml: the nerve release that carries it, the
+// Manifest is a Brain's brain.toml: the settings it allows, the
 // third-party sources it pins, the hooks it defines, the settings common to
 // its projects, and the projects themselves.
 type Manifest struct {
-	Nerve           string
-	Autosync        *bool
 	AllowedSettings []string // settings keys, as users write them, the Brain may hold beyond nerve's own
 	Sources         []Source
 	Hooks           map[string]Hook
@@ -35,7 +32,7 @@ type Manifest struct {
 }
 
 // nerveAllows are the settings a Brain may hold without listing them in
-// allowed-settings: they shape how a project works and hold no secret.
+// allowed-settings: they shape how a project works.
 var nerveAllows = []string{
 	"alwaysThinkingEnabled", "attribution", "cleanupPeriodDays", "disabledMcpjsonServers", "enableAllProjectMcpServers",
 	"enabledMcpjsonServers", "model", "outputStyle", "permissions.allow",
@@ -96,7 +93,6 @@ type Hook struct {
 
 // Project is one project's entry: what reaches it, and nothing else does.
 type Project struct {
-	Autosync *bool
 	Skills   []string
 	Agents   []string
 	Hooks    []string
@@ -114,9 +110,6 @@ func (p *Project) List(kind string) *[]string {
 
 // Validate checks what a manifest can be wrong about on its own.
 func (m Manifest) Validate() error {
-	if m.Nerve != "" && !TagPattern.MatchString(m.Nerve) {
-		return fmt.Errorf("%s: nerve %q must be a release tag such as v1.2.3", ManifestFile, m.Nerve)
-	}
 	for _, a := range m.AllowedSettings {
 		path, err := ParseKey(a)
 		switch {
@@ -124,8 +117,6 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("%s: allowed-settings: %q is not a settings key", ManifestFile, a)
 		case slices.Contains(nerveWrites, path[0]):
 			return fmt.Errorf("%s: allowed-settings: %q is written by nerve from hooks and plugins", ManifestFile, a)
-		case secretKey(path) != "":
-			return fmt.Errorf("%s: allowed-settings: %q may hold secrets, so it is never allowed", ManifestFile, a)
 		}
 	}
 	for i, s := range m.Sources {
@@ -150,7 +141,8 @@ func (m Manifest) Validate() error {
 			}
 		}
 	}
-	for name, h := range m.Hooks {
+	for _, name := range SortedKeys(m.Hooks) {
+		h := m.Hooks[name]
 		if !NamePattern.MatchString(name) {
 			return fmt.Errorf("%s: hook %q must be lowercase words joined by hyphens", ManifestFile, name)
 		}
@@ -158,7 +150,8 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("%s: hook %s needs an event and a command", ManifestFile, name)
 		}
 	}
-	for name, p := range m.Projects {
+	for _, name := range SortedKeys(m.Projects) {
+		p := m.Projects[name]
 		if !NamePattern.MatchString(name) {
 			return fmt.Errorf("%s: project %q must be lowercase words joined by hyphens", ManifestFile, name)
 		}
@@ -173,18 +166,6 @@ func (m Manifest) Validate() error {
 		}
 	}
 	return nil
-}
-
-// AutosyncFor says whether a project syncs at each session start: its own
-// choice, else the Brain's, else on.
-func (m Manifest) AutosyncFor(p *Project) bool {
-	switch {
-	case p != nil && p.Autosync != nil:
-		return *p.Autosync
-	case m.Autosync != nil:
-		return *m.Autosync
-	}
-	return true
 }
 
 // Project returns the named project, or an error naming the manifest.
@@ -211,11 +192,6 @@ func (m Manifest) SourceOf(skill string) (Source, bool) {
 // Describe sums up a project in a line.
 func (m Manifest) Describe(p *Project) string {
 	var parts []string
-	if m.AutosyncFor(p) {
-		parts = append(parts, "autosync on")
-	} else {
-		parts = append(parts, "autosync off")
-	}
 	for _, x := range []struct {
 		n    int
 		what string
@@ -226,6 +202,9 @@ func (m Manifest) Describe(p *Project) string {
 		case x.n > 1:
 			parts = append(parts, fmt.Sprintf("%d %s", x.n, x.what))
 		}
+	}
+	if len(parts) == 0 {
+		return "lists nothing yet"
 	}
 	return strings.Join(parts, ", ")
 }
@@ -251,9 +230,9 @@ func (m Manifest) allows(key string) bool {
 	return false
 }
 
-// SettingRefusal says why a setting must stay out of the Brain, or "": it
-// is sensitive, or not an allowed setting. key is a leaf path; an object
-// value is judged by each of its leaves.
+// SettingRefusal says why a setting stays out of the Brain, or "": it is
+// not an allowed setting. key is a leaf path; an object value is judged by
+// each of its leaves.
 func (m Manifest) SettingRefusal(key string, v any) string {
 	obj, isObj := v.(map[string]any)
 	if isObj && len(obj) > 0 {
@@ -265,18 +244,14 @@ func (m Manifest) SettingRefusal(key string, v any) string {
 		}
 		return ""
 	}
-	if why := Sensitive(key, v); why != "" {
-		return why
-	}
 	if !isObj && !m.allows(key) { // an empty object holds no setting
 		return NotAllowed
 	}
 	return ""
 }
 
-// Refusals lists what in the manifest must never be in a Brain, which may
-// be public: sensitive values anywhere in it, keys and names included, and
-// settings no list allows.
+// Refusals lists the settings in the manifest no list allows, and those of
+// nerveLists that are not a list of text.
 func (m Manifest) Refusals() []Problem {
 	var p []Problem
 	add := func(key, why string) {
@@ -289,46 +264,19 @@ func (m Manifest) Refusals() []Problem {
 			if why == "" {
 				continue
 			}
-			shown, fix := ShowKey(k), fix
-			if shown != Dotted(k) { // no command can name it
-				fix = "take it out of " + ManifestFile + ", then nerve setting set it per project, which keeps it in the local overlay"
+			if WrittenByNerve(k) {
+				add(where+Dotted(k), why+": "+ShareNerves)
+				continue
 			}
-			switch {
-			case why == NotAllowed && WrittenByNerve(k):
-				add(where+shown, why+": "+ShareNerves)
-			case why == NotAllowed:
-				add(where+shown, why+": list it in allowed-settings, or "+fix)
-			default:
-				add(where+shown, why+": "+fix)
-			}
+			add(where+Dotted(k), why+": list it in allowed-settings, or "+fix)
 		}
 		for _, k := range MisTyped(s) {
 			add(where+k, ListOfText+": write it as one")
 		}
 	}
-	text := func(key string, v any) {
-		if why := SensitiveText(v); why != "" {
-			add(key, why)
-		}
-	}
-	text("allowed-settings", m.AllowedSettings)
-	for i, s := range m.Sources {
-		text(fmt.Sprintf("source[%d]", i), []any{s.Repo, s.Path, s.Skills})
-	}
-	for _, name := range SortedKeys(m.Hooks) {
-		h := m.Hooks[name]
-		text("hook."+name, name)
-		text("hook."+name+".event", h.Event)
-		text("hook."+name+".matcher", h.Matcher)
-		text("hook."+name+".command", h.Command)
-	}
 	settings("common.settings.", "run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay", m.Common)
 	for _, name := range SortedKeys(m.Projects) {
 		pr := m.Projects[name]
-		text("project."+name, name)
-		for _, kind := range ItemKinds {
-			text("project."+name+"."+kind+"s", *pr.List(kind))
-		}
 		settings("project."+name+".settings.", "run nerve setting rm --project "+name+" on it, then nerve setting set --project "+name+", which keeps it in the local overlay", pr.Settings)
 	}
 	return p

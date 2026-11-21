@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestLocateFindsTheMainCheckoutOfAWorktree(t *testing.T) {
+func TestLocateFindsAWorktreeAndItsRepo(t *testing.T) {
 	e := newTestEnv(t)
 	app := e.repo(e.path("app"))
 	e.write(filepath.Join(app, "README"), "x")
@@ -21,10 +21,10 @@ func TestLocateFindsTheMainCheckoutOfAWorktree(t *testing.T) {
 	w := LocalTrees{}
 
 	got, err := w.Locate(filepath.Join(tree, "src"))
-	if err != nil || got.Top != tree || got.Main != app || got.Repo != filepath.Join(app, ".git") {
-		t.Errorf("located %+v (%v), want top %s, main %s", got, err, tree, app)
+	if err != nil || got.Top != tree || got.Repo != filepath.Join(app, ".git") {
+		t.Errorf("located %+v (%v), want top %s", got, err, tree)
 	}
-	if got, _ := w.Locate(app); got.Top != app || got.Main != app {
+	if got, _ := w.Locate(app); got.Top != app {
 		t.Errorf("located %+v in the main checkout", got)
 	}
 	if _, err := w.Locate(e.home); err == nil || !strings.Contains(err.Error(), "not in a git repo") {
@@ -44,8 +44,8 @@ func TestLocateTakesAWorktreeOfABareRepoAsItsOwnCheckout(t *testing.T) {
 
 	got, err := LocalTrees{}.Locate(tree)
 
-	if err != nil || got.Top != tree || got.Main != tree || got.Repo != bare {
-		t.Errorf("located %+v (%v): a bare repo has no main checkout, and its exclude file is its own", got, err)
+	if err != nil || got.Top != tree || got.Repo != bare {
+		t.Errorf("located %+v (%v): its exclude file is the bare repo's", got, err)
 	}
 }
 
@@ -56,7 +56,7 @@ func TestLocateFindsARepoWhoseGitFolderIsElsewhere(t *testing.T) {
 
 	got, err := LocalTrees{}.Locate(app)
 
-	if err != nil || got.Top != app || got.Main != app || got.Repo != e.path("app-git") {
+	if err != nil || got.Top != app || got.Repo != e.path("app-git") {
 		t.Errorf("located %+v (%v)", got, err)
 	}
 }
@@ -72,7 +72,7 @@ func TestLocateTakesASubmoduleAsARepoOfItsOwn(t *testing.T) {
 
 	got, err := LocalTrees{}.Locate(sub)
 
-	if err != nil || got.Top != sub || got.Main != sub || got.Repo != filepath.Join(app, ".git", "modules", "lib") {
+	if err != nil || got.Top != sub || got.Repo != filepath.Join(app, ".git", "modules", "lib") {
 		t.Errorf("located %+v (%v)", got, err)
 	}
 }
@@ -370,5 +370,28 @@ func TestWriteSettingsMakesANewFileForTheUserOnlyAndKeepsAnOldOnesMode(t *testin
 		if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != want {
 			t.Errorf("%s: got %v (%v), want %v", path, fi.Mode().Perm(), err, want)
 		}
+	}
+}
+
+func TestSyncExcludeLeavesAnUnchangedBlockUnwritten(t *testing.T) {
+	e := newTestEnv(t)
+	app := e.repo(e.path("app"))
+	w := LocalTrees{}
+	rels := func() ([]string, error) { return []string{".claude/skills/nerve"}, nil }
+	if err := w.SyncExclude(app, rels); err != nil {
+		t.Fatal(err)
+	}
+	exclude := filepath.Join(app, ".git", "info", "exclude")
+	before, err := os.Stat(exclude)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := w.SyncExclude(app, rels); err != nil {
+		t.Fatal(err)
+	}
+
+	if after, err := os.Stat(exclude); err != nil || !os.SameFile(before, after) {
+		t.Errorf("an unchanged block was written again (%v)", err)
 	}
 }

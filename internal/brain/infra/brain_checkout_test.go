@@ -29,8 +29,7 @@ func (e events) String() string {
 func TestManifestRoundTripsAsAPersonWouldWriteIt(t *testing.T) {
 	e := newTestEnv(t)
 	brain := NewBrainCheckout(e.path("brain"))
-	e.write(e.path("brain/brain.toml"), `nerve = "v0.3.0"
-allowed-settings = ["statusLine"]
+	e.write(e.path("brain/brain.toml"), `allowed-settings = ["statusLine"]
 
 [[source]]
 repo = "acme/up"
@@ -64,7 +63,7 @@ model = "opus"
 		t.Fatal(err)
 	}
 	got := e.read(e.path("brain/brain.toml"))
-	if !strings.Contains(got, "sha = \"5863806dd4e15c63174bee4e7515a4256792ecfa\"\npath = \"plugins/x/skills\"\n") || !strings.Contains(got, "cleanupPeriodDays = 30\n") || !strings.Contains(got, "\nallowed-settings = [\"statusLine\"]\n") || strings.Contains(got, "[project]\n") || strings.Contains(got, "[common]\n") || strings.Contains(got, "[hook]\n") {
+	if !strings.Contains(got, "sha = \"5863806dd4e15c63174bee4e7515a4256792ecfa\"\npath = \"plugins/x/skills\"\n") || !strings.Contains(got, "cleanupPeriodDays = 30\n") || !strings.HasPrefix(got, "allowed-settings = [\"statusLine\"]\n") || strings.Contains(got, "[project]\n") || strings.Contains(got, "[common]\n") || strings.Contains(got, "[hook]\n") {
 		t.Errorf("saved as:\n%s", got)
 	}
 	again, err := brain.Load()
@@ -80,53 +79,13 @@ func TestLoadRefusesUnknownKeysAndInvalidValues(t *testing.T) {
 		"profiles = []\n":                          "brain.toml: unknown keys [profiles]",
 		"[project.app]\nskill = [\"x\"]\n":         "brain.toml: unknown keys [project.app.skill]",
 		"[project.app]\nsurface = \"claude.ai\"\n": "brain.toml: unknown keys [project.app.surface]",
-		"nerve = \"latest\"\n":                     "must be a release tag",
+		"nerve = \"v0.3.0\"\n":                     "brain.toml: unknown keys [nerve]",
+		"autosync = false\n":                       "brain.toml: unknown keys [autosync]",
 	} {
 		e.write(e.path("brain/brain.toml"), content)
 		if _, err := brain.Load(); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: got %v, want %q", content, err, want)
 		}
-	}
-}
-
-func TestMovePinTouchesOnlyThePin(t *testing.T) {
-	e := newTestEnv(t)
-	old, next := strings.Repeat("a", 40), strings.Repeat("b", 40)
-	e.write(e.path("brain/brain.toml"), "# pins\n[[source]]\nrepo = \"acme/up\"\nsha = \""+old+"\"\nskills = [\"x\"]\n")
-
-	if err := NewBrainCheckout(e.path("brain")).MovePin("acme/up", old, next); err != nil {
-		t.Fatal(err)
-	}
-	if got := e.read(e.path("brain/brain.toml")); got != "# pins\n[[source]]\nrepo = \"acme/up\"\nsha = \""+next+"\"\nskills = [\"x\"]\n" {
-		t.Errorf("brain.toml is:\n%s", got)
-	}
-}
-
-func TestMovePinMovesOnlyTheRepoAmongSourcesAtOneSha(t *testing.T) {
-	e := newTestEnv(t)
-	old, next := strings.Repeat("a", 40), strings.Repeat("b", 40)
-	e.write(e.path("brain/brain.toml"), "[[source]]\nsha = \""+old+"\"\nrepo = \"me/fork\"\nskills = [\"x\"]\n\n[[source]]\nrepo = \"acme/up\"\nsha = \""+old+"\"\nskills = [\"y\"]\n")
-
-	if err := NewBrainCheckout(e.path("brain")).MovePin("acme/up", old, next); err != nil {
-		t.Fatal(err)
-	}
-
-	if got := e.read(e.path("brain/brain.toml")); got != "[[source]]\nsha = \""+old+"\"\nrepo = \"me/fork\"\nskills = [\"x\"]\n\n[[source]]\nrepo = \"acme/up\"\nsha = \""+next+"\"\nskills = [\"y\"]\n" {
-		t.Errorf("brain.toml is:\n%s", got)
-	}
-}
-
-func TestMovePinLeavesTheShaWhereItIsNotThePin(t *testing.T) {
-	e := newTestEnv(t)
-	old, next := strings.Repeat("a", 40), strings.Repeat("b", 40)
-	e.write(e.path("brain/brain.toml"), "[[source]]\n# was "+old+"\nrepo = \"acme/up\"\nsha = \""+old+"\"\nskills = [\"x\"]\n")
-
-	if err := NewBrainCheckout(e.path("brain")).MovePin("acme/up", old, next); err != nil {
-		t.Fatal(err)
-	}
-
-	if got := e.read(e.path("brain/brain.toml")); got != "[[source]]\n# was "+old+"\nrepo = \"acme/up\"\nsha = \""+next+"\"\nskills = [\"x\"]\n" {
-		t.Errorf("brain.toml is:\n%s", got)
 	}
 }
 
@@ -144,7 +103,7 @@ func (e *testEnv) published() string {
 	e.git(brain, "branch", "-q", "-u", "origin/main")
 	other := e.path("other")
 	e.git(e.home, "clone", "-q", remote, other)
-	e.write(filepath.Join(other, "brain.toml"), "autosync = false\n")
+	e.write(filepath.Join(other, "brain.toml"), "allowed-settings = [\"statusLine\"]\n")
 	head := e.commit(other)
 	e.git(other, "push", "-q")
 	return head
@@ -163,27 +122,6 @@ func TestPullFastForwardsTheBrain(t *testing.T) {
 		t.Errorf("Brain is at %s, want the pushed %s", got, head)
 	}
 	if r.String() != "pulled   the Brain to "+head[:7] {
-		t.Errorf("events: %s", r)
-	}
-}
-
-func TestPullSaysWhyItSkipped(t *testing.T) {
-	e := newTestEnv(t)
-	head := e.published()
-	e.write(e.path("brain/brain.toml"), "autosync = true\n") // a tracked file, edited
-	var r events
-
-	if err := NewBrainCheckout(e.path("brain")).Pull(&r); err != nil {
-		t.Fatal(err)
-	}
-
-	if e.git(e.path("brain"), "rev-parse", "HEAD") == head || r.String() != "no pull  "+e.path("brain")+": uncommitted changes" {
-		t.Errorf("events: %s", r)
-	}
-	e.git(e.path("brain"), "branch", "-q", "--unset-upstream")
-	r = nil
-	_ = NewBrainCheckout(e.path("brain")).Pull(&r)
-	if !strings.HasSuffix(r.String(), ": no upstream branch") {
 		t.Errorf("events: %s", r)
 	}
 }
@@ -232,19 +170,6 @@ func TestPullGivesUpOnARemoteThatDoesNotAnswer(t *testing.T) {
 	}
 }
 
-func TestPullFailsOnADivergedBrain(t *testing.T) {
-	e := newTestEnv(t)
-	e.published()
-	e.write(e.path("brain/skills/x/SKILL.md"), "x")
-	e.commit(e.path("brain"))
-
-	err := NewBrainCheckout(e.path("brain")).Pull(&events{})
-
-	if err == nil || err.Error() != e.path("brain")+" has diverged from its upstream: rebase it on its upstream, then sync again" {
-		t.Errorf("got %v", err)
-	}
-}
-
 func TestPullFollowsABranchATagIsNamedLike(t *testing.T) {
 	e := newTestEnv(t)
 	head := e.published()
@@ -252,22 +177,6 @@ func TestPullFollowsABranchATagIsNamedLike(t *testing.T) {
 	var r events
 
 	if err := NewBrainCheckout(e.path("brain")).Pull(&r); err != nil || e.git(e.path("brain"), "rev-parse", "HEAD") != head {
-		t.Errorf("got %v, events: %s", err, r)
-	}
-}
-
-func TestPullSkipsWhenUntrackedFilesStandWhereItWouldBringFiles(t *testing.T) {
-	e := newTestEnv(t)
-	e.published()
-	e.write(e.path("other/skills/x/SKILL.md"), "theirs")
-	head := e.commit(e.path("other"))
-	e.git(e.path("other"), "push", "-q")
-	e.write(e.path("brain/skills/x/SKILL.md"), "mine")
-	var r events
-
-	err := NewBrainCheckout(e.path("brain")).Pull(&r)
-
-	if err != nil || e.git(e.path("brain"), "rev-parse", "HEAD") == head || r.String() != "no pull  "+e.path("brain")+": untracked files stand where it would bring files: skills/x/SKILL.md" {
 		t.Errorf("got %v, events: %s", err, r)
 	}
 }
@@ -490,5 +399,115 @@ func TestSaveNamesASettingThatHoldsNull(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "project.app.settings.a: settings cannot hold null") {
 		t.Errorf("got %v", err)
+	}
+}
+
+func TestPullDropsLocalCommitsAndChangesAndSaysSo(t *testing.T) {
+	e := newTestEnv(t)
+	head := e.published()
+	e.write(e.path("brain/skills/x/SKILL.md"), "x")
+	e.commit(e.path("brain"))
+	e.write(e.path("brain/brain.toml"), "[project.app]\n") // a tracked file, edited
+	e.write(e.path("brain/skills/new/SKILL.md"), "new")    // untracked, left
+	var r events
+
+	if err := NewBrainCheckout(e.path("brain")).Pull(&r); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := e.git(e.path("brain"), "rev-parse", "HEAD"); got != head {
+		t.Errorf("Brain is at %s, want the remote's %s", got, head)
+	}
+	if b, _ := os.ReadFile(e.path("brain/brain.toml")); string(b) != "allowed-settings = [\"statusLine\"]\n" {
+		t.Errorf("brain.toml is %q, want the remote's", b)
+	}
+	if _, err := os.Stat(e.path("brain/skills/new/SKILL.md")); err != nil {
+		t.Errorf("an untracked file is gone: %v", err)
+	}
+	if r.String() != "pulled   the Brain to "+head[:7]+", dropping 1 local commit and changes to 1 file" {
+		t.Errorf("events: %s", r)
+	}
+}
+
+func TestPullTakesTheRemotesFileOrFolderOverAnUntrackedOneInTheWay(t *testing.T) {
+	e := newTestEnv(t)
+	e.published()
+	e.write(e.path("other/x/file"), "theirs")
+	e.write(e.path("other/y"), "theirs")
+	head := e.commit(e.path("other"))
+	e.git(e.path("other"), "push", "-q")
+	e.write(e.path("brain/x"), "mine")   // a file where the remote has a folder
+	e.write(e.path("brain/y/a"), "mine") // a folder where the remote has a file
+	var r events
+
+	if err := NewBrainCheckout(e.path("brain")).Pull(&r); err != nil {
+		t.Fatalf("got %v, events: %s", err, r)
+	}
+
+	if got := e.git(e.path("brain"), "rev-parse", "HEAD"); got != head {
+		t.Errorf("Brain is at %s, want %s", got, head)
+	}
+}
+
+func TestPullSaysWhenThereIsNoUpstream(t *testing.T) {
+	e := newTestEnv(t)
+	e.published()
+	e.git(e.path("brain"), "branch", "-q", "--unset-upstream")
+	var r events
+
+	if err := NewBrainCheckout(e.path("brain")).Pull(&r); err != nil || !strings.HasSuffix(r.String(), ": no upstream branch") {
+		t.Errorf("got %v, events: %s", err, r)
+	}
+}
+
+func TestPushCommitsEverythingAndOverwritesTheRemote(t *testing.T) {
+	e := newTestEnv(t)
+	t.Setenv("GIT_CONFIG_COUNT", "3") // the user's identity, as their git config gives it
+	t.Setenv("GIT_CONFIG_KEY_1", "user.name")
+	t.Setenv("GIT_CONFIG_VALUE_1", "t")
+	t.Setenv("GIT_CONFIG_KEY_2", "user.email")
+	t.Setenv("GIT_CONFIG_VALUE_2", "t@t")
+	e.published() // the remote holds a commit this Brain lacks
+	e.write(e.path("brain/skills/x/SKILL.md"), "x")
+	var r events
+
+	if err := NewBrainCheckout(e.path("brain")).Push("add x", &r); err != nil {
+		t.Fatal(err)
+	}
+
+	head := e.git(e.path("brain"), "rev-parse", "HEAD")
+	if got := e.git(e.path("brain.git"), "rev-parse", "main"); got != head {
+		t.Errorf("remote is at %s, want the Brain's %s", got, head)
+	}
+	if got := e.git(e.path("brain"), "log", "-1", "--format=%s"); got != "add x" {
+		t.Errorf("commit says %q", got)
+	}
+	if r.String() != "pushed   the Brain at "+head[:7] {
+		t.Errorf("events: %s", r)
+	}
+}
+
+func TestPushRefusesChangesWithNoMessageAndABrainWithNoUpstream(t *testing.T) {
+	e := newTestEnv(t)
+	e.published()
+	e.write(e.path("brain/skills/x/SKILL.md"), "x")
+
+	if err := NewBrainCheckout(e.path("brain")).Push("", &events{}); err == nil || !strings.Contains(err.Error(), "say what they are") {
+		t.Errorf("got %v", err)
+	}
+	e.git(e.path("brain"), "branch", "-q", "--unset-upstream")
+	if err := NewBrainCheckout(e.path("brain")).Push("add x", &events{}); err == nil || !strings.HasSuffix(err.Error(), ": no upstream branch") {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestStateOfABrainWithNoCommitsYetSaysSo(t *testing.T) {
+	e := newTestEnv(t)
+	brain := e.repo(e.path("brain"))
+	e.write(filepath.Join(brain, "brain.toml"), "")
+	e.git(brain, "remote", "add", "origin", e.path("brain.git"))
+
+	if got := NewBrainCheckout(brain).State(); got != "uncommitted changes, no commits yet" {
+		t.Errorf("state is %q", got)
 	}
 }

@@ -25,26 +25,6 @@ func TestSetSettingInTheProjectOrCommon(t *testing.T) {
 	contains(t, r, `set      permissions.deny = ["Cron"]`, `set      model = "opus"`)
 }
 
-func TestSetSettingSendsASensitiveValueToTheOverlay(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app")
-	r := &recorder{}
-
-	e.must(r, e.app.SetSetting(target("/w/app"), "env", map[string]any{"TOKEN": "abc"}, false, r))
-
-	if e.project("app").Settings != nil || e.brain.saves != 0 {
-		t.Errorf("a secret reached the Brain")
-	}
-	if got := jsonText(e.machine.overlays["app"]); got != `{"env":{"TOKEN":"abc"}}` {
-		t.Errorf("overlay is %s", got)
-	}
-	contains(t, r, "overlay  env set in /cfg/nerve/overlays/app.json: env may hold secrets")
-	err := e.app.SetSetting(target("/w/app"), "env", map[string]any{"TOKEN": "abc"}, true, &recorder{})
-	if err == nil || !strings.Contains(err.Error(), "cannot go in common") {
-		t.Errorf("got %v, want common refused", err)
-	}
-}
-
 func TestSetSettingSendsASettingNoListAllowsToTheOverlay(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
@@ -72,35 +52,6 @@ func TestSetSettingPutsAnAllowedSettingInTheBrain(t *testing.T) {
 	if got := jsonText(e.project("app").Settings); got != `{"statusLine":{"command":"~/bin/line"}}` {
 		t.Errorf("project settings are %s", got)
 	}
-}
-
-func TestSetSettingSendsAnObjectHoldingASecretKeyToTheOverlay(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app")
-	e.brain.m.AllowedSettings = []string{"mcpServers"}
-	v := map[string]any{"db": map[string]any{"headers": map[string]any{"X-Api-Key": "k"}}}
-
-	e.must(&recorder{}, e.app.SetSetting(target("/w/app"), "mcpServers", v, false, &recorder{}))
-
-	if e.project("app").Settings != nil {
-		t.Errorf("a secret reached the Brain: %s", jsonText(e.project("app").Settings))
-	}
-}
-
-func TestSetSettingSendsAnIdentifyingKeyToTheOverlay(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app")
-	r := &recorder{}
-
-	e.must(r, e.app.SetSetting(target("/w/app"), `enabledPlugins."a@bob.io"`, true, false, r))
-
-	if e.project("app").Settings != nil || e.brain.saves != 0 {
-		t.Errorf("an identifying key reached the Brain")
-	}
-	if got := jsonText(e.machine.overlays["app"]); got != `{"enabledPlugins":{"a@bob.io":true}}` {
-		t.Errorf("overlay is %s", got)
-	}
-	contains(t, r, "overlay  enabledPlugins.(hidden) set in /cfg/nerve/overlays/app.json: the key holds an email address")
 }
 
 func TestSetSettingReportsTheObjectItSets(t *testing.T) {
@@ -163,7 +114,6 @@ func TestSettingCommandsRefuseTwoPlacesAtOnce(t *testing.T) {
 		"rm --all --project":       e.app.RemoveSetting(acct, "model", false, true, &recorder{}),
 		"rm --all --common":        e.app.RemoveSetting(target("/w/app"), "model", true, true, &recorder{}),
 		"skill rm --all --project": e.app.RemoveItem(acct, "skill", "x", true, &recorder{}),
-		"autosync --all --project": e.app.SetAutosync(acct, false, true, &recorder{}),
 	} {
 		if err == nil || !strings.Contains(err.Error(), "each say where to act: pass one") {
 			t.Errorf("%s: got %v", name, err)
@@ -195,25 +145,6 @@ func TestAddSettingAddsOneItemToAList(t *testing.T) {
 		`set      permissions.deny = ["Cron"]`)
 	if err := e.app.AddSetting(target("/w/app"), "model", "x", false, &recorder{}); err == nil || err.Error() != "model is not a list" {
 		t.Errorf("got %v, want a value that is not a list refused", err)
-	}
-}
-
-func TestAddSettingSendsASensitiveItemToTheOverlay(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app")
-	r := &recorder{}
-
-	e.must(r, e.app.AddSetting(target("/w/app"), "permissions.allow", "Read(/home/bob/notes)", false, r))
-
-	if e.project("app").Settings != nil || e.brain.saves != 0 {
-		t.Errorf("a home path reached the Brain")
-	}
-	if got := jsonText(e.machine.overlays["app"]); got != `{"permissions":{"allow":["Read(/home/bob/notes)"]}}` {
-		t.Errorf("overlay is %s", got)
-	}
-	err := e.app.AddSetting(target("/w/app"), "permissions.allow", "Read(/home/bob/notes)", true, &recorder{})
-	if err == nil || !strings.Contains(err.Error(), "cannot go in common") {
-		t.Errorf("got %v, want common refused", err)
 	}
 }
 
@@ -267,24 +198,6 @@ func TestRemoveSettingEverywhereRevokesIt(t *testing.T) {
 	}
 }
 
-func TestRemoveSettingNeverShowsASecretItem(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app")
-	e.machine.overlays["app"] = map[string]any{"permissions": map[string]any{"allow": []any{"Read(/home/bob/x)"}}}
-	r := &recorder{}
-
-	e.must(r, e.app.RemoveSetting(target("/w/app"), "permissions.allow=Read(/home/bob/x)", false, false, r))
-	err := e.app.RemoveSetting(target("/w/app"), "env.TOKEN=sk-abcdefghijklmnopqrstuvwxyz", false, false, r)
-
-	if out := r.String() + errText(err); strings.Contains(out, "/home/bob") || strings.Contains(out, "sk-") {
-		t.Errorf("a secret is shown: %s", out)
-	}
-	contains(t, r, "dropped  setting permissions.allow=(hidden) from the local overlay of project app")
-	if err == nil || err.Error() != "no project app holds env.TOKEN=(hidden)" {
-		t.Errorf("got %v", err)
-	}
-}
-
 func TestRemoveSettingReportsWhatItSavedBeforeAFailure(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
@@ -303,28 +216,11 @@ func TestRemoveSettingReportsWhatItSavedBeforeAFailure(t *testing.T) {
 	}
 }
 
-func TestListSettingsNamesTheLayersGivingEach(t *testing.T) {
-	e := newEnv(t)
-	e.brain.m.Common = map[string]any{"permissions": map[string]any{"deny": []any{"A"}}}
-	p := e.listed("app", "/w/app")
-	p.Settings = map[string]any{"permissions": map[string]any{"deny": []any{"B"}}}
-	p.Plugins = []string{"x@y"}
-	e.machine.overlays["app"] = map[string]any{"env": map[string]any{"T": "1"}}
-	r := &recorder{}
-
-	e.must(r, e.app.ListSettings(target("/w/app"), r))
-
-	contains(t, r,
-		`permissions.deny = ["A","B"]  (common + project)`,
-		`enabledPlugins.x@y = true  (nerve: plugins, hooks, autosync)`,
-		`env.T = (hidden)  (local overlay)`)
-}
-
 func TestSetSettingKeepsNoRepeatInAListInTheBrain(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
 
-	_ = e.app.SetSetting(target("/w/app"), "permissions.allow", []any{"a", "a"}, false, &recorder{})
+	e.must(&recorder{}, e.app.SetSetting(target("/w/app"), "permissions.allow", []any{"a", "a"}, false, &recorder{}))
 
 	if got := jsonText(e.project("app").Settings); strings.Contains(got, `"a","a"`) {
 		t.Errorf("project settings are %s", got)
@@ -375,7 +271,7 @@ func TestSetSettingInCommonNamesTheKeyAndWhy(t *testing.T) {
 
 	err := e.app.SetSetting(target("/w/app"), "apiKeyHelper", "x", true, &recorder{})
 
-	if want := "apiKeyHelper: apiKeyHelper may hold secrets, so it cannot go in common: set it per project, where it goes to the local overlay"; err == nil || err.Error() != want {
+	if want := "apiKeyHelper is not an allowed setting: list it in allowed-settings in brain.toml, or set it per project, where it goes to the local overlay"; err == nil || err.Error() != want {
 		t.Errorf("got %v, want %q", err, want)
 	}
 }

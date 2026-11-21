@@ -1,0 +1,8 @@
+# --hook prints a hook's output only for status; another command refuses it.
+
+exec nerve init brain
+cd proj
+
+! exec nerve sync --here --hook
+! stdout .
+stderr '^--hook does not go with this command$'

@@ -9,7 +9,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -34,8 +33,6 @@ func (b BrainCheckout) Root() string { return b.root }
 
 // manifestFile is brain.toml as written.
 type manifestFile struct {
-	Nerve    string                  `toml:"nerve,omitempty"`
-	Autosync *bool                   `toml:"autosync,omitempty"`
 	Allowed  []string                `toml:"allowed-settings,omitempty"`
 	Sources  []sourceTable           `toml:"source,omitempty"`
 	Hooks    map[string]hookTable    `toml:"hook,omitempty"`
@@ -61,7 +58,6 @@ type commonTable struct {
 }
 
 type projectTable struct {
-	Autosync *bool          `toml:"autosync,omitempty"`
 	Skills   []string       `toml:"skills,omitempty"`
 	Agents   []string       `toml:"agents,omitempty"`
 	Hooks    []string       `toml:"hooks,omitempty"`
@@ -90,7 +86,7 @@ func (b BrainCheckout) Load() (domain.Manifest, error) {
 	if len(unknown) > 0 {
 		return domain.Manifest{}, fmt.Errorf("%s: unknown keys %v", domain.ManifestFile, unknown)
 	}
-	m := domain.Manifest{Nerve: f.Nerve, Autosync: f.Autosync, AllowedSettings: f.Allowed}
+	m := domain.Manifest{AllowedSettings: f.Allowed}
 	for _, s := range f.Sources {
 		m.Sources = append(m.Sources, domain.Source(s))
 	}
@@ -112,8 +108,7 @@ func (b BrainCheckout) Load() (domain.Manifest, error) {
 			return domain.Manifest{}, err
 		}
 		m.Projects[name] = &domain.Project{
-			Autosync: p.Autosync,
-			Skills:   p.Skills, Agents: p.Agents, Hooks: p.Hooks, Plugins: p.Plugins,
+			Skills: p.Skills, Agents: p.Agents, Hooks: p.Hooks, Plugins: p.Plugins,
 			Settings: settings,
 		}
 	}
@@ -126,7 +121,7 @@ func (b BrainCheckout) Save(m domain.Manifest) error {
 	if err := m.Validate(); err != nil {
 		return err
 	}
-	f := manifestFile{Nerve: m.Nerve, Autosync: m.Autosync, Allowed: m.AllowedSettings}
+	f := manifestFile{Allowed: m.AllowedSettings}
 	for _, s := range m.Sources {
 		f.Sources = append(f.Sources, sourceTable(s))
 	}
@@ -153,8 +148,7 @@ func (b BrainCheckout) Save(m domain.Manifest) error {
 		for name, p := range m.Projects {
 			settings, _ := forTOML(p.Settings).(map[string]any)
 			f.Projects[name] = projectTable{
-				Autosync: p.Autosync,
-				Skills:   p.Skills, Agents: p.Agents, Hooks: p.Hooks, Plugins: p.Plugins,
+				Skills: p.Skills, Agents: p.Agents, Hooks: p.Hooks, Plugins: p.Plugins,
 				Settings: settings,
 			}
 		}
@@ -297,60 +291,15 @@ func forTOML(v any) any {
 	return v
 }
 
-var (
-	sourceHeader = regexp.MustCompile(`^\s*\[\[\s*source\s*\]\]\s*(#.*)?$`)
-	anyHeader    = regexp.MustCompile(`^\s*\[`)
-)
-
-// MovePin replaces old on the sha line of repo's [[source]] table, and
-// leaves every other line, such as a comment naming it, as it is.
-func (b BrainCheckout) MovePin(repo, old, new string) error {
-	path := filepath.Join(b.root, domain.ManifestFile)
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	value := func(v string) string { q := regexp.QuoteMeta(v); return `("` + q + `"|'` + q + `')` }
-	shaLine := regexp.MustCompile(`^\s*sha\s*=\s*` + value(old) + `\s*(#.*)?$`)
-	repoLine := regexp.MustCompile(`^\s*repo\s*=\s*` + value(repo) + `\s*(#.*)?$`)
-	lines := strings.SplitAfter(string(content), "\n")
-	pin, inSource := -1, false
-	sha, isRepo := -1, false // in the current [[source]] table
-	end := func() {
-		if inSource && isRepo && sha >= 0 {
-			pin = sha
-		}
-		sha, isRepo = -1, false
-	}
-	for i, line := range lines {
-		line = strings.TrimRight(line, "\r\n")
-		switch {
-		case anyHeader.MatchString(line):
-			end()
-			inSource = sourceHeader.MatchString(line)
-		case inSource && shaLine.MatchString(line):
-			sha = i
-		case inSource && repoLine.MatchString(line):
-			isRepo = true
-		}
-	}
-	end()
-	if pin < 0 {
-		return fmt.Errorf("%s: no [[source]] %s is pinned at %s", domain.ManifestFile, repo, old)
-	}
-	lines[pin] = strings.Replace(lines[pin], old, new, 1)
-	return writeFile(path, []byte(strings.Join(lines, "")))
-}
-
-// pullTimeout bounds the fetch of a pull, so autosync reports a network
-// that does not answer before Claude Code stops waiting for it.
+// pullTimeout bounds the fetch of a pull.
 var pullTimeout = 30 * time.Second
 
-// Pull fast-forwards the checkout from its upstream. It skips a checkout
-// that is not a git repo, has a detached HEAD, no upstream, uncommitted
-// changes to tracked files, or untracked files where the pull would bring
-// files, or whose remote it cannot reach or no longer has the branch. It
-// fails when the checkout has diverged.
+// Pull makes the checkout equal to its upstream: it fetches, then resets the
+// branch and its tracked files to the upstream, and says which local commits
+// and changes it dropped. Untracked files stay, but for one where the
+// upstream has a file. It skips a checkout that is not a git repo, has a
+// detached HEAD or no upstream, or whose remote it cannot reach or no longer
+// has the branch.
 func (b BrainCheckout) Pull(r app.Reporter) error {
 	if _, err := os.Stat(filepath.Join(b.root, ".git")); err != nil {
 		return nil
@@ -359,30 +308,8 @@ func (b BrainCheckout) Pull(r app.Reporter) error {
 		r.Add(app.Event{Kind: app.EvPullSkipped, Path: b.root, Detail: why})
 		return nil
 	}
-	// The full name: a tag of the same name would make the short one
-	// heads/<branch>.
-	branch, err := git(b.root, "symbolic-ref", "-q", "HEAD")
-	switch {
-	case err == nil:
-	case exitCode(err) == 1: // 1: HEAD is not a branch
-		return skip("detached HEAD")
-	default:
-		return skip("cannot read its git state: " + firstLine(err))
-	}
-	// The branch's own config, not its tracking ref, which only a fetch
-	// may make.
-	switch _, err := git(b.root, "config", "branch."+strings.TrimPrefix(trim(branch), "refs/heads/")+".merge"); {
-	case exitCode(err) == 1: // 1: no such key
-		return skip("no upstream branch")
-	case err != nil:
-		return skip("cannot read its git state: " + firstLine(err))
-	}
-	out, err := git(b.root, "status", "--porcelain", "--untracked-files=no")
-	switch {
-	case err != nil:
-		return skip("cannot read its git state: " + firstLine(err))
-	case trim(out) != "":
-		return skip("uncommitted changes")
+	if _, _, err := b.upstream(); err != nil {
+		return skip(err.Error())
 	}
 	// Pruned, so that a branch gone from the remote is gone here too.
 	if _, err := gitWithin(pullTimeout, b.root, "fetch", "-q", "--prune"); err != nil {
@@ -391,50 +318,84 @@ func (b BrainCheckout) Pull(r app.Reporter) error {
 	if _, err := git(b.root, "rev-parse", "-q", "--verify", "@{upstream}"); err != nil {
 		return skip("its upstream branch is not on the remote")
 	}
-	switch _, err := git(b.root, "merge-base", "--is-ancestor", "HEAD", "@{upstream}"); {
-	case exitCode(err) == 1: // 1: HEAD is not behind the upstream
-		if _, err := git(b.root, "merge-base", "--is-ancestor", "@{upstream}", "HEAD"); err == nil {
-			return nil // ahead or level: nothing to pull
-		}
-		return fmt.Errorf("%s has diverged from its upstream: rebase it on its upstream, then sync again", b.root)
-	case err != nil:
-		return skip("cannot read its git state: " + firstLine(err))
+	var dropped []string
+	if out, err := git(b.root, "rev-list", "--count", "@{upstream}..HEAD"); err == nil && trim(out) != "0" {
+		dropped = append(dropped, count(trim(out), "local commit"))
 	}
-	switch inWay, err := b.inTheWay(); {
-	case err != nil:
-		return skip("cannot read its git state: " + firstLine(err))
-	case len(inWay) > 0:
-		return skip("untracked files stand where it would bring files: " + strings.Join(inWay, ", "))
+	if out, err := git(b.root, "status", "--porcelain", "--untracked-files=no"); err == nil && trim(out) != "" {
+		dropped = append(dropped, "changes to "+count(fmt.Sprint(len(strings.Split(trim(out), "\n"))), "file"))
 	}
 	before := b.Head()
-	if _, err := git(b.root, "merge", "-q", "--ff-only", "@{upstream}"); err != nil {
-		return fmt.Errorf("pull %s: %s", b.root, firstLine(err))
+	if _, err := git(b.root, "reset", "-q", "--hard", "@{upstream}"); err != nil {
+		return fmt.Errorf("pull %s: %w", b.root, err)
 	}
-	if after := b.Head(); after != before {
-		r.Add(app.Event{Kind: app.EvPulled, Path: b.root, Target: after})
+	if after := b.Head(); after != before || len(dropped) > 0 {
+		r.Add(app.Event{Kind: app.EvPulled, Path: b.root, Target: after, Detail: strings.Join(dropped, " and ")})
 	}
 	return nil
 }
 
-// inTheWay lists the untracked files, not ignored, that stand where the
-// upstream adds files: git would refuse to fast-forward over them.
-func (b BrainCheckout) inTheWay() ([]string, error) {
-	added, err := git(b.root, "diff", "-z", "--name-only", "--no-renames", "--diff-filter=A", "HEAD", "@{upstream}")
-	if err != nil || added == "" {
-		return nil, err
+// Push commits everything in the checkout with message, then force-pushes
+// the branch to its upstream. With nothing to commit, it only pushes.
+func (b BrainCheckout) Push(message string, r app.Reporter) error {
+	if _, err := os.Stat(filepath.Join(b.root, ".git")); err != nil {
+		return fmt.Errorf("%s is not a git repo: make it one, with a remote to push to", b.root)
 	}
-	untracked, err := git(b.root, "ls-files", "-z", "--others", "--exclude-standard")
+	remote, merge, err := b.upstream()
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("cannot push %s: %w", b.root, err)
 	}
-	adds := strings.Split(strings.TrimSuffix(added, "\x00"), "\x00")
-	var in []string
-	for _, f := range strings.Split(strings.TrimSuffix(untracked, "\x00"), "\x00") {
-		if f != "" && slices.Contains(adds, f) {
-			in = append(in, f)
+	out, err := git(b.root, "status", "--porcelain")
+	if err != nil {
+		return err
+	}
+	if trim(out) != "" {
+		if strings.TrimSpace(message) == "" {
+			return errors.New("the Brain has changes to commit: say what they are, as in nerve push \"add go-stack\"")
+		}
+		if _, err := git(b.root, "add", "-A"); err != nil {
+			return err
+		}
+		if _, err := git(b.root, "commit", "-q", "-m", message); err != nil {
+			return err
 		}
 	}
-	return in, nil
+	if _, err := git(b.root, "push", "-q", "--force", remote, "HEAD:"+merge); err != nil {
+		return err
+	}
+	r.Add(app.Event{Kind: app.EvPushed, Path: b.root, Target: b.Head()})
+	return nil
+}
+
+// upstream is the remote and branch the checked-out branch tracks, or why
+// there are none.
+func (b BrainCheckout) upstream() (remote, merge string, err error) {
+	// The full name: a tag of the same name would make the short one
+	// heads/<branch>.
+	branch, err := git(b.root, "symbolic-ref", "-q", "HEAD")
+	switch {
+	case exitCode(err) == 1: // 1: HEAD is not a branch
+		return "", "", errors.New("detached HEAD")
+	case err != nil:
+		return "", "", fmt.Errorf("cannot read its git state: %s", firstLine(err))
+	}
+	// The branch's own config, not its tracking ref, which only a fetch
+	// may make.
+	name := strings.TrimPrefix(trim(branch), "refs/heads/")
+	remote, rerr := git(b.root, "config", "branch."+name+".remote")
+	merge, merr := git(b.root, "config", "branch."+name+".merge")
+	if rerr != nil || merr != nil {
+		return "", "", errors.New("no upstream branch")
+	}
+	return trim(remote), trim(merge), nil
+}
+
+// count says n of a thing, as people do.
+func count(n, thing string) string {
+	if n == "1" {
+		return "1 " + thing
+	}
+	return n + " " + thing + "s"
 }
 
 // Head is the Brain's commit, or "" when the Brain is no git repo of its
@@ -463,6 +424,9 @@ func (b BrainCheckout) State() string {
 	var parts []string
 	if trim(out) != "" {
 		parts = append(parts, "uncommitted changes")
+	}
+	if b.Head() == "" {
+		return strings.Join(append(parts, "no commits yet"), ", ")
 	}
 	// Against the upstream, else, on a branch with none, against every
 	// remote branch. A Brain with no remote has nowhere to push.

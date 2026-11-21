@@ -43,12 +43,24 @@ func (a App) here(machine domain.Machine, dir string) (domain.Tree, string, erro
 	if err != nil {
 		return t, "", err
 	}
-	for _, p := range []string{t.Top, t.Main} {
-		if c, ok := machine.CheckoutAt(p); ok {
-			return t, c.Project, nil
-		}
+	if c, ok := machine.CheckoutAt(t.Top); ok {
+		return t, c.Project, nil
 	}
 	return t, "", notListed{t.Top}
+}
+
+// state is what nerve last did to the checkout at dir. A state it cannot
+// read is reported and dropped, so the checkout is as one that moved.
+func (a App) state(dir string, r Reporter) (domain.TreeState, error) {
+	st, err := a.Machine.State(dir)
+	if !errors.Is(err, ErrUnreadable) {
+		return st, err
+	}
+	if err := a.Machine.DropState(dir); err != nil {
+		return st, err
+	}
+	r.Add(Event{Kind: EvProblem, Path: dir, Detail: err.Error() + ": dropped, so nerve takes the links and settings it would make there as its own"})
+	return a.Machine.State(dir)
 }
 
 // notListed is a working tree no checkout this machine lists holds.

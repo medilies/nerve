@@ -4,21 +4,20 @@ A Brain is a git repo you own. nerve knows nothing about what is in it
 beyond its layout:
 
 ```text
-brain.toml          # the nerve release, autosync, allowed settings, third-party pins, hooks, common settings, projects
+brain.toml          # allowed settings, third-party pins, hooks, common settings, projects
 skills/<name>/      # own skills
 agents/<name>.md    # own agents
 hooks/<script>      # scripts hooks run, referenced as {{brain}}/hooks/<script>
 ```
 
 Words used here are defined in [GLOSSARY.md](../GLOSSARY.md); the
-reasoning is in [ADR 0005](adr/0005-projects-opt-in.md) and
-[ADR 0007](adr/0007-drop-guessing-features.md).
+reasoning is in [ADR 0005](adr/0005-projects-opt-in.md),
+[ADR 0007](adr/0007-drop-guessing-features.md) and
+[ADR 0009](adr/0009-explicit-verbs.md).
 
 ## brain.toml
 
 ```toml
-nerve = "v0.3.0"                  # the release that carries this Brain
-autosync = true                   # sync each project at session start; the default
 allowed-settings = ["statusLine"] # settings keys this Brain may hold beyond nerve's own
 
 [[source]]                        # third-party skills, pinned to a full commit
@@ -44,10 +43,8 @@ plugins = ["gopls-lsp@claude-plugins-official"]
 model = "opus"
 ```
 
-- **`nerve`** pins the release that carries the Brain, which
-  [`sync` checks](sync.md#what-sync-does).
 - **`allowed-settings`** lists settings keys the Brain may hold beyond
-  those nerve allows. See [Nothing sensitive](#nothing-sensitive).
+  those nerve allows. See [Allowed settings](#allowed-settings).
 - **`[[source]]`** is a third-party repo on GitHub at a full commit,
   and the skills used from it. Each repo has one table. A link in a
   source arrives as a plain file holding its target. Skill, agent, hook
@@ -58,28 +55,27 @@ model = "opus"
     one of them only.
   - `path` names another folder to look in instead, such as
     `path = "plugins/x/skills"`.
-  - `nerve skill update <repo> [sha]` shows how the source's skills
-    changed, then moves the pin.
+  - `nerve update [<repo>]` shows how each source's skills changed at
+    the tip of its default branch, then pins that commit.
 - **`[hook.<name>]`** defines a Claude Code hook. `{{brain}}` in any
   value becomes the Brain's checkout path.
 - **`[common.settings]`** holds the only settings that reach more than
   one project: every listed project gets them. Skills, agents, hooks
   and plugins are never common.
 - **`[project.<name>]`** lists what one project gets. A name you choose,
-  never a path or a remote. `autosync = false` turns autosync off for it.
+  never a path or a remote.
 
 nerve rewrites `brain.toml` in this layout when a command changes it,
-so comments in it are not kept; `nerve skill update` only moves the pin.
+`update` included, so comments in it are not kept.
 
 nerve refuses `inf`, `nan`, dates and whole numbers beyond 64 bits
 in settings, and anything but a list of text at `permissions.allow`,
 `permissions.ask`, `permissions.deny`, `enabledMcpjsonServers` and
 `disabledMcpjsonServers`.
 
-## Nothing sensitive
+## Allowed settings
 
-A Brain may be public, so it holds only allowed settings, and
-everything under them:
+A Brain holds only allowed settings, and everything under them:
 
 - those nerve allows: `alwaysThinkingEnabled`, `attribution`,
   `cleanupPeriodDays`, `disabledMcpjsonServers`,
@@ -90,31 +86,16 @@ everything under them:
 - those `allowed-settings` lists, such as `"statusLine"` or
   `'extraKnownMarketplaces."acme.tools"'`.
 
-A key that may hold secrets is never allowed, at any depth, in lists
-too: `env`, `headers`, `apiKeyHelper` and the like, or a key named for a
-token, secret, password, API, private, access or session key,
-credential, cookie or authorization. Nor are `hooks` and
-`enabledPlugins`, which nerve writes from `[hook.<name>]` and
-`plugins`. `allowed-settings` cannot list them.
+`hooks` and `enabledPlugins` are never allowed: nerve writes them from
+`[hook.<name>]` and `plugins`, and `allowed-settings` cannot list them.
 
-`check` and `sync` refuse any other setting. They also refuse home
-paths (`/home/…`, `/Users/…`, `/root`), emails, token-like strings,
-private keys, basic auth, credentials in URLs, Slack and Discord
-webhooks, and secrets given in a command, such as `TOKEN=…`, anywhere
-in `brain.toml`: in values, settings keys, hook matchers and commands,
-plugin IDs, and names. A `noreply` email is not refused. Each refusal
-of a setting says how to move it to a local overlay, and shows a
-sensitive key as `(hidden)`.
+`check`, `sync` and `push` refuse any other setting.
+`setting set` and `setting add` put it in the project's local overlay
+instead; with `--common`, they refuse it.
 
-The commands that write the Brain keep them out:
-
-- `setting set` and `setting add` put a setting that is not allowed,
-  or whose value is sensitive, in the project's local overlay instead.
-  With `--common`, they refuse it.
-- `plugin add` refuses such a plugin ID, and says how to enable it on
-  this machine only.
-
-Nor does a Brain say where a project lives.
+What an allowed setting holds is yours to judge: nerve does not look for
+secrets in it. A Brain may be public, so keep secrets, home paths and
+anything identifying in a local overlay.
 
 ## This machine
 
@@ -139,9 +120,8 @@ project = "billing"
 ```
 
 - **Local overlays**, `overlays/<project>.json`, hold a project's
-  settings that are not allowed in a Brain, or are sensitive or
-  identifying. nerve puts them there on its own when you set such a
-  value. You may also write in one what `brain.toml` cannot hold, such
+  settings the Brain does not allow. nerve puts them there on its own
+  when you set one. You may also write in one what `brain.toml` cannot hold, such
   as `null`. They never leave the machine, so set them again on each
   one.
   - Setting a key in the Brain drops the overlay's value for it, which
@@ -158,12 +138,11 @@ These files are readable by you only.
 
 `nerve check`, in the Brain (a git repo with `brain.toml` at its top)
 or anywhere when this machine names one, validates own skills and
-agents, each pin, what each project lists, and the sensitive values
-above. In a listed checkout, it checks this
-machine's Brain, even when the project has a `brain.toml` of its own.
-In the Brain's CI, run the release it pins, which needs the `nerve`
-pin in `brain.toml`:
+agents, each pin, what each project lists, and the allowed settings
+above. In a listed checkout, it checks this machine's Brain, even when
+the project has a `brain.toml` of its own.
+In the Brain's CI, run a release of nerve:
 
 ```sh
-go run github.com/medilies/nerve/cmd/nerve@$(sed -n 's/^nerve = "\(.*\)"$/\1/p' brain.toml) check
+go run github.com/medilies/nerve/cmd/nerve@latest check
 ```

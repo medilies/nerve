@@ -1,5 +1,5 @@
-# skill update shows how a source's skills changed upstream, then moves the
-# pin to its tip.
+# update shows how a source's skills changed upstream, then moves the pin
+# to its tip; a second update finds it there.
 
 mkdir github/acme/up.git/skills/grilling
 cp v1.md github/acme/up.git/skills/grilling/SKILL.md
@@ -15,11 +15,14 @@ exec git commit -qam v2
 cd $WORK
 exec nerve init brain
 cd brain
-exec nerve skill update acme/up
+exec nerve update
 
 stdout '\+Grill harder\.'
-stdout '^pinned '
+stdout '^pinned   acme/up at [0-9a-f]{7}: review the diff above, then nerve push$'
 exec sh -c 'grep -q "sha = \"$(git -C $HOME/github/acme/up.git rev-parse HEAD)\"" brain.toml'
+
+exec nerve update acme/up
+stdout '^acme/up is already pinned at '
 
 -- v1.md --
 ---

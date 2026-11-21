@@ -12,7 +12,7 @@ stdout '^overlay  env.API_KEY set in '
 # What the checkout had before is personal: kept, and reported once.
 exec nerve sync --here
 stdout '^personal outputStyle = "terse": kept, the Brain does not set it$'
-stdout '^personal env.TOKEN = \(hidden\): kept, the Brain does not set it$'
+stdout '^personal env.TOKEN = "x": kept, the Brain does not set it$'
 # The user's own, since the sync.
 replace .claude/settings.local.json '"model": "opus"' '"spinnerTipsEnabled": false, "model": "opus"'
 

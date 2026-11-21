@@ -1,6 +1,6 @@
 # Projects opt in; nothing is carried everywhere
 
-Status: accepted, 2026-11-20; deleting a link and a name the team has superseded by [ADR 0007](0007-drop-guessing-features.md), and claude.ai as a special project by [ADR 0008](0008-drop-claude-ai-accounts.md); adding a project that already has settings amended 2026-11-21, to import nothing and keep them as personal settings, and keeping sensitive values out, to an allow-list. Supersedes [ADR 0004](0004-skills-as-plugins.md), and the user-level carrying of [ADR 0003](0003-generated-layered-settings.md).
+Status: accepted, 2026-11-20; deleting a link and a name the team has superseded by [ADR 0007](0007-drop-guessing-features.md), and claude.ai as a special project by [ADR 0008](0008-drop-claude-ai-accounts.md); adding a project that already has settings amended 2026-11-21, to import nothing and keep them as personal settings, and keeping sensitive values out, to an allow-list. Supersedes [ADR 0004](0004-skills-as-plugins.md), and the user-level carrying of [ADR 0003](0003-generated-layered-settings.md); autosync, and keeping sensitive values out but for the allow-list, superseded by [ADR 0009](0009-explicit-verbs.md).
 
 ## Context
 

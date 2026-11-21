@@ -22,14 +22,12 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 	if err != nil {
 		return err
 	}
-	for _, d := range []string{t.Top, t.Main} {
-		if c, ok := l.machine.CheckoutAt(d); ok {
-			if c.Project == name {
-				r.Add(Event{Kind: EvCheckout, Path: c.Path, Project: name, Detail: "already listed"})
-				return nil
-			}
-			return fmt.Errorf("%s is listed as project %s", c.Path, c.Project)
+	if c, ok := l.machine.CheckoutAt(t.Top); ok {
+		if c.Project == name {
+			r.Add(Event{Kind: EvCheckout, Path: c.Path, Project: name, Detail: "already listed"})
+			return nil
 		}
+		return fmt.Errorf("%s is listed as project %s", c.Path, c.Project)
 	}
 	p := l.m.Projects[name]
 	switch {
@@ -42,11 +40,11 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 		}
 		r.Add(Event{Kind: EvProject, Project: name, Detail: "added to " + domain.ManifestFile})
 	}
-	l.machine.Checkouts = append(l.machine.Checkouts, domain.Checkout{Path: t.Main, Project: name})
+	l.machine.Checkouts = append(l.machine.Checkouts, domain.Checkout{Path: t.Top, Project: name})
 	if err := a.Machine.Save(l.machine); err != nil {
 		return err
 	}
-	r.Add(Event{Kind: EvCheckout, Path: t.Main, Project: name, Detail: "listed: review brain.toml, then nerve sync --here"})
+	r.Add(Event{Kind: EvCheckout, Path: t.Top, Project: name, Detail: "listed: review brain.toml, then nerve sync --here"})
 	return nil
 }
 
@@ -67,7 +65,13 @@ func (a App) listProjects(l loaded, r Reporter) {
 		r.Add(Event{Kind: EvProject, Project: name, Detail: l.m.Describe(l.m.Projects[name])})
 		for _, c := range l.machine.Checkouts {
 			if c.Project == name {
-				r.Add(Event{Kind: EvCheckout, Path: c.Path, Project: name, Detail: a.syncState(c.Path, head)})
+				detail := ""
+				if st, err := a.Machine.State(c.Path); err != nil {
+					detail = err.Error()
+				} else {
+					detail = syncState(st, head)
+				}
+				r.Add(Event{Kind: EvCheckout, Path: c.Path, Project: name, Detail: detail})
 			}
 		}
 	}
@@ -78,12 +82,9 @@ func (a App) listProjects(l loaded, r Reporter) {
 	}
 }
 
-// syncState says where a working tree stands against the Brain's commit.
-func (a App) syncState(dir, head string) string {
-	st, err := a.Machine.State(dir)
+// syncState says where a checkout stands against the Brain's commit.
+func syncState(st domain.TreeState, head string) string {
 	switch {
-	case err != nil:
-		return err.Error()
 	case st.Commit == "" && len(st.Links) == 0:
 		return "never synced"
 	case st.Commit != head:
@@ -105,7 +106,7 @@ func (a App) RemoveProject(name string, r Reporter) error {
 		return err
 	}
 	_, inBrain := l.m.Projects[name]
-	states, _, err := a.Machine.States()
+	states, err := a.Machine.States()
 	if err != nil {
 		return err
 	}
@@ -130,7 +131,7 @@ func (a App) RemoveProject(name string, r Reporter) error {
 	}
 	for _, dir := range trees {
 		if p := l.m.Projects[name]; p != nil {
-			if err := a.adopt(l.m, p, overlay, dir); err != nil {
+			if err := a.adopt(l.m, p, overlay, dir, r); err != nil {
 				return err
 			}
 		}
@@ -163,8 +164,8 @@ func (a App) RemoveProject(name string, r Reporter) error {
 // holds, so that cleaning it takes them out. A tree with none of nerve's
 // links was never synced, so its settings are the user's. A third-party
 // skill is left, since knowing its folder may need a fetch.
-func (a App) adopt(m domain.Manifest, p *domain.Project, overlay map[string]any, dir string) error {
-	st, err := a.Machine.State(dir)
+func (a App) adopt(m domain.Manifest, p *domain.Project, overlay map[string]any, dir string, r Reporter) error {
+	st, err := a.state(dir, r)
 	if err != nil || len(st.Links) > 0 || st.Settings != nil || !a.Trees.Exists(dir) {
 		return err
 	}
@@ -200,37 +201,6 @@ func (a App) adopt(m domain.Manifest, p *domain.Project, overlay map[string]any,
 	}
 	st.Settings = domain.Want(m, p, cmd, overlay, a.Brain.Root())
 	return a.Machine.SaveState(st)
-}
-
-// SetAutosync turns autosync on or off for the target project, or with all
-// for the Brain's default.
-func (a App) SetAutosync(ref ProjectRef, on, all bool, r Reporter) error {
-	if err := onePlace(ref.Project, false, all); err != nil {
-		return err
-	}
-	l, err := a.load()
-	if err != nil {
-		return err
-	}
-	word := map[bool]string{true: "on", false: "off"}[on]
-	if all {
-		l.m.Autosync = &on
-		if err := a.Brain.Save(l.m); err != nil {
-			return err
-		}
-		r.Add(Event{Kind: EvAutosync, Detail: word})
-		return nil
-	}
-	name, p, err := a.project(l, ref)
-	if err != nil {
-		return err
-	}
-	p.Autosync = &on
-	if err := a.Brain.Save(l.m); err != nil {
-		return err
-	}
-	r.Add(Event{Kind: EvAutosync, Project: name, Detail: word})
-	return nil
 }
 
 // Init writes this machine's file, naming the Brain's checkout, once the

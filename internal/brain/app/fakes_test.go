@@ -60,12 +60,20 @@ type fakeBrain struct {
 	agents    map[string]bool
 	head      string
 	pulls     int
-	moved     [][2]string
+	pushErr   error
+	pushed    []string // messages of each push
 }
 
 func (b *fakeBrain) Root() string                   { return "/brain" }
 func (b *fakeBrain) Load() (domain.Manifest, error) { return copyManifest(b.m), b.m.Validate() }
 func (b *fakeBrain) Pull(app.Reporter) error        { b.pulls++; return b.pullErr }
+func (b *fakeBrain) Push(message string, _ app.Reporter) error {
+	if b.pushErr != nil {
+		return b.pushErr
+	}
+	b.pushed = append(b.pushed, message)
+	return nil
+}
 
 // Save refuses what Load would, as the real Brain does.
 func (b *fakeBrain) Save(m domain.Manifest) error {
@@ -84,17 +92,6 @@ func (b *fakeBrain) Head() string  { return b.head }
 func (b *fakeBrain) State() string { return "" }
 func (b *fakeBrain) AgentFile(name string) (string, bool) {
 	return "/brain/agents/" + name + ".md", b.agents[name]
-}
-
-func (b *fakeBrain) MovePin(repo, old, new string) error {
-	b.moved = append(b.moved, [2]string{old, new})
-	for i := range b.m.Sources {
-		if b.m.Sources[i].Repo == repo && b.m.Sources[i].SHA == old {
-			b.m.Sources[i].SHA = new
-			return nil
-		}
-	}
-	return fmt.Errorf("no [[source]] %s is pinned at %s", repo, old)
 }
 
 func (b *fakeBrain) OwnSkill(name string) (domain.Skill, bool, error) {
@@ -153,7 +150,7 @@ type fakeMachine struct {
 	fail       map[string]error // by method, such as "SaveOverlay"
 	overlays   map[string]map[string]any
 	states     map[string]domain.TreeState
-	unreadable []string // state files States cannot read
+	unreadable map[string]bool // checkouts whose state file cannot be read
 }
 
 func (m *fakeMachine) Load() (domain.Machine, error) {
@@ -205,6 +202,9 @@ func (m *fakeMachine) DropOverlay(project string) (string, error) {
 }
 
 func (m *fakeMachine) State(dir string) (domain.TreeState, error) {
+	if m.unreadable[dir] {
+		return domain.TreeState{}, fmt.Errorf("%w at /cfg/nerve/state/x.json: invalid character", app.ErrUnreadable)
+	}
 	st, ok := m.states[dir]
 	if !ok {
 		return domain.TreeState{Path: dir, Links: map[string]domain.Link{}}, nil
@@ -234,15 +234,18 @@ func (m *fakeMachine) DropState(dir string) error {
 		return err
 	}
 	delete(m.states, dir)
+	delete(m.unreadable, dir)
 	return nil
 }
 
-func (m *fakeMachine) States() ([]domain.TreeState, []string, error) {
+func (m *fakeMachine) States() ([]domain.TreeState, error) {
 	var states []domain.TreeState
 	for _, dir := range domain.SortedKeys(m.states) {
-		states = append(states, copyState(m.states[dir]))
+		if !m.unreadable[dir] {
+			states = append(states, copyState(m.states[dir]))
+		}
 	}
-	return states, slices.Clone(m.unreadable), nil
+	return states, nil
 }
 
 // fakeTrees is working trees in memory: folders, links, the team's real
@@ -254,12 +257,13 @@ type fakeTrees struct {
 	dangling    map[string]bool // link targets that do not exist
 	files       map[string]bool
 	settings    map[string]map[string]any
-	unignored   map[string]bool // trees where git does not ignore settings.local.json
-	tracked     map[string]bool // trees where git tracks it
-	excludes    map[string][]string
-	damaged     map[string]bool              // repos whose exclude block someone broke
+	unignored   map[string]bool              // trees where git does not ignore settings.local.json
+	tracked     map[string]bool              // trees where git tracks it
+	excludes    map[string][]string          // by repo
+	damaged     map[string]bool              // checkouts whose repo's exclude block someone broke
 	lost        map[string]bool              // trees git can no longer locate, as after git worktree prune
 	writeErr    error                        // of WriteSettings
+	writes      int                          // calls of Link, Remove, WriteSettings and SyncExclude's lines
 	linkErr     map[string]error             // of Link, at a path
 	removeErr   map[string]error             // of Remove, at a path
 	readErr     map[string]error             // of ReadSettings, at a path
@@ -304,6 +308,7 @@ func (w *fakeTrees) mkdirs(dir string) {
 }
 
 func (w *fakeTrees) Link(p, target string) error {
+	w.writes++
 	if err := w.linkErr[p]; err != nil {
 		return err
 	}
@@ -318,6 +323,7 @@ func (w *fakeTrees) Link(p, target string) error {
 // Remove removes a file or link, or a folder that is empty, as os.Remove
 // does.
 func (w *fakeTrees) Remove(p string) error {
+	w.writes++
 	switch {
 	case w.removeErr[p] != nil:
 		return w.removeErr[p]
@@ -372,27 +378,26 @@ func (w *fakeTrees) CheckIgnored(dir string) error {
 	return nil
 }
 
-// SyncExclude keeps one block per repo, as info/exclude does, under the
-// tree that wrote it last.
+// SyncExclude keeps one block per repo, as info/exclude does.
 func (w *fakeTrees) SyncExclude(dir string, lines func() ([]string, error)) error {
 	t, err := w.Locate(dir)
 	if err != nil {
 		return err
 	}
-	if w.damaged[t.Main] {
+	if w.damaged[path.Dir(t.Repo)] {
 		return errors.New("info/exclude: nerve's block is damaged: fix it by hand")
 	}
 	rels, err := lines()
 	if err != nil {
 		return err
 	}
-	for _, other := range w.trees {
-		if other.Repo == t.Repo {
-			delete(w.excludes, other.Top)
-		}
+	if slices.Equal(w.excludes[t.Repo], rels) { // as info/exclude: unchanged, so not written
+		return nil
 	}
+	w.writes++
+	delete(w.excludes, t.Repo)
 	if len(rels) > 0 {
-		w.excludes[t.Main] = slices.Clone(rels)
+		w.excludes[t.Repo] = slices.Clone(rels)
 	}
 	return nil
 }
@@ -404,12 +409,7 @@ func (w *fakeTrees) gitSees(top string) []string {
 	if err != nil {
 		return nil
 	}
-	var block []string
-	for _, other := range w.trees {
-		if other.Repo == t.Repo && w.excludes[other.Main] != nil {
-			block = w.excludes[other.Main]
-		}
-	}
+	block := w.excludes[t.Repo]
 	var seen []string
 	for p := range w.links {
 		if rel, ok := strings.CutPrefix(p, top+"/"); ok && !slices.Contains(block, rel) {
@@ -436,6 +436,7 @@ func (w *fakeTrees) Frontmatter(p string) (map[string]string, error) {
 }
 
 func (w *fakeTrees) WriteSettings(p string, s map[string]any) error {
+	w.writes++
 	if w.writeErr != nil {
 		return w.writeErr
 	}
@@ -447,18 +448,12 @@ func (w *fakeTrees) WriteSettings(p string, s map[string]any) error {
 	return nil
 }
 
-type fakeSelf struct{ version string }
+type fakeSelf struct{}
 
 func (s *fakeSelf) Skill() (domain.Skill, error) {
 	return domain.Skill{Name: "nerve", Dir: "/cache/nerve/skill/nerve", Origin: "nerve"}, nil
 }
-func (s *fakeSelf) Command() (string, error) { return "nerve sync --here --hook", nil }
-func (s *fakeSelf) Version() string {
-	if s.version == "" {
-		return "v0.3.0"
-	}
-	return s.version
-}
+func (s *fakeSelf) Command() (string, error) { return "nerve status --hook", nil }
 
 // recorder keeps a use case's events.
 type recorder struct{ events []app.Event }
@@ -489,7 +484,7 @@ func newEnv(t *testing.T) *env {
 		t:       t,
 		brain:   &fakeBrain{own: map[string]domain.Skill{}, agents: map[string]bool{}, head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		sources: &fakeSources{skills: map[string]domain.Skill{}, heads: map[string]string{}},
-		machine: &fakeMachine{machine: domain.Machine{Brain: "/brain"}, fail: map[string]error{}, overlays: map[string]map[string]any{}, states: map[string]domain.TreeState{}},
+		machine: &fakeMachine{machine: domain.Machine{Brain: "/brain"}, fail: map[string]error{}, overlays: map[string]map[string]any{}, states: map[string]domain.TreeState{}, unreadable: map[string]bool{}},
 		trees: &fakeTrees{dirs: map[string]bool{}, links: map[string]string{}, dangling: map[string]bool{}, files: map[string]bool{},
 			settings: map[string]map[string]any{}, unignored: map[string]bool{}, tracked: map[string]bool{},
 			excludes: map[string][]string{}, damaged: map[string]bool{}, lost: map[string]bool{},
@@ -503,14 +498,22 @@ func newEnv(t *testing.T) *env {
 
 // checkout puts a git working tree at dir.
 func (e *env) checkout(dir string) {
-	e.trees.trees = append(e.trees.trees, domain.Tree{Top: dir, Main: dir, Repo: dir + "/.git"})
+	e.trees.trees = append(e.trees.trees, domain.Tree{Top: dir, Repo: dir + "/.git"})
 	e.trees.dirs[dir] = true
 }
 
 // worktree puts a linked worktree of main at dir.
 func (e *env) worktree(dir, main string) {
-	e.trees.trees = append([]domain.Tree{{Top: dir, Main: main, Repo: main + "/.git"}}, e.trees.trees...)
+	e.trees.trees = append([]domain.Tree{{Top: dir, Repo: main + "/.git"}}, e.trees.trees...)
 	e.trees.dirs[dir] = true
+}
+
+// listedWorktree puts a linked worktree of main at dir, listed as a
+// checkout of main's project.
+func (e *env) listedWorktree(dir, main string) {
+	e.worktree(dir, main)
+	c, _ := e.machine.machine.CheckoutAt(main)
+	e.machine.machine.Checkouts = append(e.machine.machine.Checkouts, domain.Checkout{Path: dir, Project: c.Project})
 }
 
 // listed makes dir a checkout of project, listed in the Brain and on this

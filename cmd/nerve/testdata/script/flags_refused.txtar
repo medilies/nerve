@@ -19,7 +19,7 @@ stderr '^--common does not go with this command$'
 stderr '^--all does not go with this command$'
 ! exec nerve check --here
 stderr '^--here does not go with this command$'
-! exec nerve status --hook
+! exec nerve sync --hook
 stderr '^--hook does not go with this command$'
 ! exec nerve status --project=
 stderr '^--project needs a project name$'

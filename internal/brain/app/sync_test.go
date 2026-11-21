@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -42,7 +43,7 @@ func TestSyncLinksTheProjectsSkillsAgentsAndNerve(t *testing.T) {
 			t.Errorf("%s links to %q, want %s", link, got, target)
 		}
 	}
-	if got := e.trees.excludes["/w/app"]; !reflect.DeepEqual(got, []string{".claude/agents/reviewer.md", ".claude/skills/go-stack", ".claude/skills/grilling", ".claude/skills/nerve"}) {
+	if got := e.trees.excludes["/w/app/.git"]; !reflect.DeepEqual(got, []string{".claude/agents/reviewer.md", ".claude/skills/go-stack", ".claude/skills/grilling", ".claude/skills/nerve"}) {
 		t.Errorf("excluded %v", got)
 	}
 	if st := e.machine.states["/w/app"]; st.Project != "app" || st.Commit != e.brain.head || len(st.Links) != 4 {
@@ -67,7 +68,7 @@ func TestSyncWritesTheProjectsSettings(t *testing.T) {
 	r := e.must(e.sync("/w/app", app.SyncOptions{}))
 
 	got := jsonText(e.settings("/w/app"))
-	want := `{"env":{"TOKEN":"x"},"hooks":{"SessionStart":[{"hooks":[{"command":"nerve sync --here --hook","type":"command"}]}]},"model":"opus","permissions":{"deny":["NotebookEdit"]}}`
+	want := `{"env":{"TOKEN":"x"},"hooks":{"SessionStart":[{"hooks":[{"command":"nerve status --hook","type":"command"}]}]},"model":"opus","permissions":{"deny":["NotebookEdit"]}}`
 	if got != want {
 		t.Errorf("settings are\n%s\nwant\n%s", got, want)
 	}
@@ -83,7 +84,7 @@ func TestSyncRefusesATreeWhoseSettingsGitSeesOrShares(t *testing.T) {
 
 	r, err := e.sync("/w", app.SyncOptions{})
 
-	if err == nil || err.Error() != "2 of 2 working trees did not sync" {
+	if err == nil || err.Error() != "2 of 2 checkouts did not sync" {
 		t.Fatalf("got %v", err)
 	}
 	contains(t, r,
@@ -94,7 +95,7 @@ func TestSyncRefusesATreeWhoseSettingsGitSeesOrShares(t *testing.T) {
 	}
 }
 
-func TestSyncKeepsDriftAndFailsUnlessRunByAutosync(t *testing.T) {
+func TestSyncKeepsDriftAndFails(t *testing.T) {
 	e := newEnv(t)
 	p := e.listed("app", "/w/app")
 	p.Settings = map[string]any{"model": "opus"}
@@ -103,15 +104,12 @@ func TestSyncKeepsDriftAndFailsUnlessRunByAutosync(t *testing.T) {
 
 	r, err := e.sync("/w/app", app.SyncOptions{})
 
-	if err == nil || !strings.Contains(err.Error(), "settings drifted in 1 of 1 working trees") {
+	if err == nil || !strings.Contains(err.Error(), "settings drifted in 1 of 1 checkouts") {
 		t.Errorf("got %v, want drift to fail a sync by hand", err)
 	}
 	contains(t, r, `drift    model is "sonnet" here, "opus" in the Brain: left as is`)
 	if e.settings("/w/app")["model"] != "sonnet" {
 		t.Errorf("drift was overwritten")
-	}
-	if _, err := e.sync("/w/app", app.SyncOptions{Hook: true}); err != nil {
-		t.Errorf("autosync failed on drift: %v", err)
 	}
 	e.must(e.sync("/w/app", app.SyncOptions{Discard: true}))
 	if e.settings("/w/app")["model"] != "opus" {
@@ -132,7 +130,7 @@ func TestSyncSaysDriftFromTheOverlayIsTheOverlays(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "keep each change with nerve setting set or add") {
 		t.Errorf("got %v", err)
 	}
-	contains(t, r, "drift    env.FOO is (hidden) here, (hidden) in the local overlay: left as is",
+	contains(t, r, `drift    env.FOO is "baz" here, "bar" in the local overlay: left as is`,
 		`drift    permissions.allow lacks "Bash(deploy)" here, which the local overlay has: left as is`)
 }
 
@@ -203,8 +201,7 @@ func TestSyncHereSyncsOnlyTheTreeAroundTheDirectory(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
 	e.listed("other", "/w/other")
-	e.trees.trees = append([]domain.Tree{{Top: "/w/app-feature", Main: "/w/app", Repo: "/w/app/.git"}}, e.trees.trees...)
-	e.trees.dirs["/w/app-feature"] = true
+	e.listedWorktree("/w/app-feature", "/w/app")
 
 	e.must(e.sync("/w/app-feature/src", app.SyncOptions{Here: true}))
 
@@ -226,8 +223,8 @@ func TestSyncCleansACheckoutWhoseProjectLeftTheBrain(t *testing.T) {
 
 	r := e.must(e.sync("/w/app", app.SyncOptions{}))
 
-	if len(e.trees.links) > 0 || e.trees.excludes["/w/app"] != nil {
-		t.Errorf("links %v or exclude block %v are left", e.trees.links, e.trees.excludes["/w/app"])
+	if len(e.trees.links) > 0 || e.trees.excludes["/w/app/.git"] != nil {
+		t.Errorf("links %v or exclude block %v are left", e.trees.links, e.trees.excludes["/w/app/.git"])
 	}
 	if got := jsonText(e.settings("/w/app")); got != `{"outputStyle":"terse"}` {
 		t.Errorf("settings are %s, want only the user's own", got)
@@ -252,23 +249,6 @@ func TestSyncHereUnlistsACheckoutWhoseProjectLeftTheBrain(t *testing.T) {
 	contains(t, r, "cleaned  /w/app: project app left the Brain")
 }
 
-func TestSyncRefusesSensitiveValuesInTheBrain(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app").Settings = map[string]any{"env": map[string]any{"TOKEN": "x"}}
-	e.brain.m.Common = map[string]any{"statusLine": map[string]any{"command": "/home/bob/bin/line"}}
-	e.brain.m.Hooks = map[string]domain.Hook{"guard": {Event: "PreToolUse", Matcher: "Bash(/Users/bob/*)", Command: "x"}}
-
-	r, err := e.sync("/w/app", app.SyncOptions{})
-
-	if err == nil || !strings.Contains(err.Error(), "3 values in brain.toml are refused") || len(e.trees.links) > 0 {
-		t.Errorf("got %v, links %v", err, e.trees.links)
-	}
-	contains(t, r,
-		"problem  brain.toml: project.app.settings.env.TOKEN: env may hold secrets",
-		"problem  brain.toml: common.settings.statusLine.command: holds a home path",
-		"problem  brain.toml: hook.guard.matcher: holds a home path")
-}
-
 func TestSyncReportsAFailedCleanAndStillSyncsTheOthers(t *testing.T) {
 	e := newEnv(t)
 	e.ownSkill("go-stack")
@@ -281,7 +261,7 @@ func TestSyncReportsAFailedCleanAndStillSyncsTheOthers(t *testing.T) {
 
 	r, err := e.sync("/w", app.SyncOptions{})
 
-	if err == nil || !strings.Contains(err.Error(), "1 of 2 working trees did not sync") {
+	if err == nil || !strings.Contains(err.Error(), "1 of 2 checkouts did not sync") {
 		t.Errorf("got %v", err)
 	}
 	contains(t, r, "problem  /w/gone: info/exclude: nerve's block is damaged", "linked   /w/app/.claude/skills/go-stack -> /brain/skills/go-stack")
@@ -342,11 +322,11 @@ func TestAFullSyncUnlistsACheckoutThatIsGone(t *testing.T) {
 	e.must(e.sync("/w", app.SyncOptions{}))
 }
 
-func TestAFullSyncReachesTheWorktreesSyncedBefore(t *testing.T) {
+func TestAFullSyncReachesAListedWorktree(t *testing.T) {
 	e := newEnv(t)
 	e.ownSkill("go-stack")
 	e.listed("app", "/w/app").Skills = []string{"go-stack"}
-	e.worktree("/w/app-feature", "/w/app")
+	e.listedWorktree("/w/app-feature", "/w/app")
 	e.must(e.sync("/w/app-feature", app.SyncOptions{Here: true}))
 	e.ownSkill("tdd")
 	e.project("app").Skills = []string{"tdd"}
@@ -426,7 +406,7 @@ func TestSyncKeepsLinksOutOfGitEvenWhenLinkingFailsPartWay(t *testing.T) {
 	if err == nil {
 		t.Fatalf("sync passed:\n%s", r)
 	}
-	if got := e.trees.excludes["/w/app"]; !reflect.DeepEqual(got, []string{".claude/skills/a-skill", ".claude/skills/nerve"}) {
+	if got := e.trees.excludes["/w/app/.git"]; !reflect.DeepEqual(got, []string{".claude/skills/a-skill", ".claude/skills/nerve"}) {
 		t.Errorf("excluded %v, want the links made before the failure", got)
 	}
 }
@@ -435,18 +415,18 @@ func TestWorktreesShareOneExcludeBlock(t *testing.T) {
 	e := newEnv(t)
 	e.ownSkill("go-stack")
 	e.listed("app", "/w/app").Skills = []string{"go-stack"}
-	e.worktree("/w/app-feature", "/w/app")
+	e.listedWorktree("/w/app-feature", "/w/app")
 	e.must(e.sync("/w/app", app.SyncOptions{Here: true}))
 	e.trees.mkdirs("/w/app-feature/.claude/skills/go-stack") // the team's, on this branch
 
 	e.must(e.sync("/w/app-feature", app.SyncOptions{Here: true}))
 
 	want := []string{".claude/skills/go-stack", ".claude/skills/nerve"}
-	if got := e.trees.excludes["/w/app"]; !reflect.DeepEqual(got, want) {
+	if got := e.trees.excludes["/w/app/.git"]; !reflect.DeepEqual(got, want) {
 		t.Errorf("excluded %v, want the links of both trees", got)
 	}
 	e.must(&recorder{}, e.app.RemoveProject("app", &recorder{}))
-	if got := e.trees.excludes["/w/app"]; got != nil {
+	if got := e.trees.excludes["/w/app/.git"]; got != nil {
 		t.Errorf("excluded %v after both trees were cleaned", got)
 	}
 }
@@ -454,7 +434,7 @@ func TestWorktreesShareOneExcludeBlock(t *testing.T) {
 func TestCleaningOneWorktreeKeepsTheOthersLinksExcluded(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
-	e.worktree("/w/app-feature", "/w/app")
+	e.listedWorktree("/w/app-feature", "/w/app")
 	e.ownSkill("go-stack")
 	e.project("app").Skills = []string{"go-stack"}
 	e.must(e.sync("/w/app-feature", app.SyncOptions{Here: true}))
@@ -464,7 +444,7 @@ func TestCleaningOneWorktreeKeepsTheOthersLinksExcluded(t *testing.T) {
 
 	e.must(e.sync("/w/app", app.SyncOptions{Here: true}))
 
-	if got := e.trees.excludes["/w/app"]; !reflect.DeepEqual(got, []string{".claude/skills/go-stack", ".claude/skills/nerve"}) {
+	if got := e.trees.excludes["/w/app/.git"]; !reflect.DeepEqual(got, []string{".claude/skills/go-stack", ".claude/skills/nerve"}) {
 		t.Errorf("excluded %v, want the worktree's links kept", got)
 	}
 }
@@ -518,26 +498,13 @@ func TestSyncTakesAnApprovalAsOnePersonalItem(t *testing.T) {
 	allow["allow"] = append(allow["allow"].([]any), "Bash(make)") // as Claude Code does on "don't ask again"
 	p.Settings = map[string]any{"permissions": map[string]any{"allow": []any{"Read", "Edit"}}}
 
-	r, err := e.sync("/w/app", app.SyncOptions{Hook: true})
+	r, err := e.sync("/w/app", app.SyncOptions{})
 
 	e.must(r, err)
 	if got := jsonText(e.settings("/w/app")["permissions"]); got != `{"allow":["Read","Bash(make)","Edit"]}` {
 		t.Errorf("permissions are %s, want the approval kept and Edit added", got)
 	}
 	contains(t, r, `personal permissions.allow has "Bash(make)": kept, the Brain does not set it`)
-}
-
-func TestSyncNeverReportsASecret(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app")
-	e.machine.overlays["app"] = map[string]any{"env": map[string]any{"TOKEN": "sk-abcdefghijklmnopqrstuvwxyz"}}
-
-	r := e.must(e.sync("/w/app", app.SyncOptions{}))
-
-	if strings.Contains(r.String(), "sk-") {
-		t.Errorf("the report shows the secret:\n%s", r)
-	}
-	contains(t, r, "set      env.TOKEN = (hidden)")
 }
 
 func TestADamagedExcludeBlockRefusesTheTreeBeforeAnyLink(t *testing.T) {
@@ -561,7 +528,7 @@ func TestWorktreesOfABareRepoShareItsExcludeBlock(t *testing.T) {
 	e := newEnv(t)
 	e.ownSkill("go-stack")
 	for _, dir := range []string{"/w/main", "/w/feature"} { // each its own checkout, one git folder
-		e.trees.trees = append(e.trees.trees, domain.Tree{Top: dir, Main: dir, Repo: "/w/repo.git"})
+		e.trees.trees = append(e.trees.trees, domain.Tree{Top: dir, Repo: "/w/repo.git"})
 		e.trees.dirs[dir] = true
 		e.machine.machine.Checkouts = append(e.machine.machine.Checkouts, domain.Checkout{Path: dir, Project: "app"})
 	}
@@ -572,7 +539,7 @@ func TestWorktreesOfABareRepoShareItsExcludeBlock(t *testing.T) {
 	e.must(e.sync("/w/feature", app.SyncOptions{Here: true}))
 
 	want := []string{".claude/skills/go-stack", ".claude/skills/nerve"}
-	if got := e.trees.excludes["/w/feature"]; !reflect.DeepEqual(got, want) {
+	if got := e.trees.excludes["/w/repo.git"]; !reflect.DeepEqual(got, want) {
 		t.Errorf("excluded %v, want the links of both trees", got)
 	}
 }
@@ -583,7 +550,7 @@ func lostWorktree(t *testing.T) *env {
 	e.ownSkill("go-stack")
 	p := e.listed("app", "/w/app")
 	p.Skills, p.Settings = []string{"go-stack"}, map[string]any{"model": "opus"}
-	e.worktree("/w/app-feature", "/w/app")
+	e.listedWorktree("/w/app-feature", "/w/app")
 	e.trees.dirs["/w/app/.git"] = true
 	e.must(e.sync("/w/app-feature", app.SyncOptions{Here: true}))
 	e.trees.lost["/w/app-feature"] = true // say, git worktree prune
@@ -596,7 +563,7 @@ func TestAWorktreeGitCannotLocateIsCleanedWhenItsProjectLeaves(t *testing.T) {
 
 	r, err := e.sync("/w", app.SyncOptions{})
 
-	if _, kept := e.machine.states["/w/app-feature"]; err != nil || kept || e.settings("/w/app-feature") != nil {
+	if _, kept := e.machine.states["/w/app-feature"]; err != nil || kept || len(e.settings("/w/app-feature")) > 0 {
 		t.Errorf("got %v, state kept %v, settings %v:\n%s", err, kept, e.settings("/w/app-feature"), r)
 	}
 }
@@ -616,7 +583,7 @@ func TestAWorktreeGitCannotLocateIsKeptWhileItsProjectIsInTheBrain(t *testing.T)
 func TestCleaningAWorktreeGitCannotLocateReportsWhatItLeftInInfoExclude(t *testing.T) {
 	e := lostWorktree(t)
 
-	r, _ := e.sync("/w", app.SyncOptions{})
+	r := e.must(e.sync("/w", app.SyncOptions{}))
 
 	if !strings.Contains(r.String(), "info/exclude") {
 		t.Errorf("no event says what is left in info/exclude:\n%s", r)
@@ -647,29 +614,6 @@ func TestAFullSyncWhoseMachineFileCannotBeSavedReportsNothingUnlisted(t *testing
 
 	if err == nil || strings.Contains(r.String(), "unlisted") {
 		t.Errorf("got %v, and a checkout reported unlisted that the machine file still lists:\n%s", err, r)
-	}
-}
-
-func TestSyncReportsAReleaseOtherThanThePin(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app")
-	e.brain.m.Nerve = "v0.4.0"
-
-	r := e.must(e.sync("/w/app", app.SyncOptions{}))
-
-	contains(t, r, "problem  brain.toml: nerve: nerve v0.3.0 runs, but the Brain pins v0.4.0: install v0.4.0")
-}
-
-func TestSyncSaysNothingOfThePinWhenADevelopmentBuildRuns(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app")
-	e.brain.m.Nerve = "v0.4.0"
-	e.self.version = "(devel)"
-
-	r := e.must(e.sync("/w/app", app.SyncOptions{}))
-
-	if strings.Contains(r.String(), "pins") {
-		t.Errorf("a development build is told to install the pin:\n%s", r)
 	}
 }
 
@@ -715,7 +659,7 @@ func TestASourceSkillThatCannotBeFetchedCostsOnlyThatSkill(t *testing.T) {
 	p := e.listed("app", "/w/app")
 	p.Skills, p.Settings = []string{"grilling", "go-stack"}, map[string]any{"model": "opus"}
 
-	r, _ := e.sync("/w/app", app.SyncOptions{Here: true})
+	r := e.must(e.sync("/w/app", app.SyncOptions{Here: true}))
 
 	if _, ok := e.trees.links["/w/app/.claude/skills/go-stack"]; !ok || e.settings("/w/app")["model"] != "opus" {
 		t.Errorf("links %v, settings %v: want the rest of the project synced", e.trees.links, e.settings("/w/app"))
@@ -732,7 +676,7 @@ func TestASourceSkillThatCannotBeFetchedKeepsItsLink(t *testing.T) {
 	e.must(e.sync("/w/app", app.SyncOptions{Here: true}))
 	delete(e.sources.skills, "acme/up@"+src.SHA+"/grilling") // say, offline with a cold cache
 
-	r, _ := e.sync("/w/app", app.SyncOptions{Here: true})
+	r := e.must(e.sync("/w/app", app.SyncOptions{Here: true}))
 
 	if got := e.trees.links["/w/app/.claude/skills/grilling"]; got != "/cache/acme/up/grilling" {
 		t.Errorf("link is %q, want it kept", got)
@@ -778,7 +722,7 @@ func TestASettingTheBrainDoesNotSetIsPersonalAndReportedOnce(t *testing.T) {
 		t.Fatalf("got %v, settings %v: want the sync to pass and keep them", err, e.settings("/w/app"))
 	}
 	contains(t, r,
-		`personal env.TOKEN = (hidden): kept, the Brain does not set it`,
+		`personal env.TOKEN = "x": kept, the Brain does not set it`,
 		`personal outputStyle = "terse": kept, the Brain does not set it`)
 	e.trees.settings["/w/app/.claude/settings.local.json"]["permissions"].(map[string]any)["allow"] = []any{"Read", "Bash(make)"} // an approval
 
@@ -794,22 +738,27 @@ func TestAListedCheckoutGitCannotLocateNamesTheFix(t *testing.T) {
 	e.listed("app", "/w/app")
 	e.trees.lost["/w/app"] = true // say, its .git removed
 
-	r, _ := e.sync("/w", app.SyncOptions{})
+	r, err := e.sync("/w", app.SyncOptions{})
 
+	if err == nil || err.Error() != "1 of 1 checkouts did not sync" {
+		t.Errorf("got %v", err)
+	}
 	contains(t, r, "problem  /w/app: git cannot locate it, so nerve leaves it as it is: not in a git repo: fatal: not a git repository: /nowhere; make it a git repo again, or move the folder away for nerve to unlist it")
 }
 
-func TestAFullSyncReportsAStateItCannotRead(t *testing.T) {
+func TestASyncReplacesAStateItCannotRead(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
-	e.machine.unreadable = []string{"/cfg/nerve/state/0123456789abcdef.json"}
+	e.trees.links["/w/app/.claude/skills/nerve"] = "/cache/nerve/skill/nerve" // made by a sync before
+	e.machine.states["/w/app"] = domain.TreeState{Path: "/w/app"}
+	e.machine.unreadable["/w/app"] = true
 
-	r, err := e.sync("/w", app.SyncOptions{})
+	r := e.must(e.sync("/w", app.SyncOptions{}))
 
-	if err == nil {
-		t.Errorf("a sync that skipped a tree passed:\n%s", r)
+	if st := e.machine.states["/w/app"]; e.machine.unreadable["/w/app"] || st.Links[".claude/skills/nerve"].Target == "" {
+		t.Errorf("state is %+v, want a new one that holds nerve's link", st)
 	}
-	contains(t, r, "problem  /cfg/nerve/state/0123456789abcdef.json: not a state nerve can read: delete it, then sync again in its working tree", "synced   app")
+	contains(t, r, "problem  /w/app: nerve cannot read its state at /cfg/nerve/state/x.json: invalid character: dropped", "synced   app")
 }
 
 func TestSyncRefusesAListedCheckoutBelowTheTopOfItsRepo(t *testing.T) {
@@ -827,7 +776,7 @@ func TestSyncRefusesAListedCheckoutBelowTheTopOfItsRepo(t *testing.T) {
 	contains(t, r, "problem  /w/app/sub: it is inside the git repo at /w/app, not its top: list /w/app in the machine file instead")
 }
 
-func TestASettingsFileMadeAgainHoldsNothingOfTheUsersToKeep(t *testing.T) {
+func TestASettingsFileMadeAgainKeepsNothingOfNervesAfterRemoval(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
 	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus"}
@@ -837,8 +786,8 @@ func TestASettingsFileMadeAgainHoldsNothingOfTheUsersToKeep(t *testing.T) {
 
 	e.must(&recorder{}, e.app.RemoveProject("app", &recorder{}))
 
-	if got := e.settings("/w/app"); got != nil {
-		t.Errorf("settings are %s, want the file nerve made again taken out", jsonText(got))
+	if got := jsonText(e.settings("/w/app")); got != "{}" {
+		t.Errorf("settings are %s, want nerve's taken out, and the file kept", got)
 	}
 }
 
@@ -870,4 +819,67 @@ func TestACleanThatCannotReadTheSettingsKeepsTheState(t *testing.T) {
 		t.Errorf("got %v, state kept %v", err, kept)
 	}
 	contains(t, r, "problem  /w/app: settings.local.json: invalid character")
+}
+
+func TestPushPassesTheMessageOnceTheBrainHoldsNothingRefused(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Common = map[string]any{"apiKeyHelper": "x"}
+	r := &recorder{}
+
+	if err := e.app.Push("add go-stack", r); err == nil || len(e.brain.pushed) > 0 {
+		t.Errorf("pushed a Brain sync refuses: %v", err)
+	}
+	contains(t, r, "problem  brain.toml: common.settings.apiKeyHelper: not an allowed setting")
+
+	e.brain.m.Common = nil
+	e.must(&recorder{}, e.app.Push("add go-stack", &recorder{}))
+	if !slices.Equal(e.brain.pushed, []string{"add go-stack"}) {
+		t.Errorf("pushed %q", e.brain.pushed)
+	}
+}
+
+func TestSyncNeverReachesAWorktreeNoOneListed(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.worktree("/w/app-feature", "/w/app")
+
+	e.must(e.sync("/w", app.SyncOptions{}))
+
+	if _, ok := e.trees.links["/w/app-feature/.claude/skills/nerve"]; ok {
+		t.Errorf("a worktree no one listed got nerve's links")
+	}
+	if _, err := e.sync("/w/app-feature", app.SyncOptions{Here: true}); err == nil || !strings.Contains(err.Error(), "not a listed checkout") {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestATeamSkillNamedNerveIsNotCalledYours(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.trees.mkdirs("/w/app/.claude/skills/nerve") // the team's
+
+	r := e.must(e.sync("/w/app", app.SyncOptions{}))
+
+	contains(t, r, "problem  /w/app/.claude/skills/nerve: the team has a skill named nerve, so nerve's own is not linked here")
+	if strings.Contains(r.String(), "rename yours") {
+		t.Errorf("asks to rename a skill the user cannot:\n%s", r)
+	}
+}
+
+func TestASecondSyncWritesNothingInTheProject(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go-stack")
+	p := e.listed("app", "/w/app")
+	p.Skills, p.Settings = []string{"go-stack"}, map[string]any{"model": "opus"}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	e.trees.writes = 0
+
+	r := e.must(e.sync("/w/app", app.SyncOptions{}))
+
+	if e.trees.writes > 0 {
+		t.Errorf("a second sync wrote %d times in the project:\n%s", e.trees.writes, r)
+	}
+	if r.String() != "app is up to date at aaaaaaa" {
+		t.Errorf("a second sync says:\n%s", r)
+	}
 }

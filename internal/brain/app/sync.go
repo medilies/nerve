@@ -10,15 +10,14 @@ import (
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
-// SyncOptions say which trees a sync carries the Brain to, and how.
+// SyncOptions say which checkouts a sync carries the Brain to, and how.
 type SyncOptions struct {
 	Dir     string // the working directory
-	Here    bool   // only the tree around Dir
+	Here    bool   // only the checkout around Dir
 	Discard bool   // overwrite drift
-	Hook    bool   // run by autosync, whose report must not fail
 }
 
-// syncer carries one Brain to working trees.
+// syncer carries one Brain to checkouts.
 type syncer struct {
 	App
 	m       domain.Manifest
@@ -28,19 +27,10 @@ type syncer struct {
 	discard bool
 }
 
-// workingTree is one tree a sync carries the Brain to.
-type workingTree struct {
-	dir     string
-	project string // "" when no checkout this machine lists holds it
-	listed  bool   // a checkout in the machine file, not a worktree of one
-	lost    error  // why git cannot locate a worktree a sync reached before
-}
-
-// Sync pulls the Brain and carries it to every checkout this machine lists
-// and the worktrees of them a sync reached before, or only to the tree
-// around the working directory.
-// A tree that fails is reported, and the others still sync; what the run
-// changed in the Brain and on this machine is saved either way.
+// Sync makes the Brain equal to its remote, then carries it to every
+// checkout this machine lists, or only to the one around the working
+// directory. A checkout that fails is reported, and the others still sync;
+// what the run changed on this machine is saved either way.
 func (a App) Sync(o SyncOptions, r Reporter) error {
 	// This machine's file names the Brain, so nothing is pulled without it.
 	if _, err := a.Machine.Load(); err != nil {
@@ -53,16 +43,8 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 	if err != nil {
 		return err
 	}
-	// The pinned release is the one that judges the Brain; nerve never
-	// replaces itself, so it only says so. A development build is left be.
-	if pin, running := l.m.Nerve, a.Self.Version(); pin != "" && running != pin && domain.TagPattern.MatchString(running) {
-		r.Add(Event{Kind: EvProblem, Path: domain.ManifestFile, Key: "nerve", Detail: fmt.Sprintf("nerve %s runs, but the Brain pins %s: install %s", running, pin, pin)})
-	}
-	if p := l.m.Refusals(); len(p) > 0 {
-		for _, e := range p {
-			r.Add(problemEvent(e))
-		}
-		return fmt.Errorf("%d values in %s are refused: take each out as its problem says", len(p), domain.ManifestFile)
+	if err := refused(l.m, r); err != nil {
+		return err
 	}
 	self, err := a.Self.Skill()
 	if err != nil {
@@ -73,52 +55,34 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 		return err
 	}
 	s := &syncer{App: a, m: l.m, r: r, self: self, cmd: cmd, discard: o.Discard}
-	checkouts := len(l.machine.Checkouts)
-	var trees []workingTree
-	var gone []Event        // checkouts unlisted, reported once the machine file is saved
-	var unreadable []string // states of trees a full sync cannot know
+	var checkouts []domain.Checkout
+	var gone []Event // checkouts unlisted, reported once the machine file is saved
 	if o.Here {
 		t, name, err := a.here(l.machine, o.Dir)
 		if err != nil {
 			return err
 		}
-		_, listed := l.machine.CheckoutAt(t.Top)
-		trees = []workingTree{{dir: t.Top, project: name, listed: listed}}
-	} else if trees, gone, unreadable, err = a.workingTrees(&l.machine); err != nil {
+		checkouts = []domain.Checkout{{Path: t.Top, Project: name}}
+	} else if checkouts, gone, err = a.present(&l.machine); err != nil {
 		return err
 	}
-	for _, f := range unreadable {
-		r.Add(Event{Kind: EvProblem, Path: f, Detail: "not a state nerve can read: delete it, then sync again in its working tree"})
-	}
-	unlisted := len(l.machine.Checkouts) != checkouts
 	failed, drifted := 0, 0
-	for _, t := range trees {
-		p := l.m.Projects[t.project]
-		if t.lost != nil && p != nil {
-			r.Add(Event{Kind: EvProblem, Path: t.dir, Detail: "git cannot locate it, so nerve leaves it as it is: " + t.lost.Error()})
-			failed++
-			continue
-		}
+	for _, c := range checkouts {
+		p := l.m.Projects[c.Project]
 		if p == nil {
-			why := fmt.Sprintf("project %s left the Brain", t.project)
-			if t.project == "" {
-				why = "no checkout this machine lists holds it"
-			}
-			if err := a.clean(t.dir, why, r); err != nil {
-				r.Add(Event{Kind: EvProblem, Path: t.dir, Detail: err.Error()})
+			why := fmt.Sprintf("project %s left the Brain", c.Project)
+			if err := a.clean(c.Path, why, r); err != nil {
+				r.Add(Event{Kind: EvProblem, Path: c.Path, Detail: err.Error()})
 				failed++
 				continue
 			}
-			if t.listed {
-				l.machine.Checkouts = slices.DeleteFunc(l.machine.Checkouts, func(c domain.Checkout) bool { return c.Path == t.dir })
-				unlisted = true
-				gone = append(gone, Event{Kind: EvUnlisted, Project: t.project, Path: t.dir, Detail: why})
-			}
+			l.machine.Checkouts = slices.DeleteFunc(l.machine.Checkouts, func(x domain.Checkout) bool { return x.Path == c.Path })
+			gone = append(gone, Event{Kind: EvUnlisted, Project: c.Project, Path: c.Path, Detail: why})
 			continue
 		}
-		held, err := s.syncTree(t.project, p, t.dir)
+		held, err := s.syncTree(c.Project, p, c.Path)
 		if err != nil {
-			r.Add(Event{Kind: EvProblem, Path: t.dir, Detail: err.Error()})
+			r.Add(Event{Kind: EvProblem, Path: c.Path, Detail: err.Error()})
 			failed++
 			continue
 		}
@@ -127,7 +91,7 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 		}
 	}
 	var errs []error
-	if unlisted {
+	if len(gone) > 0 {
 		err := a.Machine.Save(l.machine)
 		if err == nil {
 			for _, e := range gone {
@@ -137,64 +101,61 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 		errs = append(errs, err)
 	}
 	if failed > 0 {
-		errs = append(errs, fmt.Errorf("%d of %d working trees did not sync", failed, len(trees)))
+		errs = append(errs, fmt.Errorf("%d of %d checkouts did not sync", failed, len(checkouts)))
 	}
-	if len(unreadable) > 0 {
-		errs = append(errs, fmt.Errorf("%d states cannot be read, so their working trees did not sync", len(unreadable)))
-	}
-	if drifted > 0 && !o.Hook {
+	if drifted > 0 {
 		discard := "nerve sync --discard"
 		if o.Here {
 			discard = "nerve sync --here --discard"
 		}
-		errs = append(errs, fmt.Errorf("settings drifted in %d of %d working trees: keep each change with nerve setting set or add, or drop it with %s", drifted, len(trees), discard))
+		errs = append(errs, fmt.Errorf("settings drifted in %d of %d checkouts: keep each change with nerve setting set or add, or drop it with %s", drifted, len(checkouts), discard))
 	}
 	return errors.Join(errs...)
 }
 
-// workingTrees lists what a full sync carries the Brain to: each checkout
-// machine lists, and each worktree of one that a sync reached before, and
-// names the states it cannot read. It unlists a checkout that is gone,
-// returning its event, and forgets a worktree that is.
-func (a App) workingTrees(machine *domain.Machine) ([]workingTree, []Event, []string, error) {
-	var trees []workingTree
-	var gone []Event
+// Push commits everything in the Brain with message, and force-pushes it to
+// its upstream, once the Brain holds nothing a sync would refuse.
+func (a App) Push(message string, r Reporter) error {
+	m, err := a.Brain.Load()
+	if err != nil {
+		return err
+	}
+	if err := refused(m, r); err != nil {
+		return err
+	}
+	return a.Brain.Push(message, r)
+}
+
+// refused reports each setting of m no list allows, and fails when there
+// are any.
+func refused(m domain.Manifest, r Reporter) error {
+	p := m.Refusals()
+	for _, e := range p {
+		r.Add(problemEvent(e))
+	}
+	if len(p) > 0 {
+		return fmt.Errorf("%d values in %s are refused: take each out as its problem says", len(p), domain.ManifestFile)
+	}
+	return nil
+}
+
+// present lists the checkouts machine lists that are still there. It
+// unlists those that are gone, returning their events.
+func (a App) present(machine *domain.Machine) ([]domain.Checkout, []Event, error) {
 	var kept []domain.Checkout
+	var gone []Event
 	for _, c := range machine.Checkouts {
 		if a.Trees.Exists(c.Path) {
 			kept = append(kept, c)
-			trees = append(trees, workingTree{dir: c.Path, project: c.Project, listed: true})
 			continue
 		}
 		if err := a.Machine.DropState(c.Path); err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		gone = append(gone, Event{Kind: EvUnlisted, Project: c.Project, Path: c.Path})
 	}
 	machine.Checkouts = kept
-	states, unreadable, err := a.Machine.States()
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	for _, st := range states {
-		if _, ok := machine.CheckoutAt(st.Path); ok {
-			continue
-		}
-		if !a.Trees.Exists(st.Path) {
-			if err := a.Machine.DropState(st.Path); err != nil {
-				return nil, nil, nil, err
-			}
-			continue
-		}
-		t, project, err := a.here(*machine, st.Path) // "" when no listed checkout holds it
-		if err != nil && t.Top == "" {
-			// git cannot place it, so it keeps the project it was synced for.
-			trees = append(trees, workingTree{dir: st.Path, project: st.Project, lost: err})
-			continue
-		}
-		trees = append(trees, workingTree{dir: st.Path, project: project})
-	}
-	return trees, gone, unreadable, nil
+	return slices.Clone(kept), gone, nil
 }
 
 func problemEvent(p domain.Problem) Event {
@@ -214,7 +175,7 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 	if filepath.Clean(tree.Top) != filepath.Clean(dir) { // its links would sit below the exclude block's
 		return false, fmt.Errorf("it is inside the git repo at %s, not its top: list %s in the machine file instead", tree.Top, tree.Top)
 	}
-	st, err := s.Machine.State(dir)
+	st, err := s.state(dir, s.r)
 	if err != nil {
 		return false, err
 	}
@@ -358,7 +319,7 @@ func (a App) exclude(tree domain.Tree, links map[string]domain.Link) error {
 		for rel := range links {
 			rels[rel] = true
 		}
-		states, _, err := a.Machine.States()
+		states, err := a.Machine.States()
 		if err != nil {
 			return nil, err
 		}
@@ -461,9 +422,14 @@ func (s *syncer) link(dir string, links []domain.Link, st *domain.TreeState) (ad
 		rel := l.Rel()
 		path := filepath.Join(dir, rel)
 		if taken(rel, l) {
-			if _, isLink := s.Trees.LinkTarget(path); !isLink {
+			_, isLink := s.Trees.LinkTarget(path)
+			switch {
+			case isLink: // a link someone pointed elsewhere: theirs, left alone
+			case l.Kind == "skill" && l.Name == "nerve":
+				s.r.Add(Event{Kind: EvProblem, Path: path, Detail: "the team has a skill named nerve, so nerve's own is not linked here"})
+			default:
 				s.r.Add(Event{Kind: EvProblem, Path: path, Detail: fmt.Sprintf("the team has it, so %s %s is not linked here: rename yours in the Brain to use it", l.Kind, l.Name)})
-			} // else a link someone pointed elsewhere: theirs, left alone
+			}
 			continue
 		}
 		switch {
@@ -512,7 +478,7 @@ func (a App) throughLink(dir string) error {
 // settings it wrote that were not changed since, and the folders it made
 // that are left empty.
 func (a App) clean(dir, why string, r Reporter) error {
-	st, err := a.Machine.State(dir)
+	st, err := a.state(dir, r)
 	if err != nil {
 		return err
 	}
@@ -544,15 +510,11 @@ func (a App) clean(dir, why string, r Reporter) error {
 		if err != nil {
 			return err
 		}
-		rest, changed := domain.Strip(current, st.Settings, st.Before)
-		switch {
-		case current == nil || !changed:
-		case len(rest) == 0:
-			if err := a.Trees.Remove(path); err != nil {
-				return err
+		// The file stays, if only as {}: nerve never deletes it.
+		if rest, changed := domain.Strip(current, st.Settings, st.Before); current != nil && changed {
+			if rest == nil {
+				rest = map[string]any{}
 			}
-			r.Add(Event{Kind: EvRemoved, Path: path})
-		default:
 			if err := a.Trees.WriteSettings(path, rest); err != nil {
 				return err
 			}

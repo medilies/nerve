@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 
 	"github.com/medilies/nerve/internal/brain/app"
@@ -14,7 +13,7 @@ import (
 const (
 	AsText = iota // each event as a line, as it comes
 	AsJSON        // one JSON document of all events and the error
-	AsHook        // one Claude Code hook output: the events as a message to the user
+	AsHook        // one Claude Code hook output: the session report, as a message to the user
 )
 
 // Report prints events as text as they come, or gathers them for Finish.
@@ -71,55 +70,22 @@ func (r *Report) Finish(err error) bool {
 	return false
 }
 
-// hookOutput is what autosync hands Claude Code: a message shown to the
-// user and kept out of Claude's context, and a skill rescan when it linked a
-// skill, so the skill is usable in this session. When nothing changed, the
-// message is one line.
+// hookOutput is the session report Claude Code shows the user, kept out of
+// Claude's context: how each checkout stands, its drift and problems. With
+// nothing to say, it says nothing.
 func hookOutput(events []app.Event, err error) map[string]any {
 	var lines []string
-	reload := false
 	for _, e := range events {
-		if e.Kind == app.EvLinked && filepath.Base(filepath.Dir(e.Path)) == "skills" {
-			reload = true
+		switch e.Kind {
+		case app.EvCheckout, app.EvDrift, app.EvProblem:
+			lines = append(lines, e.String())
 		}
-		lines = append(lines, e.String())
-	}
-	if line, ok := oneLine(events); ok && err == nil {
-		lines = []string{line}
 	}
 	if err != nil {
 		lines = append(lines, "error: "+err.Error())
 	}
-	out := map[string]any{"systemMessage": "nerve: " + Visible(strings.Join(lines, "\n"))}
-	if reload {
-		out["hookSpecificOutput"] = map[string]any{"hookEventName": "SessionStart", "reloadSkills": true}
+	if len(lines) == 0 {
+		return map[string]any{}
 	}
-	return out
-}
-
-// oneLine folds a run that changed nothing into its up-to-date line, with
-// why the pull was skipped, if it was.
-func oneLine(events []app.Event) (string, bool) {
-	var line string
-	var notes []string
-	for _, e := range events {
-		switch e.Kind {
-		case app.EvUpToDate:
-			if line != "" {
-				return "", false
-			}
-			line = e.String()
-		case app.EvPullSkipped:
-			notes = append(notes, "no pull: "+e.Detail)
-		default:
-			return "", false
-		}
-	}
-	if line == "" {
-		return "", false
-	}
-	if len(notes) > 0 {
-		line += " (" + strings.Join(notes, "; ") + ")"
-	}
-	return line, true
+	return map[string]any{"systemMessage": "nerve: " + Visible(strings.Join(lines, "\n"))}
 }

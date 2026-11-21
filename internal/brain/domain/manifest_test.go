@@ -1,7 +1,6 @@
 package domain_test
 
 import (
-	"slices"
 	"strings"
 	"testing"
 
@@ -12,7 +11,6 @@ const sha = "5863806dd4e15c63174bee4e7515a4256792ecfa"
 
 func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 	for want, m := range map[string]domain.Manifest{
-		"must be a release tag":            {Nerve: "latest"},
 		"is not owner/name":                {Sources: []domain.Source{{Repo: "acme", SHA: sha, Skills: []string{"x"}}}},
 		`"../x" is not owner/name`:         {Sources: []domain.Source{{Repo: "../x", SHA: sha, Skills: []string{"x"}}}},
 		`"acme/." is not owner/name`:       {Sources: []domain.Source{{Repo: "acme/.", SHA: sha, Skills: []string{"x"}}}},
@@ -30,7 +28,6 @@ func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 		`up: skill ".." must be`:           {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{".."}}}},
 		`allowed-settings: "a..b" is not`:  {AllowedSettings: []string{"a..b"}},
 		`acme/up is in two [[source]]`:     {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{"x"}}, {Repo: "acme/up", SHA: sha, Skills: []string{"y"}}}},
-		`"mcpServers.db.env" may hold s`:   {AllowedSettings: []string{"mcpServers.db.env"}},
 		`"hooks.Stop" is written by nerve`: {AllowedSettings: []string{"hooks.Stop"}},
 		`"enabledPlugins" is written by`:   {AllowedSettings: []string{"enabledPlugins"}},
 	} {
@@ -38,39 +35,31 @@ func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 			t.Errorf("got %v, want %q", err, want)
 		}
 	}
-	if err := (domain.Manifest{Nerve: "v1.2.3", Projects: map[string]*domain.Project{"app": {}}}).Validate(); err != nil {
+	if err := (domain.Manifest{AllowedSettings: []string{"mcpServers.db.env"}, Projects: map[string]*domain.Project{"app": {}}}).Validate(); err != nil {
 		t.Errorf("a valid manifest is refused: %v", err)
-	}
-}
-
-func TestAutosyncIsOnUnlessTheProjectOrTheBrainSaysOff(t *testing.T) {
-	on, off := true, false
-	for _, c := range []struct {
-		brain, project *bool
-		want           bool
-	}{{nil, nil, true}, {&off, nil, false}, {&off, &on, true}, {nil, &off, false}} {
-		m := domain.Manifest{Autosync: c.brain}
-		if got := m.AutosyncFor(&domain.Project{Autosync: c.project}); got != c.want {
-			t.Errorf("brain %v, project %v: autosync %v, want %v", c.brain, c.project, got, c.want)
-		}
 	}
 }
 
 func TestDescribeSumsUpAProject(t *testing.T) {
 	m := domain.Manifest{}
 	p := &domain.Project{Skills: []string{"a", "b"}, Hooks: []string{"h"}, Settings: map[string]any{"model": "opus"}}
-	if got := m.Describe(p); got != "autosync on, 2 skills, 1 hook, 1 setting" {
+	if got := m.Describe(p); got != "2 skills, 1 hook, 1 setting" {
 		t.Errorf("described as %q", got)
 	}
-	off := false
-	if got := m.Describe(&domain.Project{Autosync: &off}); got != "autosync off" {
-		t.Errorf("a project with autosync off is described as %q", got)
+}
+
+func TestValidateNamesTheFirstBadNameWhateverTheMapOrder(t *testing.T) {
+	m := domain.Manifest{Hooks: map[string]domain.Hook{"C": {}, "A": {}, "B": {}, "D": {}}}
+	for range 50 {
+		if err := m.Validate(); err == nil || !strings.Contains(err.Error(), `hook "A"`) {
+			t.Fatalf("got %v, want the error of hook A", err)
+		}
 	}
 }
 
 func TestDescribeCountsNoSettingInAnEmptyObject(t *testing.T) {
 	p := &domain.Project{Settings: map[string]any{"x": map[string]any{}}}
-	if got := (domain.Manifest{}).Describe(p); got != "autosync on" {
+	if got := (domain.Manifest{}).Describe(p); got != "lists nothing yet" {
 		t.Errorf("described as %q", got)
 	}
 }
@@ -85,52 +74,16 @@ func TestSourceOfFindsTheSourceListingASkill(t *testing.T) {
 	}
 }
 
-func TestRefusalsNameWhereEachIs(t *testing.T) {
+func TestRefusalsLeaveSecretsInAllowedSettingsToTheUser(t *testing.T) {
 	m := domain.Manifest{
-		Common: map[string]any{"apiKeyHelper": "get-key", "statusLine": map[string]any{"command": "/home/someone/bin/line"}},
-		Hooks:  map[string]domain.Hook{"notify": {Event: "Stop", Command: "notify me@example.com"}},
+		AllowedSettings: []string{"env"},
+		Common:          map[string]any{"env": map[string]any{"TOKEN": "ghp_abcdefghijklmnopqrstuvwxyz0123"}},
 		Projects: map[string]*domain.Project{"app": {Settings: map[string]any{
-			"permissions": map[string]any{"allow": []any{"WebFetch(domain:ghp_abcdefghijklmnopqrstuvwxyz0123)"}},
+			"permissions": map[string]any{"allow": []any{"Bash(curl -u admin:s3cret https://x)", "Read(/home/bob/x)"}},
 		}}},
 	}
-	var got []string
-	for _, p := range m.Refusals() {
-		got = append(got, p.Key+": "+p.Detail)
-	}
-	text := strings.Join(got, "\n")
-	for _, want := range []string{
-		"common.settings.apiKeyHelper: apiKeyHelper may hold secrets",
-		"common.settings.statusLine.command: holds a home path",
-		"hook.notify.command: holds an email address",
-		"project.app.settings.permissions.allow: looks like a token",
-	} {
-		if !strings.Contains(text, want) {
-			t.Errorf("lacks %q:\n%s", want, text)
-		}
-	}
-}
-
-func TestRefusalsLookEverywhereInTheManifest(t *testing.T) {
-	m := domain.Manifest{
-		Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{"x"}}},
-		Hooks:   map[string]domain.Hook{"guard": {Event: "PreToolUse", Matcher: "Bash(/home/bob/client-x/*)", Command: "x"}},
-		Common:  map[string]any{"enabledPlugins": map[string]any{"tool@bob@example.com": true}},
-		Projects: map[string]*domain.Project{"app": {
-			Plugins: []string{"tool@ops.example.com"},
-			Skills:  []string{"ok"},
-		}},
-	}
-	var got []string
-	for _, p := range m.Refusals() {
-		got = append(got, p.Key+": "+p.Detail)
-	}
-	want := []string{
-		"hook.guard.matcher: holds a home path: use {{brain}} or ~",
-		"common.settings.enabledPlugins.(hidden): the key holds an email address: take it out of brain.toml, then nerve setting set it per project, which keeps it in the local overlay",
-		"project.app.plugins: holds an email address",
-	}
-	if !slices.Equal(got, want) {
-		t.Errorf("problems are\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	if got := refusals(m); got != "" {
+		t.Errorf("refused:\n%s", got)
 	}
 }
 
@@ -169,142 +122,14 @@ func TestAllowedSettingsLetTheBrainHoldMoreKeys(t *testing.T) {
 	}
 }
 
-func TestSecretKeysAreRefusedAtAnyDepthEvenWhenAllowed(t *testing.T) {
-	m := domain.Manifest{
-		AllowedSettings: []string{"mcpServers", "pluginConfigs", "sandbox"},
-		Common: map[string]any{
-			"mcpServers":    map[string]any{"db": map[string]any{"env": map[string]any{"DB_PASSWORD": "x"}, "headers": map[string]any{"X-Api-Key": "y"}}},
-			"pluginConfigs": map[string]any{"x": map[string]any{"options": map[string]any{"apiKey": "z", "dbPassword": "w"}}},
-			"sandbox":       map[string]any{"enabled": true},
-		},
-	}
-
-	got := refusals(m)
-	for _, want := range []string{
-		"common.settings.mcpServers.db.env.DB_PASSWORD: env may hold secrets",
-		"common.settings.mcpServers.db.headers.X-Api-Key: headers may hold secrets",
-		"common.settings.pluginConfigs.x.options.apiKey: apiKey may hold secrets",
-		"common.settings.pluginConfigs.x.options.dbPassword: dbPassword may hold secrets",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("lacks %q:\n%s", want, got)
-		}
-	}
-	if strings.Contains(got, "sandbox") {
-		t.Errorf("refused an ordinary allowed setting:\n%s", got)
-	}
-}
-
 func TestSettingRefusalLooksInsideAnObjectValue(t *testing.T) {
-	m := domain.Manifest{AllowedSettings: []string{"mcpServers"}}
-	v := map[string]any{"db": map[string]any{"env": map[string]any{"TOKEN": "x"}}}
+	m := domain.Manifest{AllowedSettings: []string{"permissions.allow"}}
 
-	if why := m.SettingRefusal("mcpServers", v); why != "env may hold secrets" {
+	if why := m.SettingRefusal("permissions", map[string]any{"allow": []any{"Read"}, "additionalDirectories": []any{"x"}}); why != domain.NotAllowed {
 		t.Errorf("got %q", why)
 	}
 	if why := m.SettingRefusal("permissions", map[string]any{"allow": []any{"Read"}}); why != "" {
 		t.Errorf("an object of allowed settings is refused: %s", why)
-	}
-}
-
-func TestSensitiveGivesOneReasonWhateverTheMapOrder(t *testing.T) {
-	v := map[string]any{"a": "me@example.com", "b": "ghp_abcdefghijklmnopqrstuvwxyz0123", "c": "/home/bob/x", "d": "/Users/bob/y"}
-	want := domain.Sensitive("x", v)
-	for range 50 {
-		if got := domain.Sensitive("x", v); got != want {
-			t.Fatalf("got %q, then %q", want, got)
-		}
-	}
-}
-
-func TestSensitiveFindsSecretKeysAtAnyDepth(t *testing.T) {
-	if why := domain.Sensitive(domain.LeafKey([]string{"mcpServers", "db", "env", "HOST"}), "db.internal"); why != "env may hold secrets" {
-		t.Errorf("got %q", why)
-	}
-}
-
-func TestSensitiveLeavesOrdinaryValuesAlone(t *testing.T) {
-	for _, v := range []any{"opus", "~/bin/line", "{{brain}}/hooks/x.sh", "gopls@claude-plugins-official", []any{"Bash(npm run test:*)"}} {
-		if why := domain.Sensitive("x", v); why != "" {
-			t.Errorf("%v flagged: %s", v, why)
-		}
-	}
-}
-
-func TestSensitiveLeavesAProjectFolderNamedHomeAlone(t *testing.T) {
-	for _, v := range []string{"Edit(app/home/page.tsx)", "Read(./src/home/**)", "Read(src/Users/list.ts)", "Read(/root-tools/x)", "Bash(make bearer)"} {
-		t.Run(v, func(t *testing.T) {
-			if why := domain.Sensitive(domain.LeafKey([]string{"permissions", "allow"}), []any{v}); why != "" {
-				t.Errorf("flagged: %s", why)
-			}
-		})
-	}
-}
-
-func TestSensitiveFindsRootPathsKeysAndCredentials(t *testing.T) {
-	for _, v := range []string{
-		"Read(/root/.ssh/id_rsa)",
-		"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
-		"-----BEGIN PRIVATE KEY-----",
-		"postgres://u:pw@db:5432/app",
-		"AIzaSyA1234567890abcdefghijklmnopqrstuv",
-		"Bash(curl -H 'Authorization: Bearer abcDEF123456789')",
-		"sk_live_4eC39HqLyjWDarjtT1zdp7dc",
-		"hf_abcdefghijklmnopqrstuvwxyzABCDEF",
-		"npm_abcdefghijklmnopqrstuvwxyz0123456789",
-		"ya29.a0AfH6SMBabcdefghijklmnopqrstuvwxyz",
-		"SG.abcdefghijklmnopqrstuv.abcdefghijklmnopqrstuvwxyz0123456789abcdefg",
-		"x@/home/bob/market",
-		"Read(/mnt/c/Users/bob/notes)",
-		"Read(/var/home/bob/notes)",
-	} {
-		t.Run(v, func(t *testing.T) {
-			if why := domain.Sensitive("x", v); why == "" {
-				t.Errorf("not flagged")
-			}
-		})
-	}
-}
-
-func TestSensitiveFindsSecretKeysInsideAValue(t *testing.T) {
-	for _, v := range []any{
-		map[string]any{"dbPassword": "hunter2"},
-		[]any{map[string]any{"apiKey": "abc123"}},
-		[]any{map[string]any{"cfg": map[string]any{"env": map[string]any{"X": "y"}}}},
-	} {
-		if why := domain.Sensitive("foo", v); why == "" {
-			t.Errorf("%v not flagged", v)
-		}
-	}
-}
-
-func TestRefusalsLookInsideAListOfObjects(t *testing.T) {
-	m := domain.Manifest{AllowedSettings: []string{"foo"}, Common: map[string]any{"foo": []any{map[string]any{"apiKey": "abc123"}}}}
-
-	if got := refusals(m); !strings.Contains(got, "apiKey may hold secrets") {
-		t.Errorf("not refused:\n%s", got)
-	}
-}
-
-func TestSensitiveFindsLowercaseBearerTokensAndMoreSecretKeys(t *testing.T) {
-	if why := domain.Sensitive("x", "Bash(curl -H 'authorization: bearer abcdefghijkl')"); why == "" {
-		t.Errorf("a lowercase bearer token is not flagged")
-	}
-	for _, key := range []string{"privateKey", "accessKey", "sessionKey", "cookie", "authorization"} {
-		if why := domain.Sensitive(key, "x"); why == "" {
-			t.Errorf("key %s is not flagged", key)
-		}
-	}
-}
-
-func TestSensitiveFindsABasicAuthCredentialAndNotTheWord(t *testing.T) {
-	if why := domain.Sensitive("x", "Bash(curl -H 'Authorization: Basic dXNlcjpwYXNz' x)"); why != "holds a credential" {
-		t.Errorf("a basic auth credential: got %q", why)
-	}
-	for _, v := range []string{"Bash(make basic installation)", "Bash(echo basic step2)", "Basic usage"} {
-		if why := domain.Sensitive("x", v); why != "" {
-			t.Errorf("%q flagged: %s", v, why)
-		}
 	}
 }
 
@@ -341,77 +166,6 @@ func TestRefusalsRefuseANerveListHeldAsAnythingElse(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("lacks %q:\n%s", want, got)
 		}
-	}
-}
-
-func TestSensitiveFindsSecretsAndHomePathsInCommands(t *testing.T) {
-	for _, v := range []string{
-		"curl -d done https://hooks.slack.com/services/T01ABCDEF/B01ABCDEF/abcdefghijklmnopqrstuvwx",
-		"curl https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnop",
-		"NTFY_TOKEN=tk_abc123 ./notify.sh",
-		"./run.sh --password hunter2",
-		"curl -H 'X-API-Key: abc123def456' https://x.io",
-		"AWS_SECRET_ACCESS_KEY=abc ./x",
-		"-----BEGIN PGP PRIVATE KEY BLOCK-----",
-		"https://:pw@example.com",
-		"echo done >/home/bob/log",
-		"cc -I/home/bob/include x.c",
-		"hi;/home/bob/x",
-		"sh /root;",
-	} {
-		t.Run(v, func(t *testing.T) {
-			if why := domain.Sensitive("x", v); why == "" {
-				t.Errorf("not flagged")
-			}
-		})
-	}
-}
-
-func TestSensitiveLeavesOrdinaryCommandsAlone(t *testing.T) {
-	for _, v := range []string{
-		"Bash(gh auth token:*)",
-		"Bash(npm run test:*)",
-		"NTFY_TOKEN=$NTFY_TOKEN ./notify.sh",
-		`curl -H "Authorization: Bearer $GITHUB_TOKEN" https://x.io`,
-		"{{brain}}/hooks/notify.sh --token-file ~/.config/x",
-		"Co-Authored-By: Claude <noreply@anthropic.com>",
-		"See Bearer authentication in the docs",
-		"Bash(npm run secrets:check)",
-		"Bash(make token:refresh)",
-		"Edit(app/(marketing)/home/page.tsx)",
-		"Edit(src/[id]/home/x.ts)",
-	} {
-		t.Run(v, func(t *testing.T) {
-			if why := domain.Sensitive("x", v); why != "" {
-				t.Errorf("flagged: %s", why)
-			}
-		})
-	}
-}
-
-func TestSensitiveFindsSecretKeysWhateverTheirCase(t *testing.T) {
-	for _, k := range []string{"Env", "HEADERS", "ApiKeyHelper"} {
-		if why := domain.Sensitive(domain.LeafKey([]string{"mcpServers", "db", k, "X"}), "y"); why == "" {
-			t.Errorf("%s not flagged", k)
-		}
-	}
-}
-
-func TestRefusalsAndOverridesOfCommonHideASensitiveKey(t *testing.T) {
-	key := map[string]any{"ghp_abcdefghijklmnopqrstuvwxyz0123456789": 1.0}
-	m := domain.Manifest{
-		AllowedSettings: []string{"statusLine"},
-		Common:          map[string]any{"statusLine": key},
-	}
-
-	got := refusals(m)
-	same := domain.OverridesOfCommon(&domain.Project{Settings: map[string]any{"statusLine": key}}, m.Common)
-
-	if strings.Contains(got, "ghp_") || !strings.Contains(got, "statusLine.(hidden): the key looks like a token: take it out of brain.toml") {
-		t.Errorf("got:\n%s", got)
-	}
-	if !slices.Equal(same, []string{"statusLine.(hidden)"}) {
-		t.Errorf("overrides of common are %v", same)
 	}
 }
 

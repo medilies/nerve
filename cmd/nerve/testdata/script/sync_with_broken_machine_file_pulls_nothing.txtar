@@ -13,8 +13,8 @@ exec git fetch -q origin
 exec git branch -q -u origin/main
 replace $NERVE_CONFIG/config.toml 'brain = "~/brain"' 'brain = "relative/path"'
 
-exec nerve sync --here --hook
+! exec nerve sync --here
 
-stdout 'error: .*config.toml: brain \\"relative/path\\" must be absolute'
+stderr 'error: .*config.toml: brain "relative/path" must be absolute'
 exec git rev-list --count HEAD
 stdout '^1$'

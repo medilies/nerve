@@ -1,6 +1,10 @@
 package app
 
-import "github.com/medilies/nerve/internal/brain/domain"
+import (
+	"errors"
+
+	"github.com/medilies/nerve/internal/brain/domain"
+)
 
 // Brain is the Brain's checkout: its manifest, own skills and agents, and
 // its git state.
@@ -9,11 +13,12 @@ type Brain interface {
 	Load() (domain.Manifest, error)
 	// Save writes the manifest in nerve's own layout.
 	Save(domain.Manifest) error
-	// MovePin replaces one pin in the manifest as written, touching nothing
-	// else.
-	MovePin(repo, old, new string) error
-	// Pull fast-forwards the checkout from its upstream, or says why not.
+	// Pull makes the checkout equal to its upstream, reporting the local
+	// commits and changes it drops, or says why it could not.
 	Pull(Reporter) error
+	// Push commits everything in the checkout with message, then
+	// force-pushes it to its upstream.
+	Push(message string, r Reporter) error
 	// Head is the checked-out commit, "" outside git.
 	Head() string
 	// State says what the checkout holds that others cannot see yet.
@@ -61,13 +66,17 @@ type Machine interface {
 	// DropOverlay deletes a project's local overlay, returning its path, or
 	// "" when it had none.
 	DropOverlay(project string) (path string, err error)
+	// State is what nerve last did to the checkout at dir; an error
+	// wrapping ErrUnreadable when its file cannot be read.
 	State(dir string) (domain.TreeState, error)
 	SaveState(domain.TreeState) error
 	DropState(dir string) error
-	// States reads every state it can, and names the state files it
-	// cannot read, which State refuses to their own trees.
-	States() (states []domain.TreeState, unreadable []string, err error)
+	// States reads every state it can.
+	States() ([]domain.TreeState, error)
 }
+
+// ErrUnreadable is a state nerve cannot read, which it replaces.
+var ErrUnreadable = errors.New("nerve cannot read its state")
 
 // Trees are the working trees of checkouts on this machine, and git in
 // them.
@@ -101,13 +110,12 @@ type Trees interface {
 	Frontmatter(path string) (map[string]string, error)
 }
 
-// Self is nerve itself: its own skill, how autosync runs it, and its
-// version.
+// Self is nerve itself: its own skill, and how the session report runs it.
 type Self interface {
 	Skill() (domain.Skill, error)
-	// Command is what autosync runs to sync the tree a session starts in.
+	// Command is what the session report runs in the checkout a session
+	// starts in.
 	Command() (string, error)
-	Version() string
 }
 
 // App carries a Brain through its ports.

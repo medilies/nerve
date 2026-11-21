@@ -20,20 +20,20 @@ nowhere else.
   see none of it, and the team's own `.claude/` stays theirs.
 - **One source of truth.** `brain.toml` says what each project gets.
   A project only reflects it, and every change is a commit you review.
-- **In step at every session.** Autosync brings a project up to date
-  when a session starts, and tells you what changed.
+- **Explicit.** nerve changes a project only when you sync. Each
+  session starts with a report of what waits for a sync, and of drift.
 - **Revoke everywhere.** Take a skill or a denied tool out of every
   project with one command; each checkout drops it at its next sync.
 - **Nothing lost.** A setting the Brain does not set, one the checkout
   had before nerve or an approval, is kept. One the Brain sets that
   Claude Code changed is reported as drift, never overwritten. A link
   that goes missing is made again.
-- **Pinned and reviewed.** Third-party skills sit at a commit, and move
-  only after you read how they changed.
-- **Nothing sensitive in the Brain.** It holds only the settings nerve
-  allows, and those you allow, never secrets. Secrets, home paths,
-  emails and any other setting go to a local overlay that never leaves
-  the machine.
+- **Pinned and reviewed.** Third-party skills sit at a commit.
+  `nerve update` shows how they changed before you push the new pin.
+- **Only allowed settings in the Brain.** It holds the settings nerve
+  allows, and those you allow. Any other setting goes to a local overlay
+  that never leaves the machine. What you allow is yours to keep free of
+  secrets.
 - **Ask Claude.** In a listed project, `/nerve` says where things stand,
   and does the rest with you: "use my Go stack here".
 
@@ -88,12 +88,12 @@ nerve project add billing            # list this checkout as project billing
 nerve skill add go-stack             # give it a skill; agent, hook and plugin work the same
 nerve setting set model opus         # a setting for it; --common for every project
 nerve setting add permissions.allow "Bash(make test)"   # one more item in a list
-nerve sync --here                    # carry the Brain to it; autosync does this at each session start
-nerve status                         # where it stands: links, the team's skills, drift
+nerve push "go stack for billing"    # commit the Brain, and push it to its remote
+nerve sync --here                    # make the Brain its remote's, then carry it to this checkout
+nerve status                         # where it stands: what waits for a sync, links, drift
 nerve skill rm grilling --all        # take a skill out of every project
 nerve setting rm permissions.deny=Cron --all   # revoke one denied tool everywhere
-nerve skill update acme/skills       # read how its skills changed, then move the pin
-nerve project autosync off           # no sync at session start for this project
+nerve update                         # read how third-party skills changed, then move their pins
 nerve sync                           # every checkout on this machine
 nerve check                          # validate the Brain, as its CI does
 ```
@@ -101,14 +101,15 @@ nerve check                          # validate the Brain, as its CI does
 A command that acts on one project, such as `skill add` or
 `setting set`, acts on the one around the working directory;
 `--project <name>` names another. Commands that change the Brain edit
-`brain.toml` and never commit. `--json` prints one JSON document of
+`brain.toml`; `nerve push` commits and pushes them, and `nerve sync`
+drops what was not pushed. `--json` prints one JSON document of
 what happened. A settings key that holds a dot goes in double quotes:
 `enabledPlugins."x@y.z"`. `nerve help` lists every command.
 
 ## Documentation
 
 - [The Brain](docs/brain.md): `brain.toml`, projects, sources, hooks, common settings, this machine, overlays
-- [Syncing](docs/sync.md): what sync writes, autosync, drift, revoking, the team's own
+- [Syncing](docs/sync.md): what sync writes, push, the session report, drift, revoking, the team's own
 - [Glossary](GLOSSARY.md): the words nerve uses
 - [Decisions](docs/adr/) and [what is left out](docs/backlog.md)
 - [Development](docs/development.md): building, testing, architecture

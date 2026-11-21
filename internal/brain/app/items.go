@@ -29,13 +29,6 @@ func (a App) AddItem(ref ProjectRef, kind, name string, r Reporter) error {
 			return err // one sync would only report
 		}
 	}
-	if why := domain.SensitiveText(name); why != "" {
-		msg := fmt.Sprintf("%s %q %s, so it cannot go in the Brain", kind, name, why)
-		if kind == "plugin" {
-			msg += fmt.Sprintf(`: enable it on this machine only with nerve setting set 'enabledPlugins."%s"' true`, name)
-		}
-		return errors.New(msg)
-	}
 	list := p.List(kind)
 	if slices.Contains(*list, name) {
 		r.Add(Event{Kind: EvItem, Project: project, Item: kind + " " + name, Detail: "already in project " + project})
@@ -93,74 +86,6 @@ func (a App) RemoveItem(ref ProjectRef, kind, name string, all bool, r Reporter)
 	return nil
 }
 
-// ListItems lists the target project's items of a kind and where each comes
-// from. Inside its checkout, skills and agents also show how they are
-// linked, and the team's own.
-func (a App) ListItems(ref ProjectRef, kind string, r Reporter) error {
-	l, err := a.load()
-	if err != nil {
-		return err
-	}
-	project, p, err := a.project(l, ref)
-	if err != nil {
-		return err
-	}
-	var st domain.TreeState
-	dir := ""
-	if ref.Project == "" && (kind == "skill" || kind == "agent") {
-		if tree, _, err := a.here(l.machine, ref.Dir); err == nil {
-			dir = tree.Top
-			if st, err = a.Machine.State(dir); err != nil {
-				return err
-			}
-		}
-	}
-	linkedAs := map[string]string{} // item -> link
-	for rel, l := range st.Links {
-		linkedAs[l.Item()] = rel
-	}
-	for _, name := range *p.List(kind) {
-		detail := ""
-		switch kind {
-		case "skill":
-			if _, own, _ := a.Brain.OwnSkill(name); own {
-				detail = "own"
-			} else if src, ok := l.m.SourceOf(name); ok {
-				detail = "from " + src.Repo + "@" + src.SHA[:7]
-			}
-		case "agent":
-			detail = "own"
-		case "hook":
-			h := l.m.Hooks[name]
-			detail = strings.TrimSpace(h.Event + " " + h.Matcher)
-		case "plugin":
-			detail = "enabled"
-		}
-		link := domain.Link{Kind: kind, Name: name}
-		if rel, ok := linkedAs[link.Item()]; ok && a.ours(dir, rel, st.Links[rel]) {
-			detail += ", linked as " + rel
-		} else if _, isLink := a.Trees.LinkTarget(filepath.Join(dir, link.Rel())); dir != "" && isLink {
-			detail += ", not linked: yours at " + link.Rel()
-		} else if dir != "" && (kind == "skill" || kind == "agent") && a.Trees.Present(filepath.Join(dir, link.Rel())) {
-			detail += ", not linked: the team has " + link.Rel()
-		} else if dir != "" {
-			detail += ", not linked: nerve sync --here links it, or says why not"
-		}
-		r.Add(Event{Kind: EvItem, Project: project, Item: kind + " " + name, Detail: detail})
-	}
-	if dir == "" {
-		return nil
-	}
-	if kind == "skill" {
-		r.Add(Event{Kind: EvItem, Project: project, Item: "skill nerve", Detail: "nerve's own"})
-	}
-	for _, e := range a.othersItems(dir, kind, st) {
-		e.Project = project
-		r.Add(e)
-	}
-	return nil
-}
-
 // othersItems lists the skills or agents in a working tree that nerve did
 // not link, each as the team's or, for a link someone made, as yours. A
 // skill is a folder holding a SKILL.md, and an agent a .md file whose
@@ -193,41 +118,63 @@ func (a App) agentFile(path string) bool {
 	return err == nil && meta["name"] != "" && meta["description"] != ""
 }
 
-// UpdatePin prints how each skill used from repo differs between its pin and
-// sha (default: the tip of the source's default branch), then moves the pin.
-func (a App) UpdatePin(repo, sha string, r Reporter) error {
+// Update moves the pin of each source, or of repo alone, to the tip of its
+// default branch, first showing how each of its skills changed. A source
+// that cannot move is reported, and the others still do.
+func (a App) Update(repo string, r Reporter) error {
 	m, err := a.Brain.Load()
 	if err != nil {
 		return err
 	}
 	repo = strings.TrimSuffix(strings.TrimPrefix(repo, "https://github.com/"), ".git")
-	i := slices.IndexFunc(m.Sources, func(s domain.Source) bool { return s.Repo == repo })
-	if i < 0 {
+	if repo != "" && !slices.ContainsFunc(m.Sources, func(s domain.Source) bool { return s.Repo == repo }) {
 		return fmt.Errorf("%s is not a source in %s", repo, domain.ManifestFile)
 	}
-	src := m.Sources[i]
-	if sha == "" {
-		if sha, err = a.Sources.Head(repo); err != nil {
+	moved, failed := false, 0
+	for i, src := range m.Sources {
+		if repo != "" && src.Repo != repo {
+			continue
+		}
+		sha, err := a.pinTip(src, r)
+		switch {
+		case err != nil:
+			r.Add(Event{Kind: EvProblem, Path: domain.ManifestFile, Key: src.Repo, Detail: err.Error()})
+			failed++
+		case sha == src.SHA:
+			r.Add(Event{Kind: EvAlreadyThere, Detail: src.Repo, Target: sha})
+		default:
+			m.Sources[i].SHA, moved = sha, true
+			r.Add(Event{Kind: EvPinned, Detail: src.Repo, Target: sha})
+		}
+	}
+	if moved {
+		if err := a.Brain.Save(m); err != nil {
 			return err
 		}
 	}
-	if !domain.SHAPattern.MatchString(sha) {
-		return errors.New("sha must be a full 40-character lowercase commit")
+	if failed > 0 {
+		return fmt.Errorf("%d sources did not move", failed)
 	}
-	if sha == src.SHA {
-		r.Add(Event{Kind: EvAlreadyThere, Detail: repo, Target: sha})
-		return nil
+	return nil
+}
+
+// pinTip finds the tip of a source's default branch and reports how each of
+// its skills changed since the pin.
+func (a App) pinTip(src domain.Source, r Reporter) (string, error) {
+	sha, err := a.Sources.Head(src.Repo)
+	if err != nil || sha == src.SHA {
+		return sha, err
 	}
+	var diffs []Event
 	for _, name := range src.Skills {
 		d, err := a.Sources.Diff(src, name, sha)
 		if err != nil {
-			return err
+			return "", err
 		}
-		r.Add(Event{Kind: EvDiff, Item: "skill " + name, Detail: d})
+		diffs = append(diffs, Event{Kind: EvDiff, Item: "skill " + name, Detail: d})
 	}
-	if err := a.Brain.MovePin(repo, src.SHA, sha); err != nil {
-		return err
+	for _, e := range diffs {
+		r.Add(e)
 	}
-	r.Add(Event{Kind: EvPinned, Detail: repo, Target: sha})
-	return nil
+	return sha, nil
 }

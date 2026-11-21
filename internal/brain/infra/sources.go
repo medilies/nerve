@@ -55,7 +55,7 @@ func (SourceCache) Diff(src domain.Source, name, to string) (string, error) {
 	}
 	oldDir, err := findSkill(oldTree, src.Path, name)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("at its pin %s: %w; fix the pin in %s first", src.SHA[:7], err, domain.ManifestFile)
 	}
 	newDir, err := findSkill(newTree, src.Path, name)
 	if err != nil {
@@ -100,7 +100,7 @@ func writeVisible(b *strings.Builder, r rune) {
 	}
 }
 
-// maxDiff bounds the diff skill update shows, in bytes.
+// maxDiff bounds the diff update shows, in bytes.
 const maxDiff = 256 << 10
 
 // fetch returns the files of repo at sha, cached under the user cache dir.

@@ -290,14 +290,6 @@ func TestReconcileTakesAValueAndAnObjectAtOneKeyAsAWhole(t *testing.T) {
 	}
 }
 
-func TestReconcileHidesIdentifyingKeys(t *testing.T) {
-	rc := domain.Reconcile(nil, nil, obj(t, `{"enabledPlugins": {"tool@bob@example.com": true}}`), false)
-
-	if len(rc.Changes) != 1 || rc.Changes[0].Key != "enabledPlugins.(hidden)" || rc.Changes[0].After != domain.Hidden {
-		t.Errorf("changes are %+v", rc.Changes)
-	}
-}
-
 func TestMergeLaysObjectsJoinsArraysAndLetsLaterValuesWin(t *testing.T) {
 	got := domain.Merge(
 		obj(t, `{"model": "opus", "permissions": {"deny": ["A", "B"], "ask": ["X"]}}`),
@@ -309,7 +301,6 @@ func TestMergeLaysObjectsJoinsArraysAndLetsLaterValuesWin(t *testing.T) {
 }
 
 func TestWantLaysCommonProjectNerveAndOverlay(t *testing.T) {
-	off := false
 	m := domain.Manifest{
 		Common: obj(t, `{"model": "opus", "permissions": {"deny": ["NotebookEdit"]}}`),
 		Hooks:  map[string]domain.Hook{"fmt": {Event: "PostToolUse", Matcher: "Edit", Command: "{{brain}}/hooks/fmt.sh"}},
@@ -320,19 +311,28 @@ func TestWantLaysCommonProjectNerveAndOverlay(t *testing.T) {
 		Plugins:  []string{"gopls@claude-plugins-official"},
 	}
 
-	got := domain.Want(m, p, "nerve sync --here --hook", obj(t, `{"model": "haiku"}`), "/b")
+	got := domain.Want(m, p, "nerve status --hook", obj(t, `{"model": "haiku"}`), "/b")
 
 	want := `{"enabledPlugins":{"gopls@claude-plugins-official":true},` +
 		`"hooks":{"PostToolUse":[{"hooks":[{"command":"/b/hooks/fmt.sh","type":"command"}],"matcher":"Edit"}],` +
-		`"SessionStart":[{"hooks":[{"command":"nerve sync --here --hook","type":"command"}]}]},` +
+		`"SessionStart":[{"hooks":[{"command":"nerve status --hook","type":"command"}]}]},` +
 		`"model":"haiku","permissions":{"deny":["NotebookEdit","Cron"]}}`
 	if text(got) != want {
 		t.Errorf("want is\n%s\nnot\n%s", text(got), want)
 	}
+}
 
-	p.Autosync = &off
-	if hooks := domain.Want(m, p, "x", nil, "/b")["hooks"].(map[string]any); hooks["SessionStart"] != nil {
-		t.Errorf("autosync off still adds its hook")
+func TestMergeLeavesNoRepeatsInAListUnderANewKey(t *testing.T) {
+	got := domain.Merge(nil, obj(t, `{"permissions": {"allow": ["a", "a"]}}`))
+	if text(got) != `{"permissions":{"allow":["a"]}}` {
+		t.Errorf("merged to %s", text(got))
+	}
+}
+
+func TestPersonalKeysNameAnItemApartFromAKeyLikeIt(t *testing.T) {
+	names, shown := domain.PersonalKeys(obj(t, `{"a": [1], "a 1": true, "a=1": true}`))
+	if len(names) != 3 || len(shown) != 3 {
+		t.Errorf("names %q", names)
 	}
 }
 
@@ -356,37 +356,6 @@ func TestRemovePathTakesAKeyOrAnItemAndEmptyObjects(t *testing.T) {
 func TestSetPathKeepsAnEmptyListAList(t *testing.T) {
 	if got, err := domain.SetPath(nil, []string{"a"}, []any{}); err != nil || text(got) != `{"a":[]}` {
 		t.Errorf("set %s (%v)", text(got), err)
-	}
-}
-
-func TestShowValueHidesAValueHoldingASecretKey(t *testing.T) {
-	for _, v := range []any{map[string]any{"dbPassword": "hunter2"}, []any{map[string]any{"env": map[string]any{"X": "y"}}}} {
-		if got := domain.ShowValue("cfg", v); got != domain.Hidden {
-			t.Errorf("%v shows as %s", v, got)
-		}
-	}
-}
-
-func TestReconcileHidesASecretInAValueTakenWhole(t *testing.T) {
-	was := obj(t, `{"cfg": "off"}`)
-
-	rc := domain.Reconcile(was, was, obj(t, `{"cfg": {"dbPassword": "hunter2"}}`), false)
-
-	if len(rc.Changes) != 1 || rc.Changes[0].After != domain.Hidden {
-		t.Errorf("changes are %+v", rc.Changes)
-	}
-}
-
-func TestPersonalKeysNameEachHiddenItemApart(t *testing.T) {
-	names, shown := domain.PersonalKeys(obj(t, `{"permissions": {"allow": ["Bash(x ghp_abcdefghijklmnopqrstuvwxyz0123)", "Bash(y sk-abcdefghijklmnopqrstuvwxyz)"]}, "me@example.com": 1, "you@example.com": 2}`))
-
-	if len(names) != 4 || len(shown) != 4 {
-		t.Errorf("names %q, want four apart", names)
-	}
-	for _, n := range names {
-		if strings.Contains(n, "ghp_") || strings.Contains(n, "sk-") || strings.Contains(n, "@") {
-			t.Errorf("name %q shows what it hides", n)
-		}
 	}
 }
 
@@ -464,29 +433,8 @@ func TestParseValueReadsJSONElseText(t *testing.T) {
 }
 
 func TestShowValueKeepsWhatJSONNeedNotEscape(t *testing.T) {
-	if got := domain.ShowValue("x", "a && b > c"); got != `"a && b > c"` {
+	if got := domain.ShowValue("a && b > c"); got != `"a && b > c"` {
 		t.Errorf("shows %s", got)
-	}
-}
-
-func TestShowValueShowsThePathsNerveFillsIn(t *testing.T) {
-	m := domain.Manifest{Hooks: map[string]domain.Hook{"fmt": {Event: "PostToolUse", Command: "{{brain}}/hooks/fmt.sh"}}}
-	p := &domain.Project{Hooks: []string{"fmt"}}
-
-	want := domain.Leaves(domain.Want(m, p, "/home/u/.local/bin/nerve sync --here --hook", nil, "/home/u/brain"))
-
-	for _, k := range domain.SortedKeys(want) {
-		if got := domain.ShowValue(k, want[k]); got == domain.Hidden {
-			t.Errorf("%s shows as %s", domain.Dotted(k), got)
-		}
-	}
-}
-
-func TestShowValueHidesTokensAndEmails(t *testing.T) {
-	for _, v := range []string{"/home/u/bin/line --token ghp_abcdefghijklmnopqrstuvwxyz0123", "/home/u/bin/notify me@example.com"} {
-		if got := domain.ShowValue(domain.LeafKey([]string{"statusLine", "command"}), v); got != domain.Hidden {
-			t.Errorf("%s shows as %s", v, got)
-		}
 	}
 }
 
@@ -570,16 +518,6 @@ func TestReconcileLeavesAListTheUserEmptiedOrDeleted(t *testing.T) {
 		rc := domain.Reconcile(obj(t, current), last, last, false)
 		if text(rc.Result) != want || len(rc.Drift) != 1 || rc.Write {
 			t.Errorf("%s became %s (write %v), drift %v", current, text(rc.Result), rc.Write, rc.Drift)
-		}
-	}
-}
-
-func TestReconcileHidesSensitiveValues(t *testing.T) {
-	rc := domain.Reconcile(nil, nil, obj(t, `{"env": {"TOKEN": "sk-abc"}, "permissions": {"allow": ["Bash(notify bob@example.com)"]}}`), false)
-
-	for _, c := range rc.Changes {
-		if c.After != domain.Hidden {
-			t.Errorf("%s shows as %s", c.Key, c.After)
 		}
 	}
 }

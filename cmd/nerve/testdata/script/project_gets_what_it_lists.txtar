@@ -19,7 +19,7 @@ exec git status --porcelain --untracked-files=all
 ! stdout .
 grep '^\[project.app\]\nskills = \["go-stack"\]\nagents = \["reviewer"\]$' $HOME/brain/brain.toml
 exec nerve status
-stdout '^project  app: autosync on, 1 skill, 1 agent, 1 setting$'
+stdout '^project  app: 1 skill, 1 agent, 1 setting$'
 
 -- brain/brain.toml --
 [common.settings]

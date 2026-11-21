@@ -3,11 +3,7 @@
 // and the network only through its ports.
 package app
 
-import (
-	"fmt"
-
-	"github.com/medilies/nerve/internal/brain/domain"
-)
+import "fmt"
 
 // Event is one thing a use case did or found. Kind says which; the other
 // fields are set as that kind needs.
@@ -37,9 +33,9 @@ const (
 	EvDiff         = "diff"           // Detail is how Item changed in its source, "" when it did not
 	EvPinned       = "pinned"         // the skills from repo Detail moved to Target
 	EvAlreadyThere = "already-pinned" // repo Detail is already at Target
-	EvPulled       = "pulled"         // the Brain at Path fast-forwarded to Target
+	EvPulled       = "pulled"         // the Brain at Path is now its upstream's Target; Detail what it dropped, if anything
 	EvPullSkipped  = "pull-skipped"   // the Brain at Path was not pulled; Detail says why
-	EvVersion      = "version"        // Detail is the running nerve's version; Target the Brain's pin
+	EvPushed       = "pushed"         // the Brain at Path pushed Target to its upstream
 	EvBrain        = "brain"          // Path is the machine's Brain checkout; Detail its state
 	EvAdded        = "added"          // Item joined Project
 	EvDropped      = "dropped"        // Item left Project, or its local overlay when Detail says so
@@ -47,8 +43,6 @@ const (
 	EvProject      = "project"        // Project; Detail describes it
 	EvCheckout     = "checkout"       // Path belongs to Project; Detail its sync state
 	EvItem         = "item"           // Item of Project; Detail says where it comes from
-	EvValue        = "value"          // Key of Project is Brain; Detail says which layers give it
-	EvAutosync     = "autosync"       // autosync is Detail for Project, or for the Brain when Project is ""
 	EvCleaned      = "cleaned"        // nerve took its links and settings out of Path; Detail says why
 	EvUnlisted     = "unlisted"       // this machine no longer lists Path, a checkout of Project: it is gone, or Detail says why
 	EvSynced       = "synced"         // Project at Path is at Brain commit Target
@@ -100,18 +94,18 @@ func (e Event) String() string {
 		}
 		return e.Detail
 	case EvPinned:
-		return fmt.Sprintf("pinned   %s at %s: review the diff above, then commit %s and sync", e.Detail, e.Target, domain.ManifestFile)
+		return fmt.Sprintf("pinned   %s at %s: review the diff above, then nerve push", e.Detail, Short(e.Target))
 	case EvAlreadyThere:
 		return fmt.Sprintf("%s is already pinned at %s", e.Detail, e.Target)
 	case EvPulled:
+		if e.Detail != "" {
+			return fmt.Sprintf("pulled   the Brain to %s, dropping %s", Short(e.Target), e.Detail)
+		}
 		return fmt.Sprintf("pulled   the Brain to %s", Short(e.Target))
+	case EvPushed:
+		return fmt.Sprintf("pushed   the Brain at %s", Short(e.Target))
 	case EvPullSkipped:
 		return fmt.Sprintf("no pull  %s: %s", e.Path, e.Detail)
-	case EvVersion:
-		if e.Target != "" && e.Target != e.Detail {
-			return fmt.Sprintf("nerve    %s (the Brain pins %s: install it)", e.Detail, e.Target)
-		}
-		return "nerve    " + e.Detail
 	case EvBrain:
 		if e.Detail != "" {
 			return fmt.Sprintf("brain    %s (%s)", e.Path, e.Detail)
@@ -135,13 +129,6 @@ func (e Event) String() string {
 		return fmt.Sprintf("checkout %s (%s): %s", e.Path, e.Project, e.Detail)
 	case EvItem:
 		return fmt.Sprintf("%-8s %s", e.Item, e.Detail)
-	case EvValue:
-		return fmt.Sprintf("%s = %s  (%s)", e.Key, e.Brain, e.Detail)
-	case EvAutosync:
-		if e.Project == "" {
-			return fmt.Sprintf("autosync %s by default", e.Detail)
-		}
-		return fmt.Sprintf("autosync %s for %s", e.Detail, e.Project)
 	case EvCleaned:
 		return fmt.Sprintf("cleaned  %s: %s", e.Path, e.Detail)
 	case EvUnlisted:
