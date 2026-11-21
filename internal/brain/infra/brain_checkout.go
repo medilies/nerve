@@ -384,11 +384,13 @@ func (b BrainCheckout) Head() string {
 	return trim(out)
 }
 
+// State says what is not yet committed or pushed in the Brain, new files
+// included: a new skill is one.
 func (b BrainCheckout) State() string {
 	if _, err := os.Stat(filepath.Join(b.root, ".git")); err != nil {
 		return ""
 	}
-	out, err := git(b.root, "status", "--porcelain", "--untracked-files=no")
+	out, err := git(b.root, "status", "--porcelain")
 	if err != nil {
 		return "cannot read its git state: " + firstLine(err)
 	}

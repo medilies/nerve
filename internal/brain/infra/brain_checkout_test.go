@@ -220,6 +220,16 @@ func TestPullSaysWhenGitCannotRun(t *testing.T) {
 	}
 }
 
+func TestStateCountsANewFileNotYetCommitted(t *testing.T) {
+	e := newTestEnv(t)
+	e.published()
+	e.write(e.path("brain/skills/newone/SKILL.md"), skillMD("newone", ""))
+
+	if got := NewBrainCheckout(e.path("brain")).State(); got != "uncommitted changes" {
+		t.Errorf("state is %q", got)
+	}
+}
+
 func TestStateSaysWhenGitFails(t *testing.T) {
 	e := newTestEnv(t)
 	e.published()
