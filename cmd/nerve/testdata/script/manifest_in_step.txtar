@@ -25,10 +25,13 @@ stdout '"agents": \[\n +"reviewer"\n +\]'
 replace ../brain/brain.json '"app": {' '"other": {}, "app": {'
 ! exec nerve setting set model opus
 stdout '^\+    "other": \{\}, "app": \{$'
-stderr '^error: brain.json has changes not pushed: nerve push sends them, nerve sync drops them$'
+stderr '^error: brain.json in the Brain at .*/brain has changes not pushed\.$'
+stderr '^Run one of these, then this command again:$'
+stderr '^  nerve push "<what changed>"   commit every change in the Brain, and push it$'
+stderr '^  nerve sync -f                 drop the Brain.s changes and commits not pushed$'
 ! grep model ../brain/brain.json
 ! exec nerve --json setting set model opus
-stdout '"error": "brain.json has changes not pushed'
+stdout '"error": "brain.json in the Brain at .* has changes not pushed'
 
 # Meanwhile the remote moves on, and the Brain has a commit of its own: push
 # refuses, -f overwrites.
@@ -39,7 +42,8 @@ exec git push -q
 cd ../proj
 exec git -C ../brain commit -qam 'mine'
 ! exec nerve push 'add other'
-stderr 'the remote has 1 commit \([0-9a-f]{7} other again\) this Brain lacks: .*nerve push -f overwrites them'
+stderr 'the remote has 1 commit \([0-9a-f]{7} other again\) this Brain lacks\.$'
+stderr '^  nerve push -f                 overwrite the remote.s commits with the Brain.s$'
 exec nerve push --force 'add other'
 stdout '^pushed   the Brain at [0-9a-f]{7}$'
 

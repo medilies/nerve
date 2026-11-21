@@ -71,7 +71,8 @@ and `rm`, `skill`, `agent`, `hook` and `plugin` `add` and `rm`,
 
 - It first takes the remote's new commits, so it changes `brain.json` as
   the remote holds it.
-- It refuses, and changes nothing, when:
+- It refuses, changes nothing, and lists the commands that settle it,
+  when:
   - `brain.json` has changes, which it shows, or the Brain has commits
     its remote lacks;
   - the remote's commits change files changed here, which it names;

@@ -314,10 +314,9 @@ func (b BrainCheckout) Refresh(r app.Reporter) error {
 	if err != nil {
 		return err
 	}
-	// What to do with this Brain's own changes, as the remote moved or not.
-	what := "nerve push sends them, nerve sync drops them"
-	if theirs != "" {
-		what = "the remote has " + theirs + ": nerve sync takes them and drops this Brain's, nerve push -f overwrites them"
+	ours, err := b.ours()
+	if err != nil {
+		return err
 	}
 	if out, err := git(b.root, "diff", "HEAD", "--", domain.ManifestFile); err != nil && b.Head() != "" {
 		return err
@@ -325,17 +324,39 @@ func (b BrainCheckout) Refresh(r app.Reporter) error {
 		if diff != "" {
 			r.Add(app.Event{Kind: app.EvDiff, Item: domain.ManifestFile, Detail: diff})
 		}
-		return fmt.Errorf("%s has changes not pushed: %s", domain.ManifestFile, what)
+		return notPushed(fmt.Sprintf("%s in the Brain at %s has changes not pushed", domain.ManifestFile, b.root), ours, theirs)
 	}
-	if ours, err := b.ours(); err != nil {
-		return err
-	} else if ours != "" {
-		return fmt.Errorf("the Brain has %s its remote lacks: %s", ours, what)
+	if ours != "" {
+		return notPushed(fmt.Sprintf("the Brain at %s has %s its remote lacks", b.root, ours), ours, theirs)
 	}
 	if err := b.fastForward(r); err != nil {
 		return fmt.Errorf("the Brain cannot take its remote's commits, which change files changed here: %w", err)
 	}
 	return nil
+}
+
+// notPushed refuses a Brain with work not pushed, said by what, and lists
+// the commands that settle it: the remote's commits, theirs, leave a push
+// that takes them first only while the Brain has none of its own, ours.
+func notPushed(what, ours, theirs string) error {
+	options := [][2]string{
+		{`nerve push "<what changed>"`, "commit every change in the Brain, and push it"},
+		{"nerve sync -f", "drop the Brain's changes and commits not pushed"},
+	}
+	if theirs != "" {
+		what += ", and the remote has " + theirs + " this Brain lacks"
+		options[0][1] = "take the remote's commits, then commit every change in the Brain and push it"
+		options[1][1] = "take the remote's commits, and drop the Brain's not pushed"
+	}
+	if theirs != "" && ours != "" {
+		options = [][2]string{options[1], {"nerve push -f", "overwrite the remote's commits with the Brain's"}}
+	}
+	var b strings.Builder
+	b.WriteString(what + ".\nRun one of these, then this command again:")
+	for _, o := range options {
+		fmt.Fprintf(&b, "\n  %-29s %s", o[0], o[1])
+	}
+	return errors.New(b.String())
 }
 
 // fastForward takes the upstream's commits into a Brain that has none of
@@ -507,7 +528,7 @@ func (b BrainCheckout) Push(message string, force bool, r app.Reporter) error {
 			}
 			if theirs != "" {
 				if err := b.fastForward(r); err != nil {
-					return fmt.Errorf("the remote has %s this Brain lacks: nerve sync -f takes them and drops what this Brain has not pushed, nerve push -f overwrites them", theirs)
+					return notPushed(fmt.Sprintf("the Brain at %s cannot take its remote's commits, as %v", b.root, err), "its own", theirs)
 				}
 			}
 		}

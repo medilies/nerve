@@ -51,7 +51,7 @@ An entry of `sources` or `hooks` has no command: add it to `brain.json` by hand,
 
 A command that changes `brain.json` refuses, and changes nothing, when:
 
-- `brain.json` has changes not pushed (a `diff` event shows them), or the Brain has commits its remote lacks: offer `nerve push` to keep them, or `nerve sync -f` to drop them. When the error says the remote has commits too, `nerve push` refuses: offer `nerve sync -f`, or `nerve push -f` to overwrite the remote, after the user agrees to lose its commits.
+- `brain.json` has changes not pushed (a `diff` event shows them), or the Brain has commits its remote lacks: the error lists the commands that settle it, such as `nerve push "<what changed>"` to keep them or `nerve sync -f` to drop them. Offer those; run one with `-f` only after the user agrees to lose what it drops.
 - the remote's commits change files changed here: name them, and offer to push or drop those changes first.
 - the remote does not have the Brain's branch yet: `nerve push` makes it there.
 - the remote cannot be reached, or the Brain has no upstream or a detached HEAD: say so; neither push nor sync helps until it is fixed.

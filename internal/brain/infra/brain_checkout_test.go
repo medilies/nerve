@@ -547,7 +547,7 @@ func TestPushRefusesWhenTheRemoteHasCommitsTheBrainLacks(t *testing.T) {
 
 	err := NewBrainCheckout(e.path("brain")).Push("add x", false, &events{})
 
-	if err == nil || !strings.Contains(err.Error(), "the remote has 1 commit ("+theirs[:7]) || !strings.Contains(err.Error(), "nerve push -f overwrites them") {
+	if err == nil || !strings.Contains(err.Error(), "the remote has 1 commit ("+theirs[:7]) || !strings.Contains(err.Error(), "this Brain lacks.\nRun one of these, then this command again:\n  nerve sync -f                 take the remote's commits, and drop the Brain's not pushed\n  nerve push -f                 overwrite the remote's commits with the Brain's") {
 		t.Errorf("got %v", err)
 	}
 	if got := e.git(e.path("brain.git"), "rev-parse", "main"); got != theirs {
@@ -611,25 +611,40 @@ func TestRefreshBringsTheRemotesCommits(t *testing.T) {
 	}
 }
 
-func TestRefreshWarnsThatPushWouldOverwriteTheRemote(t *testing.T) {
+func TestRefreshOffersAPushThatTakesTheRemotesCommitsFirst(t *testing.T) {
 	e := newTestEnv(t)
 	e.published() // the remote has a commit this Brain lacks
 	e.write(e.path("brain/brain.json"), "{\"projects\": {\"app\": {}}}\n")
 
 	err := NewBrainCheckout(e.path("brain")).Refresh(&events{})
 
-	if err == nil || !strings.Contains(err.Error(), "the remote has 1 commit (") {
+	if err == nil || !strings.Contains(err.Error(), "has changes not pushed, and the remote has 1 commit (") ||
+		!strings.Contains(err.Error(), `nerve push "<what changed>"   take the remote's commits, then commit every change in the Brain and push it`) {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestRefreshOffersAForceEachWayWhenBothSidesHaveCommits(t *testing.T) {
+	e := newTestEnv(t)
+	e.identity()
+	e.published() // the remote has a commit this Brain lacks
+	e.write(e.path("brain/skills/y/SKILL.md"), "y")
+	e.commit(e.path("brain")) // and this Brain one the remote lacks
+
+	err := NewBrainCheckout(e.path("brain")).Refresh(&events{})
+
+	if err == nil || !strings.Contains(err.Error(), "this Brain lacks.\nRun one of these, then this command again:\n  nerve sync -f                 take the remote's commits, and drop the Brain's not pushed\n  nerve push -f                 overwrite the remote's commits with the Brain's") {
 		t.Errorf("got %v", err)
 	}
 }
 
 func TestRefreshRefusesWhatItWouldDrop(t *testing.T) {
 	for want, setup := range map[string]func(e *testEnv){
-		"brain.json has changes not pushed: nerve push sends them, nerve sync drops them": func(e *testEnv) {
+		"brain.json in the Brain at " + "{brain}" + " has changes not pushed.\nRun one of these, then this command again:\n  nerve push \"<what changed>\"   commit every change in the Brain, and push it\n  nerve sync -f                 drop the Brain's changes and commits not pushed": func(e *testEnv) {
 			e.git(e.path("brain"), "pull", "-q", "--ff-only")
 			e.write(e.path("brain/brain.json"), "{\"projects\": {\"app\": {}}}\n")
 		},
-		"its remote lacks: nerve push sends them, nerve sync drops them": func(e *testEnv) {
+		"its remote lacks.\nRun one of these, then this command again:\n  nerve push \"<what changed>\"   commit every change in the Brain, and push it\n  nerve sync -f                 drop the Brain's changes and commits not pushed": func(e *testEnv) {
 			e.git(e.path("brain"), "pull", "-q", "--ff-only")
 			e.write(e.path("brain/skills/x/SKILL.md"), "x")
 			e.commit(e.path("brain"))
@@ -659,6 +674,7 @@ func TestRefreshRefusesWhatItWouldDrop(t *testing.T) {
 
 		err := NewBrainCheckout(e.path("brain")).Refresh(&events{})
 
+		want = strings.ReplaceAll(want, "{brain}", e.path("brain"))
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("got %v, want %q", err, want)
 		}
@@ -870,5 +886,22 @@ func TestPushManifestSaysWhetherTheRemoteMoved(t *testing.T) {
 	e.write(e.path("brain/brain.json"), "{\"projects\": {\"app\": {}}}\n")
 	if err := b.PushManifest("nerve: add project app", &events{}); err == nil || errors.Is(err, app.ErrRemoteMoved) {
 		t.Errorf("got %v, want a failure that is not the remote moving", err)
+	}
+}
+
+func TestPushOffersAForceEachWayWhenTheRemotesCommitsClashWithChangesHere(t *testing.T) {
+	e := newTestEnv(t)
+	e.identity()
+	theirs := e.published() // the remote changed brain.json
+	e.write(e.path("brain/brain.json"), "{\"projects\": {\"app\": {}}}\n")
+
+	err := NewBrainCheckout(e.path("brain")).Push("add app", false, &events{})
+
+	if err == nil || !strings.Contains(err.Error(), "cannot take its remote's commits, as ") ||
+		!strings.Contains(err.Error(), "\n  nerve sync -f ") || !strings.Contains(err.Error(), "\n  nerve push -f ") {
+		t.Errorf("got %v", err)
+	}
+	if got := e.git(e.path("brain.git"), "rev-parse", "main"); got != theirs {
+		t.Errorf("remote moved to %s", got)
 	}
 }
