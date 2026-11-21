@@ -17,7 +17,7 @@ One bounded context in hexagonal layers ([ADR 0006](adr/0006-hexagonal-layers.md
 cmd/nerve/              flags, usage, wiring, the embedded skill; end-to-end tests
 internal/brain/domain/  the Brain and its rules; the standard library only
 internal/brain/app/     use cases, events, ports; the standard library and domain only
-internal/brain/infra/   adapters: brain.toml, machine files, git, caches, links, release, reports
+internal/brain/infra/   adapters: brain.toml, machine files, git, caches, links, reports
 ```
 
 Dependencies point inward: `.golangci.yml`'s depguard rules refuse anything else in `domain` and `app`. A new concept takes the words of [GLOSSARY.md](../GLOSSARY.md).

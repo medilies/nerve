@@ -28,8 +28,6 @@ the one around the working directory, a worktree included.
   cache at their pin.
   - A third-party skill that cannot be fetched, say offline, is
     reported and keeps the link it had. The rest of the project syncs.
-  - A repo's worktrees share its `info/exclude`, so the block lists the
-    links of all of them.
   - If the block is damaged, say its end line is gone, sync refuses
     the checkout, before it links anything, until you fix it by hand.
 - **Writes `.claude/settings.local.json`**: common settings, then the

@@ -76,7 +76,6 @@ func setupWorld(env *testscript.Env) error {
 		args []string
 	}{
 		{"brain", []string{"init", "-q", "-b", "main"}},
-		{"brain", []string{"remote", "add", "origin", "git@github.com:me/brain.git"}},
 		{"proj", []string{"init", "-q", "-b", "main"}},
 		{"proj", []string{"add", "-A"}},
 		{"proj", []string{"commit", "-q", "-m", "a"}},

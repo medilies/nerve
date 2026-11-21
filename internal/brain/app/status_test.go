@@ -208,3 +208,17 @@ func TestStatusOfAProjectReportsEachOfItsCheckouts(t *testing.T) {
 
 	contains(t, r, "checkout /w/p1 (app): never synced", "checkout /w/p2 (app): never synced")
 }
+
+func TestStatusSaysNothingOfThePinToADevelopmentBuild(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.brain.m.Nerve = "v0.4.0"
+	e.self.version = "(devel)"
+	r := &recorder{}
+
+	e.must(r, e.app.Status(target("/w/app"), r))
+
+	if strings.Contains(r.String(), "install") {
+		t.Errorf("tells a development build to install the pin:\n%s", r)
+	}
+}

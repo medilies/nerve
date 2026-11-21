@@ -17,7 +17,11 @@ func (a App) Status(ref ProjectRef, r Reporter) error {
 		return err
 	}
 	m, err := a.Brain.Load()
-	r.Add(Event{Kind: EvVersion, Detail: a.Self.Version(), Target: m.Nerve})
+	v := Event{Kind: EvVersion, Detail: a.Self.Version()}
+	if domain.TagPattern.MatchString(v.Detail) { // a development build is left be
+		v.Target = m.Nerve
+	}
+	r.Add(v)
 	if err != nil {
 		return err
 	}

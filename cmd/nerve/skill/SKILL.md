@@ -70,6 +70,9 @@ command = "{{brain}}/hooks/go-fmt.sh"   # {{brain}} is the Brain's path
 - **`diff`** from `skill update`: summarize what changed in the source, and call out anything that widens what a skill can do (new tools, scripts, network access) before the user commits the new pin.
 - **`upload`** and **`unload`**: tell the user which zip to upload to which claude.ai account, or which skill to delete there. Neither you nor nerve can do it.
 - **`pull-skipped`**: the Brain was not pulled. Say why, and offer to commit, pull, or check the remote.
+- **`cleaned`**: nerve took its links and settings out of a working tree, for the reason `detail` gives. Say so; nothing to do.
+- **`version`** with a `target`: this machine runs another nerve than the Brain pins. Tell the user to install the pinned release; never install it yourself.
+- **`pinned`** and **`already-pinned`**: `skill update` moved a source's pin, or found it there already. After `pinned`, the Brain has a change to commit: offer to, as in "Changing the Brain".
 
 ## Changing the Brain
 

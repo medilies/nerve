@@ -9,7 +9,7 @@ One person's repo of everything that shapes how their agents work: own skills an
 _Avoid_: config, dotfiles, kit, agentic brain
 
 **Nervous system**:
-The tool and its skill that carry any Brain to the projects that list what they need from it, and write changes back into it; it knows nothing about whose Brain it carries.
+The tool and its skill that carry any Brain to the projects that list what they need from it, and change it through their commands; it knows nothing about whose Brain it carries.
 _Avoid_: sync tool, sync script, engine
 
 **Skill**:
@@ -56,6 +56,13 @@ _Avoid_: repo, workspace
 **Checkout**:
 A project's working tree on one machine, linked to its project in the machine's own file, never in the Brain.
 _Avoid_: clone, path
+
+**Brain checkout**:
+The Brain's own working tree on one machine, named in the machine file, from which nerve reads and pulls; not a project's checkout.
+
+**Machine file**:
+`config.toml` in nerve's config folder: this machine's Brain checkout and each checkout's project, never in the Brain.
+_Avoid_: config, settings
 
 **Working tree**:
 Where nerve writes in a project: a checkout, or a git worktree of one, which shares the checkout's project and `info/exclude`.

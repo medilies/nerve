@@ -12,8 +12,9 @@ settings, into the projects that list what they need from it, and
 nowhere else.
 
 - **Only where needed.** A project gets the skills, agents, hooks,
-  plugins and settings it lists. Nothing reaches every project, so no
-  context is wasted and no tool a project needs is denied.
+  plugins and settings it lists. Only the few common settings reach
+  every project, so no context is wasted and no tool a project needs is
+  denied.
 - **Yours, not the team's.** Everything lands in
   `.claude/settings.local.json` and in links git never sees. Teammates
   see none of it, and the team's own `.claude/` stays theirs.
@@ -73,13 +74,15 @@ go install github.com/medilies/nerve/cmd/nerve@latest   # puts nerve in ~/go/bin
 
 ### Then, on each machine
 
-nerve needs git. Name your Brain's checkout once:
+nerve needs git 2.31 or later. Your Brain is a git repo with a
+`brain.toml` at its root, empty to begin with. Name its checkout once:
 
 ```sh
 nerve init ~/dev/brain
 ```
 
-From then on, `sync` keeps nerve at the release the Brain pins.
+`sync` reports when this machine runs another release than the one the
+Brain pins.
 
 ## Usage
 
