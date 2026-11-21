@@ -58,6 +58,8 @@ type Machine interface {
 	State(dir string) (domain.TreeState, error)
 	SaveState(domain.TreeState) error
 	DropState(dir string) error
+	// States reads every state it can; a state it cannot read is refused by
+	// State to its own tree only.
 	States() ([]domain.TreeState, error)
 	// Built maps each claude.ai project to the hash of each skill zip last
 	// built.
