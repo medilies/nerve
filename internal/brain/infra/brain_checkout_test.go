@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -28,6 +29,7 @@ func TestManifestRoundTripsAsAPersonWouldWriteIt(t *testing.T) {
 	e := newTestEnv(t)
 	brain := NewBrainCheckout(e.path("brain"))
 	e.write(e.path("brain/brain.toml"), `nerve = "v0.3.0"
+allowed-settings = ["statusLine"]
 
 [[source]]
 repo = "acme/up"
@@ -53,14 +55,14 @@ model = "opus"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Common["cleanupPeriodDays"] != int64(30) || m.Projects["app"].Settings["model"] != "opus" || m.Hooks["fmt"].Event != "PostToolUse" {
+	if m.Common["cleanupPeriodDays"] != int64(30) || m.Projects["app"].Settings["model"] != "opus" || m.Hooks["fmt"].Event != "PostToolUse" || !slices.Equal(m.AllowedSettings, []string{"statusLine"}) {
 		t.Errorf("loaded %+v", m)
 	}
 	if err := brain.Save(m); err != nil {
 		t.Fatal(err)
 	}
 	got := e.read(e.path("brain/brain.toml"))
-	if !strings.Contains(got, "cleanupPeriodDays = 30\n") || strings.Contains(got, "[project]\n") || strings.Contains(got, "[common]\n") || strings.Contains(got, "[hook]\n") {
+	if !strings.Contains(got, "cleanupPeriodDays = 30\n") || !strings.Contains(got, "\nallowed-settings = [\"statusLine\"]\n") || strings.Contains(got, "[project]\n") || strings.Contains(got, "[common]\n") || strings.Contains(got, "[hook]\n") {
 		t.Errorf("saved as:\n%s", got)
 	}
 	again, err := brain.Load()

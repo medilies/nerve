@@ -1,6 +1,6 @@
 # Projects opt in; nothing is carried everywhere
 
-Status: accepted, 2026-11-20; deleting a link and a name the team has superseded by [ADR 0007](0007-drop-guessing-features.md); adding a project that already has settings amended 2026-11-21, to import nothing. Supersedes [ADR 0004](0004-skills-as-plugins.md), and the user-level carrying of [ADR 0003](0003-generated-layered-settings.md).
+Status: accepted, 2026-11-20; deleting a link and a name the team has superseded by [ADR 0007](0007-drop-guessing-features.md); adding a project that already has settings amended 2026-11-21, to import nothing, and keeping sensitive values out, to an allow-list. Supersedes [ADR 0004](0004-skills-as-plugins.md), and the user-level carrying of [ADR 0003](0003-generated-layered-settings.md).
 
 ## Context
 
@@ -83,7 +83,8 @@ An earlier version imported the file: it sorted each key into the entry, the ove
 
 ### Keeping sensitive values out
 
-- `check` and `sync` refuse secret-bearing keys (`env`, `apiKeyHelper` and the like), absolute home paths, email addresses and token-like strings anywhere in `brain.toml`. `{{brain}}` stands in for the checkout path.
+- A Brain holds only allowed settings: a short list nerve allows, of settings that shape how a project works, and the keys `allowed-settings` in `brain.toml` adds. A key that may hold secrets (`env`, `headers`, `apiKeyHelper` and the like) is never allowed, at any depth. An allow-list fails closed: a new or unknown key, such as an MCP server's `env`, stays out until someone allows it, where a list of secret keys let it in until someone noticed.
+- `check` and `sync` refuse any other setting, and absolute home paths, email addresses and token-like strings anywhere in `brain.toml`. `{{brain}}` stands in for the checkout path.
 - Every value about to enter the Brain, from moving drift or from a request, goes through the same guard. The nerve skill shows it to the user, and anything identifying goes to the project's local overlay. That covers values a pattern cannot catch, such as a client host in a permission rule.
 
 ## Consequences

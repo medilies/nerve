@@ -6,12 +6,15 @@ import (
 	"strings"
 )
 
-// SecretKeys are settings that hold secrets or run credential helpers. They
-// never enter the Brain; they belong in a local overlay.
-var SecretKeys = []string{"apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "env", "otelHeadersHelper"}
+// SecretKeys are settings keys that hold secrets or run credential
+// helpers, at any depth. They never enter the Brain; they belong in a local
+// overlay.
+var SecretKeys = []string{"apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "env", "headers", "otelHeadersHelper"}
 
 var (
-	emailPattern = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}`)
+	// A key named for a secret, such as apiKey or dbPassword.
+	secretKeyPattern = regexp.MustCompile(`(?i)token|secret|passw|api[-_]?key|credential`)
+	emailPattern     = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}`)
 	// A home folder where a path starts, not a project folder named home.
 	homePattern       = regexp.MustCompile(`(^|[\s"'(=:,/])(/home/[^/\s"']+|/Users/[^/\s"']+|/root\b)|[A-Za-z]:\\Users\\`)
 	tokenPattern      = regexp.MustCompile(`\b(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+)`)
@@ -29,13 +32,23 @@ func secret(key string, v any) string { return sensitive(key, v, false) }
 
 func sensitive(key string, v any, homes bool) string {
 	keys := strings.Split(key, Sep)
-	if slices.Contains(SecretKeys, keys[0]) {
-		return keys[0] + " may hold secrets"
+	if k := secretKey(keys); k != "" {
+		return k + " may hold secrets"
 	}
 	if why := sensitiveText(keys, homes); why != "" {
 		return "the key " + why
 	}
 	return sensitiveText(v, homes)
+}
+
+// secretKey returns the first key on a path that may hold secrets, or "".
+func secretKey(path []string) string {
+	for _, k := range path {
+		if slices.Contains(SecretKeys, k) || secretKeyPattern.MatchString(k) {
+			return k
+		}
+	}
+	return ""
 }
 
 // SensitiveText says why a value is identifying or secret, or "".

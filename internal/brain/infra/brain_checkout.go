@@ -35,6 +35,7 @@ func (b BrainCheckout) Root() string { return b.root }
 type manifestFile struct {
 	Nerve    string                  `toml:"nerve,omitempty"`
 	Autosync *bool                   `toml:"autosync,omitempty"`
+	Allowed  []string                `toml:"allowed-settings,omitempty"`
 	Sources  []sourceTable           `toml:"source,omitempty"`
 	Hooks    map[string]hookTable    `toml:"hook,omitempty"`
 	Common   *commonTable            `toml:"common,omitempty"`
@@ -85,7 +86,7 @@ func (b BrainCheckout) Load() (domain.Manifest, error) {
 	if len(unknown) > 0 {
 		return domain.Manifest{}, fmt.Errorf("%s: unknown keys %v", domain.ManifestFile, unknown)
 	}
-	m := domain.Manifest{Nerve: f.Nerve, Autosync: f.Autosync}
+	m := domain.Manifest{Nerve: f.Nerve, Autosync: f.Autosync, AllowedSettings: f.Allowed}
 	for _, s := range f.Sources {
 		m.Sources = append(m.Sources, domain.Source(s))
 	}
@@ -117,7 +118,7 @@ func (b BrainCheckout) Load() (domain.Manifest, error) {
 
 // Save writes brain.toml in nerve's own layout. Comments are not kept.
 func (b BrainCheckout) Save(m domain.Manifest) error {
-	f := manifestFile{Nerve: m.Nerve, Autosync: m.Autosync}
+	f := manifestFile{Nerve: m.Nerve, Autosync: m.Autosync, Allowed: m.AllowedSettings}
 	for _, s := range m.Sources {
 		f.Sources = append(f.Sources, sourceTable(s))
 	}

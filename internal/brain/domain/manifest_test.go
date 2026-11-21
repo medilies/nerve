@@ -12,20 +12,24 @@ const sha = "5863806dd4e15c63174bee4e7515a4256792ecfa"
 
 func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 	for want, m := range map[string]domain.Manifest{
-		"must be a release tag":           {Nerve: "latest"},
-		"is not owner/name":               {Sources: []domain.Source{{Repo: "acme", SHA: sha, Skills: []string{"x"}}}},
-		`"../x" is not owner/name`:        {Sources: []domain.Source{{Repo: "../x", SHA: sha, Skills: []string{"x"}}}},
-		`"acme/." is not owner/name`:      {Sources: []domain.Source{{Repo: "acme/.", SHA: sha, Skills: []string{"x"}}}},
-		"sha must be a full":              {Sources: []domain.Source{{Repo: "acme/up", SHA: "main", Skills: []string{"x"}}}},
-		"acme/up: no skills":              {Sources: []domain.Source{{Repo: "acme/up", SHA: sha}}},
-		"needs an event and a command":    {Hooks: map[string]domain.Hook{"fmt": {Event: "Stop"}}},
-		`hook "Fmt" must be lowercase`:    {Hooks: map[string]domain.Hook{"Fmt": {Event: "Stop", Command: "x"}}},
-		`project "App" must be lowercase`: {Projects: map[string]*domain.Project{"App": {}}},
-		`surface must be "claude.ai"`:     {Projects: map[string]*domain.Project{"app": {Surface: "web"}}},
-		`skill "../x" must be lowercase`:  {Projects: map[string]*domain.Project{"app": {Skills: []string{"../x"}}}},
-		`agent "a/b" must be lowercase`:   {Projects: map[string]*domain.Project{"app": {Agents: []string{"a/b"}}}},
-		`hook "Fmt" must be lowercase w`:  {Projects: map[string]*domain.Project{"app": {Hooks: []string{"Fmt"}}}},
-		`up: skill ".." must be`:          {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{".."}}}},
+		"must be a release tag":            {Nerve: "latest"},
+		"is not owner/name":                {Sources: []domain.Source{{Repo: "acme", SHA: sha, Skills: []string{"x"}}}},
+		`"../x" is not owner/name`:         {Sources: []domain.Source{{Repo: "../x", SHA: sha, Skills: []string{"x"}}}},
+		`"acme/." is not owner/name`:       {Sources: []domain.Source{{Repo: "acme/.", SHA: sha, Skills: []string{"x"}}}},
+		"sha must be a full":               {Sources: []domain.Source{{Repo: "acme/up", SHA: "main", Skills: []string{"x"}}}},
+		"acme/up: no skills":               {Sources: []domain.Source{{Repo: "acme/up", SHA: sha}}},
+		"needs an event and a command":     {Hooks: map[string]domain.Hook{"fmt": {Event: "Stop"}}},
+		`hook "Fmt" must be lowercase`:     {Hooks: map[string]domain.Hook{"Fmt": {Event: "Stop", Command: "x"}}},
+		`project "App" must be lowercase`:  {Projects: map[string]*domain.Project{"App": {}}},
+		`surface must be "claude.ai"`:      {Projects: map[string]*domain.Project{"app": {Surface: "web"}}},
+		`skill "../x" must be lowercase`:   {Projects: map[string]*domain.Project{"app": {Skills: []string{"../x"}}}},
+		`agent "a/b" must be lowercase`:    {Projects: map[string]*domain.Project{"app": {Agents: []string{"a/b"}}}},
+		`hook "Fmt" must be lowercase w`:   {Projects: map[string]*domain.Project{"app": {Hooks: []string{"Fmt"}}}},
+		`up: skill ".." must be`:           {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{".."}}}},
+		`allowed-settings: "a..b" is not`:  {AllowedSettings: []string{"a..b"}},
+		`"mcpServers.db.env" may hold s`:   {AllowedSettings: []string{"mcpServers.db.env"}},
+		`"hooks.Stop" is written by nerve`: {AllowedSettings: []string{"hooks.Stop"}},
+		`"enabledPlugins" is written by`:   {AllowedSettings: []string{"enabledPlugins"}},
 	} {
 		if err := m.Validate(); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("got %v, want %q", err, want)
@@ -77,7 +81,7 @@ func TestSourceOfFindsTheSourceListingASkill(t *testing.T) {
 	}
 }
 
-func TestSensitiveValuesNameWhereEachIs(t *testing.T) {
+func TestRefusalsNameWhereEachIs(t *testing.T) {
 	m := domain.Manifest{
 		Common: map[string]any{"apiKeyHelper": "get-key", "statusLine": map[string]any{"command": "/home/someone/bin/line"}},
 		Hooks:  map[string]domain.Hook{"notify": {Event: "Stop", Command: "notify me@example.com"}},
@@ -86,7 +90,7 @@ func TestSensitiveValuesNameWhereEachIs(t *testing.T) {
 		}}},
 	}
 	var got []string
-	for _, p := range m.SensitiveValues() {
+	for _, p := range m.Refusals() {
 		got = append(got, p.Key+": "+p.Detail)
 	}
 	text := strings.Join(got, "\n")
@@ -102,7 +106,7 @@ func TestSensitiveValuesNameWhereEachIs(t *testing.T) {
 	}
 }
 
-func TestSensitiveValuesLookEverywhereInTheManifest(t *testing.T) {
+func TestRefusalsLookEverywhereInTheManifest(t *testing.T) {
 	m := domain.Manifest{
 		Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{"x"}}},
 		Hooks:   map[string]domain.Hook{"guard": {Event: "PreToolUse", Matcher: "Bash(/home/bob/client-x/*)", Command: "x"}},
@@ -113,7 +117,7 @@ func TestSensitiveValuesLookEverywhereInTheManifest(t *testing.T) {
 		}},
 	}
 	var got []string
-	for _, p := range m.SensitiveValues() {
+	for _, p := range m.Refusals() {
 		got = append(got, p.Key+": "+p.Detail)
 	}
 	want := []string{
@@ -123,6 +127,85 @@ func TestSensitiveValuesLookEverywhereInTheManifest(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("problems are\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func refusals(m domain.Manifest) string {
+	var got []string
+	for _, p := range m.Refusals() {
+		got = append(got, p.Key+": "+p.Detail)
+	}
+	return strings.Join(got, "\n")
+}
+
+func TestRefusalsRefuseASettingNoListAllows(t *testing.T) {
+	m := domain.Manifest{
+		Common: map[string]any{"model": "opus", "attribution": map[string]any{"commit": ""}, "includeCoAuthoredBy": false, "statusLine": map[string]any{"command": "~/bin/line"}},
+		Projects: map[string]*domain.Project{"app": {Settings: map[string]any{
+			"permissions": map[string]any{"allow": []any{"Bash(make)"}, "additionalDirectories": []any{"../lib"}},
+		}}},
+	}
+
+	want := "common.settings.includeCoAuthoredBy: not an allowed setting: list it in allowed-settings, or run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay\n" +
+		"common.settings.statusLine.command: not an allowed setting: list it in allowed-settings, or run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay\n" +
+		"project.app.settings.permissions.additionalDirectories: not an allowed setting: list it in allowed-settings, or run nerve setting rm on it, then nerve setting set, which keeps it in the local overlay"
+	if got := refusals(m); got != want {
+		t.Errorf("problems are\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestAllowedSettingsLetTheBrainHoldMoreKeys(t *testing.T) {
+	m := domain.Manifest{
+		AllowedSettings: []string{"statusLine", `extraKnownMarketplaces."acme.tools"`},
+		Common:          map[string]any{"statusLine": map[string]any{"command": "~/bin/line"}, "extraKnownMarketplaces": map[string]any{"acme.tools": true}},
+	}
+
+	if got := refusals(m); got != "" {
+		t.Errorf("refused:\n%s", got)
+	}
+}
+
+func TestSecretKeysAreRefusedAtAnyDepthEvenWhenAllowed(t *testing.T) {
+	m := domain.Manifest{
+		AllowedSettings: []string{"mcpServers", "pluginConfigs", "sandbox"},
+		Common: map[string]any{
+			"mcpServers":    map[string]any{"db": map[string]any{"env": map[string]any{"DB_PASSWORD": "x"}, "headers": map[string]any{"X-Api-Key": "y"}}},
+			"pluginConfigs": map[string]any{"x": map[string]any{"options": map[string]any{"apiKey": "z", "dbPassword": "w"}}},
+			"sandbox":       map[string]any{"enabled": true},
+		},
+	}
+
+	got := refusals(m)
+	for _, want := range []string{
+		"common.settings.mcpServers.db.env.DB_PASSWORD: env may hold secrets",
+		"common.settings.mcpServers.db.headers.X-Api-Key: headers may hold secrets",
+		"common.settings.pluginConfigs.x.options.apiKey: apiKey may hold secrets",
+		"common.settings.pluginConfigs.x.options.dbPassword: dbPassword may hold secrets",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "sandbox") {
+		t.Errorf("refused an ordinary allowed setting:\n%s", got)
+	}
+}
+
+func TestSettingRefusalLooksInsideAnObjectValue(t *testing.T) {
+	m := domain.Manifest{AllowedSettings: []string{"mcpServers"}}
+	v := map[string]any{"db": map[string]any{"env": map[string]any{"TOKEN": "x"}}}
+
+	if why := m.SettingRefusal("mcpServers", v); why != "env may hold secrets" {
+		t.Errorf("got %q", why)
+	}
+	if why := m.SettingRefusal("permissions", map[string]any{"allow": []any{"Read"}}); why != "" {
+		t.Errorf("an object of allowed settings is refused: %s", why)
+	}
+}
+
+func TestSensitiveFindsSecretKeysAtAnyDepth(t *testing.T) {
+	if why := domain.Sensitive(domain.LeafKey([]string{"mcpServers", "db", "env", "HOST"}), "db.internal"); why == "" {
+		t.Errorf("not flagged")
 	}
 }
 

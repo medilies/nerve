@@ -27,8 +27,10 @@ nowhere else.
   Claude Code changed since, is reported as drift, never overwritten. A link that goes missing is made again.
 - **Pinned and reviewed.** Third-party skills sit at a commit, and move
   only after you read how they changed.
-- **Nothing sensitive in the Brain.** Secrets, home paths and emails
-  are refused, and go to a local overlay that never leaves the machine.
+- **Nothing sensitive in the Brain.** It holds only the settings nerve
+  allows, and those you allow, never secrets. Secrets, home paths,
+  emails and any other setting go to a local overlay that never leaves
+  the machine.
 - **Ask Claude.** In a listed project, `/nerve` says where things stand,
   and does the rest with you: "use my Go stack here".
 

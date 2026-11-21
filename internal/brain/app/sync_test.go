@@ -243,7 +243,7 @@ func TestSyncRefusesSensitiveValuesInTheBrain(t *testing.T) {
 
 	r, err := e.sync("/w/app", app.SyncOptions{})
 
-	if err == nil || !strings.Contains(err.Error(), "3 values in brain.toml are sensitive") || len(e.trees.links) > 0 {
+	if err == nil || !strings.Contains(err.Error(), "3 values in brain.toml are refused") || len(e.trees.links) > 0 {
 		t.Errorf("got %v, links %v", err, e.trees.links)
 	}
 	contains(t, r,

@@ -27,13 +27,29 @@ var (
 // third-party sources it pins, the hooks it defines, the settings common to
 // its projects, and the projects themselves.
 type Manifest struct {
-	Nerve    string
-	Autosync *bool
-	Sources  []Source
-	Hooks    map[string]Hook
-	Common   map[string]any // settings every listed project gets
-	Projects map[string]*Project
+	Nerve           string
+	Autosync        *bool
+	AllowedSettings []string // settings keys, as users write them, the Brain may hold beyond nerve's own
+	Sources         []Source
+	Hooks           map[string]Hook
+	Common          map[string]any // settings every listed project gets
+	Projects        map[string]*Project
 }
+
+// nerveAllows are the settings a Brain may hold without listing them in
+// allowed-settings: they shape how a project works and hold no secret.
+var nerveAllows = []string{
+	"alwaysThinkingEnabled", "attribution", "cleanupPeriodDays", "disabledMcpjsonServers", "enableAllProjectMcpServers",
+	"enabledMcpjsonServers", "model", "outputStyle", "permissions.allow",
+	"permissions.ask", "permissions.defaultMode", "permissions.deny", "spinnerTipsEnabled", "syncClaudeAiSkills",
+}
+
+// nerveWrites are the settings nerve writes from a Brain's hooks and
+// plugins, which the Brain never sets itself.
+var nerveWrites = []string{"enabledPlugins", "hooks"}
+
+// NotAllowed is why a setting no list allows stays out of the Brain.
+const NotAllowed = "not an allowed setting"
 
 // Source is one third-party repo, pinned to a commit.
 type Source struct {
@@ -72,6 +88,17 @@ func (p *Project) List(kind string) *[]string {
 func (m Manifest) Validate() error {
 	if m.Nerve != "" && !TagPattern.MatchString(m.Nerve) {
 		return fmt.Errorf("%s: nerve %q must be a release tag such as v1.2.3", ManifestFile, m.Nerve)
+	}
+	for _, a := range m.AllowedSettings {
+		path, err := ParseKey(a)
+		switch {
+		case err != nil:
+			return fmt.Errorf("%s: allowed-settings: %q is not a settings key", ManifestFile, a)
+		case slices.Contains(nerveWrites, path[0]):
+			return fmt.Errorf("%s: allowed-settings: %q is written by nerve from hooks and plugins", ManifestFile, a)
+		case secretKey(path) != "":
+			return fmt.Errorf("%s: allowed-settings: %q may hold secrets, so it is never allowed", ManifestFile, a)
+		}
 	}
 	for _, s := range m.Sources {
 		if !RepoPattern.MatchString(s.Repo) || slices.ContainsFunc(strings.Split(s.Repo, "/"), func(p string) bool { return p == "." || p == ".." }) {
@@ -182,9 +209,47 @@ type Problem struct {
 	Detail string
 }
 
-// SensitiveValues lists the values in the manifest that must never be in a
-// Brain, which may be public: anywhere in it, keys and names included.
-func (m Manifest) SensitiveValues() []Problem {
+// allows says whether a leaf key is an allowed setting, or under one.
+func (m Manifest) allows(key string) bool {
+	for _, a := range slices.Concat(nerveAllows, m.AllowedSettings) {
+		path, err := ParseKey(a)
+		if err != nil {
+			continue
+		}
+		if k := LeafKey(path); key == k || strings.HasPrefix(key, k+Sep) {
+			return true
+		}
+	}
+	return false
+}
+
+// SettingRefusal says why a setting must stay out of the Brain, or "": it
+// is sensitive, or not an allowed setting. key is a leaf path; an object
+// value is judged by each of its leaves.
+func (m Manifest) SettingRefusal(key string, v any) string {
+	obj, isObj := v.(map[string]any)
+	if isObj && len(obj) > 0 {
+		l := Leaves(obj)
+		for _, k := range SortedKeys(l) {
+			if why := m.SettingRefusal(key+Sep+k, l[k]); why != "" {
+				return why
+			}
+		}
+		return ""
+	}
+	if why := Sensitive(key, v); why != "" {
+		return why
+	}
+	if !isObj && !m.allows(key) { // an empty object holds no setting
+		return NotAllowed
+	}
+	return ""
+}
+
+// Refusals lists what in the manifest must never be in a Brain, which may
+// be public: sensitive values anywhere in it, keys and names included, and
+// settings no list allows.
+func (m Manifest) Refusals() []Problem {
 	var p []Problem
 	add := func(key, why string) {
 		p = append(p, Problem{Path: ManifestFile, Key: key, Detail: why})
@@ -192,7 +257,11 @@ func (m Manifest) SensitiveValues() []Problem {
 	settings := func(where, fix string, s map[string]any) {
 		l := Leaves(s)
 		for _, k := range SortedKeys(l) {
-			if why := Sensitive(k, l[k]); why != "" {
+			switch why := m.SettingRefusal(k, l[k]); why {
+			case "":
+			case NotAllowed:
+				add(where+Dotted(k), why+": list it in allowed-settings, or "+fix)
+			default:
 				add(where+Dotted(k), why+": "+fix)
 			}
 		}
@@ -202,6 +271,7 @@ func (m Manifest) SensitiveValues() []Problem {
 			add(key, why)
 		}
 	}
+	text("allowed-settings", m.AllowedSettings)
 	for i, s := range m.Sources {
 		text(fmt.Sprintf("source[%d]", i), []any{s.Repo, s.Skills})
 	}

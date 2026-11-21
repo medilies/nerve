@@ -76,7 +76,7 @@ func (a App) Check(r Reporter) error {
 			problem(domain.ManifestFile, key+".settings."+k, "equals common: drop it from the project")
 		}
 	}
-	p = append(p, m.SensitiveValues()...)
+	p = append(p, m.Refusals()...)
 	for _, e := range p {
 		r.Add(problemEvent(e))
 	}

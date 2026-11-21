@@ -59,11 +59,11 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 	if pin, running := l.m.Nerve, a.Self.Version(); pin != "" && running != pin && domain.TagPattern.MatchString(running) {
 		r.Add(Event{Kind: EvProblem, Path: domain.ManifestFile, Key: "nerve", Detail: fmt.Sprintf("nerve %s runs, but the Brain pins %s: install %s", running, pin, pin)})
 	}
-	if p := l.m.SensitiveValues(); len(p) > 0 {
+	if p := l.m.Refusals(); len(p) > 0 {
 		for _, e := range p {
 			r.Add(problemEvent(e))
 		}
-		return fmt.Errorf("%d values in %s are sensitive: take each out as its problem says", len(p), domain.ManifestFile)
+		return fmt.Errorf("%d values in %s are refused: take each out as its problem says", len(p), domain.ManifestFile)
 	}
 	self, err := a.Self.Skill()
 	if err != nil {

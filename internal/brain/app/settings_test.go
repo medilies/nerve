@@ -45,6 +45,48 @@ func TestSetSettingSendsASensitiveValueToTheOverlay(t *testing.T) {
 	}
 }
 
+func TestSetSettingSendsASettingNoListAllowsToTheOverlay(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	r := &recorder{}
+
+	e.must(r, e.app.SetSetting(target("/w/app"), "statusLine.command", "~/bin/line", false, r))
+
+	if e.project("app").Settings != nil || e.brain.saves != 0 {
+		t.Errorf("a setting no list allows reached the Brain")
+	}
+	contains(t, r, "overlay  statusLine.command set in /cfg/nerve/overlays/app.json: not an allowed setting: list it in allowed-settings to share it")
+	err := e.app.SetSetting(target("/w/app"), "statusLine.command", "~/bin/line", true, &recorder{})
+	if err == nil || !strings.Contains(err.Error(), "statusLine.command is not an allowed setting: list it in allowed-settings") {
+		t.Errorf("got %v, want common refused", err)
+	}
+}
+
+func TestSetSettingPutsAnAllowedSettingInTheBrain(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.brain.m.AllowedSettings = []string{"statusLine"}
+
+	e.must(&recorder{}, e.app.SetSetting(target("/w/app"), "statusLine.command", "~/bin/line", false, &recorder{}))
+
+	if got := jsonText(e.project("app").Settings); got != `{"statusLine":{"command":"~/bin/line"}}` {
+		t.Errorf("project settings are %s", got)
+	}
+}
+
+func TestSetSettingSendsAnObjectHoldingASecretKeyToTheOverlay(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.brain.m.AllowedSettings = []string{"mcpServers"}
+	v := map[string]any{"db": map[string]any{"headers": map[string]any{"X-Api-Key": "k"}}}
+
+	e.must(&recorder{}, e.app.SetSetting(target("/w/app"), "mcpServers", v, false, &recorder{}))
+
+	if e.project("app").Settings != nil {
+		t.Errorf("a secret reached the Brain: %s", jsonText(e.project("app").Settings))
+	}
+}
+
 func TestSetSettingSendsAnIdentifyingKeyToTheOverlay(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
@@ -66,9 +108,9 @@ func TestSetSettingReportsTheObjectItSets(t *testing.T) {
 	e.listed("app", "/w/app")
 	r := &recorder{}
 
-	e.must(r, e.app.SetSetting(target("/w/app"), "a.b", map[string]any{"x": int64(1)}, false, r))
+	e.must(r, e.app.SetSetting(target("/w/app"), "permissions", map[string]any{"defaultMode": "plan"}, false, r))
 
-	contains(t, r, `set      a.b = {"x":1}`)
+	contains(t, r, `set      permissions = {"defaultMode":"plan"}`)
 }
 
 func TestSetSettingRefusesWhatBrainTomlCannotHold(t *testing.T) {
@@ -97,14 +139,15 @@ func TestSetSettingRefusesWhatBrainTomlCannotHold(t *testing.T) {
 func TestSetSettingTakesAQuotedKeyWithDots(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
+	e.brain.m.AllowedSettings = []string{"extraKnownMarketplaces"}
 	r := &recorder{}
 
-	e.must(r, e.app.SetSetting(target("/w/app"), `enabledPlugins."x@y.z"`, true, false, r))
+	e.must(r, e.app.SetSetting(target("/w/app"), `extraKnownMarketplaces."acme.tools"`, true, false, r))
 
-	if got := jsonText(e.project("app").Settings); got != `{"enabledPlugins":{"x@y.z":true}}` {
+	if got := jsonText(e.project("app").Settings); got != `{"extraKnownMarketplaces":{"acme.tools":true}}` {
 		t.Errorf("project settings are %s", got)
 	}
-	e.must(r, e.app.RemoveSetting(target("/w/app"), `enabledPlugins."x@y.z"`, false, false, r))
+	e.must(r, e.app.RemoveSetting(target("/w/app"), `extraKnownMarketplaces."acme.tools"`, false, false, r))
 	if e.project("app").Settings != nil {
 		t.Errorf("the quoted key was not removed: %s", jsonText(e.project("app").Settings))
 	}

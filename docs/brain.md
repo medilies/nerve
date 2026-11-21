@@ -4,7 +4,7 @@ A Brain is a git repo you own. nerve knows nothing about what is in it
 beyond its layout:
 
 ```text
-brain.toml          # the nerve release, autosync, third-party pins, hooks, common settings, projects
+brain.toml          # the nerve release, autosync, allowed settings, third-party pins, hooks, common settings, projects
 skills/<name>/      # own skills
 agents/<name>.md    # own agents
 hooks/<script>      # scripts hooks run, referenced as {{brain}}/hooks/<script>
@@ -17,23 +17,24 @@ reasoning is in [ADR 0005](adr/0005-projects-opt-in.md) and
 ## brain.toml
 
 ```toml
-nerve = "v0.3.0"                 # the release that carries this Brain
-autosync = true                  # sync each project at session start; the default
+nerve = "v0.3.0"                  # the release that carries this Brain
+autosync = true                   # sync each project at session start; the default
+allowed-settings = ["statusLine"] # settings keys this Brain may hold beyond nerve's own
 
-[[source]]                       # third-party skills, pinned to a full commit
+[[source]]                        # third-party skills, pinned to a full commit
 repo = "acme/skills"
 sha = "5863806dd4e15c63174bee4e7515a4256792ecfa"
 skills = ["grilling"]
 
-[hook.go-fmt]                    # a hook projects can take by name
+[hook.go-fmt]                     # a hook projects can take by name
 event = "PostToolUse"
 matcher = "Edit|Write"
 command = "{{brain}}/hooks/go-fmt.sh"
 
-[common.settings]                # settings every listed project gets
+[common.settings]                 # settings every listed project gets
 syncClaudeAiSkills = false
 
-[project.billing]                # what one project gets, and nothing else does
+[project.billing]                 # what one project gets, and nothing else does
 skills = ["go-stack", "grilling"]
 agents = ["reviewer"]
 hooks = ["go-fmt"]
@@ -42,7 +43,7 @@ plugins = ["gopls-lsp@claude-plugins-official"]
 [project.billing.settings]
 model = "opus"
 
-[project.claude-ai-work]         # a claude.ai account: skills only
+[project.claude-ai-work]          # a claude.ai account: skills only
 surface = "claude.ai"
 skills = ["research"]
 ```
@@ -50,6 +51,8 @@ skills = ["research"]
 - **`nerve`** pins the release that carries the Brain. When another
   release runs, `sync` reports it: install the pinned one. nerve never
   replaces itself, and says nothing to a development build.
+- **`allowed-settings`** lists settings keys the Brain may hold beyond
+  those nerve allows. See [Nothing sensitive](#nothing-sensitive).
 - **`[[source]]`** is a third-party repo on GitHub at a full commit,
   and the skills used from it. Skill, agent, hook and project names are
   lowercase words joined by hyphens. A skill is the folder of that name
@@ -73,17 +76,35 @@ nerve refuses `inf`, `nan` and dates in settings.
 
 ## Nothing sensitive
 
-A Brain may be public. `check` and `sync` refuse secret-bearing
-settings such as `env` and `apiKeyHelper`. They also refuse home paths
-(`/home/…`, `/Users/…`, `/root`), emails, token-like strings, private
-keys and credentials in URLs anywhere in `brain.toml`: in values,
-settings keys, hook matchers and commands, plugin IDs, and names. Each
-refusal names the commands that move the value to a local overlay.
+A Brain may be public, so it holds only allowed settings, and
+everything under them:
+
+- those nerve allows: `alwaysThinkingEnabled`, `attribution`,
+  `cleanupPeriodDays`, `disabledMcpjsonServers`,
+  `enableAllProjectMcpServers`, `enabledMcpjsonServers`, `model`,
+  `outputStyle`, `permissions.allow`, `permissions.ask`,
+  `permissions.defaultMode`, `permissions.deny`, `spinnerTipsEnabled`
+  and `syncClaudeAiSkills`;
+- those `allowed-settings` lists, such as `"statusLine"` or
+  `'extraKnownMarketplaces."acme.tools"'`.
+
+A key that may hold secrets is never allowed, at any depth: `env`,
+`headers`, `apiKeyHelper` and the like, or a key named for a token,
+secret, password, API key or credential. Nor are `hooks` and
+`enabledPlugins`, which nerve writes from `[hook.<name>]` and
+`plugins`. `allowed-settings` cannot list them.
+
+`check` and `sync` refuse any other setting. They also refuse home
+paths (`/home/…`, `/Users/…`, `/root`), emails, token-like strings,
+private keys and credentials in URLs anywhere in `brain.toml`: in
+values, settings keys, hook matchers and commands, plugin IDs, and
+names. Each refusal names the commands that move the value to a local
+overlay.
 
 The commands that write the Brain keep them out:
 
-- `setting set` and `setting add` put such a setting in the local
-  overlay instead, whether its value or its key is sensitive.
+- `setting set` and `setting add` put a setting that is not allowed,
+  or whose value is sensitive, in the local overlay instead.
 - `plugin add` refuses such a plugin ID, and says how to enable it on
   this machine only.
 
@@ -113,8 +134,8 @@ project = "billing"
 ```
 
 - **Local overlays**, `overlays/<project>.json`, hold a project's
-  settings that are sensitive or identifying, or that `brain.toml`
-  cannot hold, such as `null`. nerve puts them there on its own when
+  settings that are not allowed in a Brain, sensitive or identifying,
+  or that `brain.toml` cannot hold, such as `null`. nerve puts them there on its own when
   you set such a value. They never leave the machine,
   so set them again on each one.
   - `nerve setting rm` removes a key from the overlay too.

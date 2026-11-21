@@ -83,7 +83,7 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common bool, r Rep
 	}
 	k := domain.LeafKey(path)
 	shown := domain.ShowKey(k)
-	why := domain.Sensitive(k, v)
+	why := l.m.SettingRefusal(k, v)
 	report := func(where string, before, after map[string]any, err error) error {
 		if errors.Is(err, errAlready) {
 			r.Add(Event{Kind: EvOK, Detail: fmt.Sprintf("%s already holds %s in %s", shown, domain.ShowValue(k, v), where)})
@@ -96,7 +96,11 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common bool, r Rep
 		return nil
 	}
 	if common {
-		if why != "" {
+		switch why {
+		case "":
+		case domain.NotAllowed:
+			return fmt.Errorf("%s is %s: list it in allowed-settings in %s, or set it per project, where it goes to the local overlay", key, why, domain.ManifestFile)
+		default:
 			return fmt.Errorf("%s %s, so it cannot go in common: set it per project, where it goes to the local overlay", key, why)
 		}
 		before := l.m.Common
@@ -125,6 +129,9 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common bool, r Rep
 		}
 		if err != nil {
 			return report(file, nil, nil, err)
+		}
+		if why == domain.NotAllowed {
+			why += ": list it in allowed-settings to share it"
 		}
 		r.Add(Event{Kind: EvOverlay, Project: project, Key: shown, Path: file, Detail: why})
 		return nil

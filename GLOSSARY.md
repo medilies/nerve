@@ -65,6 +65,10 @@ _Avoid_: workspace
 Settings every listed project gets; the only thing a Brain gives to more than one project at once.
 _Avoid_: base, defaults, global
 
+**Allowed setting**:
+A settings key a Brain may hold: one nerve allows on its own, or one the Brain's `allowed-settings` adds; any other stays in a local overlay, and a key that may hold secrets is never allowed.
+_Avoid_: whitelist, safe setting
+
 **Surface**:
 Where a project is used: a Claude Code checkout, or a claude.ai account.
 _Avoid_: target, platform
