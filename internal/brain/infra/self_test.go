@@ -50,7 +50,7 @@ func TestSkillReplacesTheCachedCopyAtOnce(t *testing.T) {
 
 func TestSessionsStartingAtOnceReadAWholeSkill(t *testing.T) {
 	e := newTestEnv(t)
-	versions := []string{skillMD("nerve", "license: a\n"), skillMD("nerve", "license: b\n"+strings.Repeat("x: y\n", 2000))}
+	versions := []string{skillMD("nerve", "license: a\n"), skillMD("nerve", "license: b\nx: y\n"+strings.Repeat("  more\n", 2000))}
 	path := e.path(".cache/nerve/skill/nerve/SKILL.md")
 	if _, err := (Nerve{SkillMD: []byte(versions[0])}).Skill(); err != nil {
 		t.Fatal(err)

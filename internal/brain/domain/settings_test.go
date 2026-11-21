@@ -556,3 +556,11 @@ func TestHasNullFindsNullAnywhere(t *testing.T) {
 		t.Errorf("found a null in a value without one")
 	}
 }
+
+func TestOverridesOfCommonLeaveAnEmptyObjectOut(t *testing.T) {
+	p := &domain.Project{Settings: obj(t, `{"permissions": {}}`)}
+
+	if got := domain.OverridesOfCommon(p, obj(t, `{"permissions": {}}`)); len(got) > 0 {
+		t.Errorf("overrides are %v, want none: an empty object holds no setting", got)
+	}
+}

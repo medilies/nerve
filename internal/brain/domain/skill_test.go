@@ -24,7 +24,7 @@ func TestParseFrontmatterLeavesCommentsOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for k, want := range map[string]string{"name": "foo", "description": `Does \"#\" things.`, "license": "", "compatibility": "it''s # fine"} {
+	for k, want := range map[string]string{"name": "foo", "description": `Does "#" things.`, "license": "", "compatibility": "it's # fine"} {
 		if meta[k] != want {
 			t.Errorf("%s is %q, want %q", k, meta[k], want)
 		}
@@ -98,6 +98,26 @@ func TestAgentProblem(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 	if err := domain.AgentProblem("reviewer", map[string]string{"name": "reviewer"}); err == nil || err.Error() != "no description" {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestParseFrontmatterDecodesEscapesInQuotedValues(t *testing.T) {
+	meta, err := domain.ParseFrontmatter("SKILL.md", "---\nname: \"a\\\"b\\\\c\"\ndescription: 'it''s'\n---\n")
+
+	if err != nil || meta["name"] != `a"b\c` || meta["description"] != "it's" {
+		t.Errorf("got %q (%v)", meta, err)
+	}
+}
+
+func TestParseFrontmatterTakesAnOpeningLineWithTrailingSpaces(t *testing.T) {
+	if meta, err := domain.ParseFrontmatter("SKILL.md", "--- \nname: x\n---\n"); err != nil || meta["name"] != "x" {
+		t.Errorf("got %q (%v)", meta, err)
+	}
+}
+
+func TestParseFrontmatterRefusesAKeyGivenTwice(t *testing.T) {
+	if _, err := domain.ParseFrontmatter("SKILL.md", "---\nname: x\nname: y\n---\n"); err == nil || !strings.Contains(err.Error(), `"name" twice`) {
 		t.Errorf("got %v", err)
 	}
 }

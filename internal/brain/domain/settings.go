@@ -619,6 +619,9 @@ func OverridesOfCommon(p *Project, common map[string]any) []string {
 	base, l := Leaves(common), Leaves(p.Settings)
 	var same []string
 	for _, k := range SortedKeys(l) {
+		if obj, isObj := l[k].(map[string]any); isObj && len(obj) == 0 {
+			continue // an empty object holds no setting
+		}
 		if v, ok := base[k]; ok && reflect.DeepEqual(v, l[k]) {
 			same = append(same, Dotted(k))
 		}

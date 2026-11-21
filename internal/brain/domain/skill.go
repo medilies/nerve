@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -60,7 +61,7 @@ func (s Skill) ClaudeAIRejection() string {
 func ParseFrontmatter(file, text string) (map[string]string, error) {
 	text = strings.TrimPrefix(text, "\ufeff")
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
-	if lines[0] != "---" || len(lines) == 1 {
+	if strings.TrimRight(lines[0], " \t") != "---" || len(lines) == 1 {
 		return nil, fmt.Errorf("%s has no frontmatter", file)
 	}
 	end := slices.IndexFunc(lines[1:], func(l string) bool { return strings.TrimRight(l, " \t") == "---" })
@@ -79,6 +80,9 @@ func ParseFrontmatter(file, text string) (map[string]string, error) {
 			k, v, ok := cutKey(line)
 			if !ok {
 				return nil, fmt.Errorf("frontmatter line %q is not key: value", line)
+			}
+			if _, twice := meta[k]; twice {
+				return nil, fmt.Errorf("%s frontmatter gives %q twice", file, k)
 			}
 			key = k
 			v = scalar(strings.TrimSpace(v))
@@ -104,7 +108,7 @@ func cutKey(line string) (key, value string, ok bool) {
 		if !strings.HasPrefix(rest, ":") {
 			return "", "", false
 		}
-		return line[1:end], rest[1:], true
+		return unquote(line[:end+1]), rest[1:], true
 	}
 	k, v, ok := strings.Cut(line, ":")
 	return strings.TrimSpace(k), v, ok
@@ -129,7 +133,7 @@ func quoteEnd(v string) int {
 func scalar(v string) string {
 	if len(v) > 0 && (v[0] == '"' || v[0] == '\'') {
 		if end := quoteEnd(v); end > 0 {
-			return v[1:end]
+			return unquote(v[:end+1])
 		}
 		return v
 	}
@@ -140,6 +144,18 @@ func scalar(v string) string {
 		v = strings.TrimSpace(v[:i])
 	}
 	return v
+}
+
+// unquote reads a quoted YAML scalar: escapes in double quotes, and a
+// doubled quote in single ones.
+func unquote(q string) string {
+	if q[0] == '\'' {
+		return strings.ReplaceAll(q[1:len(q)-1], "''", "'")
+	}
+	if s, err := strconv.Unquote(strings.ReplaceAll(q, `\/`, "/")); err == nil {
+		return s
+	}
+	return q[1 : len(q)-1]
 }
 
 // AgentProblem says what is wrong with an agent file's frontmatter, or nil.
