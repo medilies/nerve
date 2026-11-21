@@ -9,6 +9,10 @@ A **Brain** is one person's git repo: own skills and agents, third-party skills 
 
 nerve acts only when told. `nerve sync` brings the remote here: it makes the Brain its remote's, then carries it into the project. It refuses to drop Brain work not pushed, unless `-f`. `nerve push` sends the Brain to its remote. A command that changes `brain.json`, such as `nerve skill add`, takes the remote's first, then commits and pushes that change at once. Each session starts with a report of what waits for a sync; it changes nothing.
 
+## What the user asks
+
+The user may not know nerve's commands. Their words are not commands: "update my Brain" may mean moving pins, cleaning a list, or syncing. Read what they ask in context, such as what you just offered. When more than one reading fits, ask, naming each option in plain words, before you run anything. Never run a command that pushes at once, such as `update`, `setting`, `skill add` or `project rm`, unless the user asked for that change.
+
 ## /nerve on its own
 
 Run `nerve status --json` and summarize it in a few lines: the project, what waits for a sync, what is linked, the team's own skills, drift, and Brain changes not yet pushed. Change nothing. Outside a listed project, say in a few lines what nerve can do here, starting with `nerve project add`.
