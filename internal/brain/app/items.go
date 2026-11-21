@@ -144,7 +144,7 @@ func (a App) ListItems(ref ProjectRef, kind string, r Reporter) error {
 		} else if dir != "" && (kind == "skill" || kind == "agent") && a.Trees.Present(filepath.Join(dir, link.Rel())) {
 			detail += ", not linked: the team has " + link.Rel()
 		} else if dir != "" {
-			detail += ", not linked yet: sync"
+			detail += ", not linked: nerve sync --here links it, or says why not"
 		}
 		r.Add(Event{Kind: EvItem, Project: project, Item: kind + " " + name, Detail: detail})
 	}

@@ -126,7 +126,7 @@ func TestRefusalsLookEverywhereInTheManifest(t *testing.T) {
 	}
 	want := []string{
 		"hook.guard.matcher: holds a home path: use {{brain}} or ~",
-		`common.settings.enabledPlugins."tool@bob@example.com": the key holds an email address: run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay`,
+		"common.settings.enabledPlugins.(hidden): the key holds an email address: take it out of brain.toml, then nerve setting set it per project, which keeps it in the local overlay",
 		"project.app.plugins: holds an email address",
 	}
 	if !slices.Equal(got, want) {
@@ -152,7 +152,7 @@ func TestRefusalsRefuseASettingNoListAllows(t *testing.T) {
 
 	want := "common.settings.includeCoAuthoredBy: not an allowed setting: list it in allowed-settings, or run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay\n" +
 		"common.settings.statusLine.command: not an allowed setting: list it in allowed-settings, or run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay\n" +
-		"project.app.settings.permissions.additionalDirectories: not an allowed setting: list it in allowed-settings, or run nerve setting rm on it, then nerve setting set, which keeps it in the local overlay"
+		"project.app.settings.permissions.additionalDirectories: not an allowed setting: list it in allowed-settings, or run nerve setting rm --project app on it, then nerve setting set --project app, which keeps it in the local overlay"
 	if got := refusals(m); got != want {
 		t.Errorf("problems are\n%s\nwant\n%s", got, want)
 	}
@@ -218,8 +218,8 @@ func TestSensitiveGivesOneReasonWhateverTheMapOrder(t *testing.T) {
 }
 
 func TestSensitiveFindsSecretKeysAtAnyDepth(t *testing.T) {
-	if why := domain.Sensitive(domain.LeafKey([]string{"mcpServers", "db", "env", "HOST"}), "db.internal"); why == "" {
-		t.Errorf("not flagged")
+	if why := domain.Sensitive(domain.LeafKey([]string{"mcpServers", "db", "env", "HOST"}), "db.internal"); why != "env may hold secrets" {
+		t.Errorf("got %q", why)
 	}
 }
 
@@ -323,5 +323,113 @@ func TestListGivesEachItemKindsList(t *testing.T) {
 	}
 	if p.Skills[0] != "skill" || p.Agents[0] != "agent" || p.Hooks[0] != "hook" || p.Plugins[0] != "plugin" {
 		t.Errorf("lists are %+v", p)
+	}
+}
+
+func TestRefusalsRefuseANerveListHeldAsAnythingElse(t *testing.T) {
+	m := domain.Manifest{
+		Common:   map[string]any{"permissions": map[string]any{"deny": "Cron"}},
+		Projects: map[string]*domain.Project{"app": {Settings: map[string]any{"permissions": map[string]any{"allow": map[string]any{"x": 1.0}}}}},
+	}
+
+	got := refusals(m)
+
+	for _, want := range []string{
+		`common.settings.permissions.deny: holds a list of text, such as ["Read"]: write it as one`,
+		`project.app.settings.permissions.allow: holds a list of text, such as ["Read"]: write it as one`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestSensitiveFindsSecretsAndHomePathsInCommands(t *testing.T) {
+	for _, v := range []string{
+		"curl -d done https://hooks.slack.com/services/T01ABCDEF/B01ABCDEF/abcdefghijklmnopqrstuvwx",
+		"curl https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnop",
+		"NTFY_TOKEN=tk_abc123 ./notify.sh",
+		"./run.sh --password hunter2",
+		"curl -H 'X-API-Key: abc123def456' https://x.io",
+		"AWS_SECRET_ACCESS_KEY=abc ./x",
+		"-----BEGIN PGP PRIVATE KEY BLOCK-----",
+		"https://:pw@example.com",
+		"echo done >/home/bob/log",
+		"cc -I/home/bob/include x.c",
+		"hi;/home/bob/x",
+		"sh /root;",
+	} {
+		t.Run(v, func(t *testing.T) {
+			if why := domain.Sensitive("x", v); why == "" {
+				t.Errorf("not flagged")
+			}
+		})
+	}
+}
+
+func TestSensitiveLeavesOrdinaryCommandsAlone(t *testing.T) {
+	for _, v := range []string{
+		"Bash(gh auth token:*)",
+		"Bash(npm run test:*)",
+		"NTFY_TOKEN=$NTFY_TOKEN ./notify.sh",
+		`curl -H "Authorization: Bearer $GITHUB_TOKEN" https://x.io`,
+		"{{brain}}/hooks/notify.sh --token-file ~/.config/x",
+		"Co-Authored-By: Claude <noreply@anthropic.com>",
+		"See Bearer authentication in the docs",
+		"Bash(npm run secrets:check)",
+		"Bash(make token:refresh)",
+		"Edit(app/(marketing)/home/page.tsx)",
+		"Edit(src/[id]/home/x.ts)",
+	} {
+		t.Run(v, func(t *testing.T) {
+			if why := domain.Sensitive("x", v); why != "" {
+				t.Errorf("flagged: %s", why)
+			}
+		})
+	}
+}
+
+func TestSensitiveFindsSecretKeysWhateverTheirCase(t *testing.T) {
+	for _, k := range []string{"Env", "HEADERS", "ApiKeyHelper"} {
+		if why := domain.Sensitive(domain.LeafKey([]string{"mcpServers", "db", k, "X"}), "y"); why == "" {
+			t.Errorf("%s not flagged", k)
+		}
+	}
+}
+
+func TestRefusalsAndOverridesOfCommonHideASensitiveKey(t *testing.T) {
+	key := map[string]any{"ghp_abcdefghijklmnopqrstuvwxyz0123456789": 1.0}
+	m := domain.Manifest{
+		AllowedSettings: []string{"statusLine"},
+		Common:          map[string]any{"statusLine": key},
+	}
+
+	got := refusals(m)
+	same := domain.OverridesOfCommon(&domain.Project{Settings: map[string]any{"statusLine": key}}, m.Common)
+
+	if strings.Contains(got, "ghp_") || !strings.Contains(got, "statusLine.(hidden): the key looks like a token: take it out of brain.toml") {
+		t.Errorf("got:\n%s", got)
+	}
+	if !slices.Equal(same, []string{"statusLine.(hidden)"}) {
+		t.Errorf("overrides of common are %v", same)
+	}
+}
+
+func TestRefusalsSayHowToShareASettingNerveWrites(t *testing.T) {
+	m := domain.Manifest{Common: map[string]any{"enabledPlugins": map[string]any{"x@y": true}}}
+
+	if got := refusals(m); !strings.Contains(got, `common.settings.enabledPlugins.x@y: not an allowed setting: share a plugin with nerve plugin add, a hook with [hook.<name>]`) || strings.Contains(got, "allowed-settings") {
+		t.Errorf("got:\n%s", got)
+	}
+}
+
+func TestValidateRefusesOneRepoInTwoSourcesWhateverTheCase(t *testing.T) {
+	m := domain.Manifest{Sources: []domain.Source{
+		{Repo: "Acme/skills", SHA: sha, Skills: []string{"a"}},
+		{Repo: "acme/skills", SHA: sha, Skills: []string{"b"}},
+	}}
+
+	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "is in two [[source]] tables") {
+		t.Errorf("got %v", err)
 	}
 }

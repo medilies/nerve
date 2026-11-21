@@ -27,6 +27,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("LC_ALL", "C") // git's messages, as tests match them
 	t.Setenv("GIT_CONFIG_COUNT", "1")
 	t.Setenv("GIT_CONFIG_KEY_0", "url.file://"+filepath.Join(home, "github")+"/.insteadOf")
 	t.Setenv("GIT_CONFIG_VALUE_0", "https://github.com/")
@@ -43,6 +44,27 @@ func unsetRepoEnv(t *testing.T) {
 }
 
 func (e *testEnv) path(rel string) string { return filepath.Join(e.home, rel) }
+
+// config is rel in nerve's config folder, which is not under XDG_CONFIG_HOME
+// on every system.
+func (e *testEnv) config(rel string) string {
+	e.t.Helper()
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return filepath.Join(dir, "nerve", rel)
+}
+
+// cache is rel in nerve's cache folder, as config is in its config folder.
+func (e *testEnv) cache(rel string) string {
+	e.t.Helper()
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return filepath.Join(dir, "nerve", rel)
+}
 
 func (e *testEnv) git(dir string, args ...string) string {
 	e.t.Helper()

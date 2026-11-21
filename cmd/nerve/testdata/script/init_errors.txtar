@@ -2,11 +2,11 @@
 # there, which it never replaces.
 
 ! exec nerve init nowhere
-stderr 'brain.toml: open .*/nowhere/brain.toml: no such file or directory'
-! exists $HOME/.config/nerve/config.toml
+stderr '/nowhere has no brain.toml: a Brain is a git repo with brain.toml at its top; make one there, or run nerve init on the folder that holds yours'
+! exists $NERVE_CONFIG/config.toml
 
 exec nerve init brain
-cp $HOME/.config/nerve/config.toml $HOME/first
+cp $NERVE_CONFIG/config.toml $HOME/first
 ! exec nerve init brain
 stderr 'config.toml exists: edit it instead'
-cmp $HOME/.config/nerve/config.toml $HOME/first
+cmp $NERVE_CONFIG/config.toml $HOME/first

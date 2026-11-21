@@ -245,6 +245,44 @@ func TestPullFailsOnADivergedBrain(t *testing.T) {
 	}
 }
 
+func TestPullFollowsABranchATagIsNamedLike(t *testing.T) {
+	e := newTestEnv(t)
+	head := e.published()
+	e.git(e.path("brain"), "tag", "main")
+	var r events
+
+	if err := NewBrainCheckout(e.path("brain")).Pull(&r); err != nil || e.git(e.path("brain"), "rev-parse", "HEAD") != head {
+		t.Errorf("got %v, events: %s", err, r)
+	}
+}
+
+func TestPullSkipsWhenUntrackedFilesStandWhereItWouldBringFiles(t *testing.T) {
+	e := newTestEnv(t)
+	e.published()
+	e.write(e.path("other/skills/x/SKILL.md"), "theirs")
+	head := e.commit(e.path("other"))
+	e.git(e.path("other"), "push", "-q")
+	e.write(e.path("brain/skills/x/SKILL.md"), "mine")
+	var r events
+
+	err := NewBrainCheckout(e.path("brain")).Pull(&r)
+
+	if err != nil || e.git(e.path("brain"), "rev-parse", "HEAD") == head || r.String() != "no pull  "+e.path("brain")+": untracked files stand where it would bring files: skills/x/SKILL.md" {
+		t.Errorf("got %v, events: %s", err, r)
+	}
+}
+
+func TestPullSaysWhenItsUpstreamBranchIsGoneFromTheRemote(t *testing.T) {
+	e := newTestEnv(t)
+	e.published()
+	e.git(e.path("brain.git"), "update-ref", "-d", "refs/heads/main")
+	var r events
+
+	if err := NewBrainCheckout(e.path("brain")).Pull(&r); err != nil || !strings.HasSuffix(r.String(), ": its upstream branch is not on the remote") {
+		t.Errorf("got %v, events: %s", err, r)
+	}
+}
+
 func TestPullSaysWhenHeadIsDetached(t *testing.T) {
 	e := newTestEnv(t)
 	e.published()
@@ -319,6 +357,7 @@ func TestOwnSkillsReadEveryFolderAndLinkedFolder(t *testing.T) {
 	e.write(e.path("real/linked/SKILL.md"), "---\nname: linked\n---\n")
 	e.link(e.path("brain/skills/linked"), e.path("real/linked"))
 	e.write(e.path("brain/skills/README.md"), "x")
+	e.link(e.path("brain/skills/gone"), e.path("real/gone"))
 
 	all, err := NewBrainCheckout(e.path("brain")).OwnSkills()
 
@@ -326,7 +365,7 @@ func TestOwnSkillsReadEveryFolderAndLinkedFolder(t *testing.T) {
 	for _, s := range all {
 		got[s.Name] = fmt.Sprintf("%v %s", s.Err != nil, s.Meta["name"])
 	}
-	if want := map[string]string{"ok": "false ok", "notes": "true ", "linked": "false linked"}; err != nil || !reflect.DeepEqual(got, want) {
+	if want := map[string]string{"ok": "false ok", "notes": "true ", "linked": "false linked", "gone": "true "}; err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("own skills are %v (%v), want %v", got, err, want)
 	}
 }
@@ -391,6 +430,17 @@ func TestHeadAndStateOfAPlainFolderAreEmpty(t *testing.T) {
 	var r events
 	if err := b.Pull(&r); err != nil || len(r) > 0 {
 		t.Errorf("pulled a plain folder: %v %s", err, r)
+	}
+}
+
+func TestHeadOfAPlainFolderInsideARepoIsEmpty(t *testing.T) {
+	e := newTestEnv(t)
+	dot := e.repo(e.path("dot"))
+	e.write(filepath.Join(dot, "brain/brain.toml"), "")
+	e.commit(dot)
+
+	if head := NewBrainCheckout(filepath.Join(dot, "brain")).Head(); head != "" {
+		t.Errorf("head is %q, the commit of the repo around the Brain", head)
 	}
 }
 

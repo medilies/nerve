@@ -23,31 +23,47 @@ import (
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
+// access says who a file nerve writes is for.
+type access int
+
+const (
+	// anyone: a new file gets 0644 less the umask, as os.WriteFile gives,
+	// and an existing one keeps its mode.
+	anyone access = iota
+	// mine: a new file is for the user only, 0600, since it may hold a
+	// local overlay's secrets; an existing one keeps its mode.
+	mine
+	// private: for the user only whatever the umask: the file 0600, and the
+	// folders it makes 0700. This machine's files may hold secrets.
+	private
+)
+
 // writeFile replaces path's content all at once, so Claude Code never reads
 // it half written. A path that is a link keeps the link and replaces what it
-// points to, even a file that does not exist yet. An existing file keeps
-// its mode, and a new one gets 0644 less the umask, as os.WriteFile gives.
-func writeFile(path string, b []byte) error { return replace(path, b, false) }
+// points to, even a file that does not exist yet.
+func writeFile(path string, b []byte) error { return replace(path, b, anyone) }
 
 // writePrivate replaces path's content as writeFile does, for the user
-// only whatever the umask: the file 0600, and the folders it makes 0700.
-// This machine's files may hold secrets.
-func writePrivate(path string, b []byte) error { return replace(path, b, true) }
+// only.
+func writePrivate(path string, b []byte) error { return replace(path, b, private) }
 
-func replace(path string, b []byte, private bool) error {
+func replace(path string, b []byte, who access) error {
 	path, err := linkEnd(path)
 	if err != nil {
 		return err
 	}
 	folders, perm := fs.FileMode(0o755), fs.FileMode(0o644)
-	if private {
+	switch who {
+	case mine:
+		perm = 0o600
+	case private:
 		folders, perm = 0o700, 0o600
 	}
 	if err := os.MkdirAll(filepath.Dir(path), folders); err != nil {
 		return err
 	}
 	fi, err := os.Stat(path)
-	if err == nil && !private {
+	if err == nil && who != private {
 		perm = fi.Mode().Perm()
 	}
 	f, err := newTemp(path, perm)
@@ -55,7 +71,7 @@ func replace(path string, b []byte, private bool) error {
 		return err
 	}
 	defer func() { _ = os.Remove(f.Name()) }() // a no-op once renamed
-	if fi != nil || private {                  // the exact mode, before it holds anything
+	if fi != nil || who == private {           // the exact mode, before it holds anything
 		if err := f.Chmod(perm); err != nil {
 			_ = f.Close()
 			return err
@@ -142,12 +158,12 @@ func decodeJSON(b []byte, v any) error {
 	return d.Decode(v)
 }
 
-// writeObject writes a JSON object, for the user only when private.
-func writeObject(path string, obj map[string]any, private bool) error {
+// writeObject writes a JSON object, for who.
+func writeObject(path string, obj map[string]any, who access) error {
 	if obj == nil {
 		obj = map[string]any{}
 	}
-	if err := writeJSON(path, obj, private); err != nil {
+	if err := writeJSON(path, obj, who); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	return nil
@@ -170,7 +186,7 @@ func readJSON(path string, v any) error {
 
 // writeJSON writes v indented, with &, < and > as they are, for the user
 // only when private.
-func writeJSON(path string, v any, private bool) error {
+func writeJSON(path string, v any, who access) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
@@ -178,7 +194,7 @@ func writeJSON(path string, v any, private bool) error {
 	if err := enc.Encode(v); err != nil {
 		return err
 	}
-	return replace(path, buf.Bytes(), private)
+	return replace(path, buf.Bytes(), who)
 }
 
 func fileExists(path string) bool {
@@ -294,9 +310,9 @@ func gitWithin(timeout time.Duration, dir string, args ...string) (string, error
 	if err := cmd.Run(); err != nil {
 		switch {
 		case ctx.Err() != nil && late:
-			return stdout.String(), fmt.Errorf("git %s: out of time for this run", args[0])
+			return stdout.String(), fmt.Errorf("git %s: out of time for this run", subcommand(args))
 		case ctx.Err() != nil:
-			return stdout.String(), fmt.Errorf("git %s: no answer after %s", args[0], timeout)
+			return stdout.String(), fmt.Errorf("git %s: no answer after %s", subcommand(args), timeout)
 		}
 		var exit *exec.ExitError
 		if !errors.As(err, &exit) {
@@ -304,11 +320,19 @@ func gitWithin(timeout time.Duration, dir string, args ...string) (string, error
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
-			msg = fmt.Sprintf("git %s: %v", args[0], err)
+			msg = fmt.Sprintf("git %s: %v", subcommand(args), err)
 		}
 		return stdout.String(), &gitError{code: exit.ExitCode(), msg: msg}
 	}
 	return stdout.String(), nil
+}
+
+// subcommand is the git command args run, past the -c options before it.
+func subcommand(args []string) string {
+	for len(args) > 2 && args[0] == "-c" {
+		args = args[2:]
+	}
+	return args[0]
 }
 
 // firstLine is the first line of an error, which for git says what failed.

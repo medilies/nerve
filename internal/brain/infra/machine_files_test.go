@@ -38,7 +38,7 @@ func TestMachineFileKeepsAPathAsItIsWritten(t *testing.T) {
 	e.write(e.path("real-work/app/README"), "x")
 	e.link(e.path("work"), e.path("real-work"))
 	config := "brain = \"~/brain\"\n\n[[checkout]]\npath = \"~/work/app\"\nproject = \"app\"\n"
-	e.write(e.path(".config/nerve/config.toml"), config)
+	e.write(e.config("config.toml"), config)
 	files, _ := NewMachineFiles()
 
 	m, err := files.Load()
@@ -50,7 +50,7 @@ func TestMachineFileKeepsAPathAsItIsWritten(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := e.read(e.path(".config/nerve/config.toml")); !strings.HasPrefix(got, config) {
+	if got := e.read(e.config("config.toml")); !strings.HasPrefix(got, config) {
 		t.Errorf("machine file is:\n%s", got)
 	}
 }
@@ -80,7 +80,7 @@ func TestStatesReadOnlyFilesNamedLikeAState(t *testing.T) {
 	if err := files.SaveState(domain.TreeState{Path: "/w/app", Project: "app"}); err != nil {
 		t.Fatal(err)
 	}
-	e.write(e.path(".config/nerve/state/stray.json"), "{}")
+	e.write(e.config("state/stray.json"), "{}")
 
 	if all, unreadable, err := files.States(); err != nil || len(all) != 1 || all[0].Path != "/w/app" || len(unreadable) > 0 {
 		t.Errorf("states are %+v, unreadable %v (%v)", all, unreadable, err)
@@ -112,7 +112,7 @@ func TestMachineFileWritesANewPathUnderALinkedHomeWithTilde(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := e.read(e.path(".config/nerve/config.toml")); got != "brain = \"~/brain\"\n" {
+	if got := e.read(e.config("config.toml")); got != "brain = \"~/brain\"\n" {
 		t.Errorf("machine file is:\n%s", got)
 	}
 }
@@ -124,12 +124,12 @@ func TestMachineFileRefusesWhatItCannotHold(t *testing.T) {
 		t.Errorf("got %v without a machine file", err)
 	}
 	for _, c := range []struct{ content, want string }{
-		{"brain = \"~/b\"\n[[config]]\ndir = \"~/.claude\"\n", "[[config]] is gone since nerve v0.3"},
+		{"brain = \"~/b\"\n[[config]]\ndir = \"~/.claude\"\n", "unknown keys [config config.dir]"},
 		{"brain = \"b\"\n", `brain "b" must be absolute`},
 		{"brain = \"~/b\"\nx = 1\n", "unknown keys [x]"},
 		{"brain = \"~/b\"\n[[checkout]]\npath = \"~/a\"\nproject = \"a\"\n[[checkout]]\npath = \"~/a/\"\nproject = \"b\"\n", "is listed twice"},
 	} {
-		e.write(e.path(".config/nerve/config.toml"), c.content)
+		e.write(e.config("config.toml"), c.content)
 		if _, err := files.Load(); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%q: got %v, want %q", c.content, err, c.want)
 		}
@@ -164,7 +164,7 @@ func TestStateAndOverlaysStayOnTheMachine(t *testing.T) {
 	}
 
 	path, err := files.SaveOverlay("app", map[string]any{"env": map[string]any{"T": "1"}})
-	if err != nil || path != e.path(".config/nerve/overlays/app.json") {
+	if err != nil || path != e.config("overlays/app.json") {
 		t.Fatalf("overlay at %s (%v)", path, err)
 	}
 	if o, _, _ := files.Overlay("app"); o["env"].(map[string]any)["T"] != "1" {

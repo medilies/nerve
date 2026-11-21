@@ -25,7 +25,7 @@ const usage = `usage: nerve <command>
   init <brain>                 write this machine's file, naming the Brain's checkout
   sync [--here] [--discard]    pull the Brain and carry it to each checkout this machine lists
                                (--here: only the one around the working directory);
-                               --discard overwrites settings changed outside the Brain
+                               --discard drops drift: settings the Brain sets, changed here
   status                       the Brain, and the project around the working directory
   check                        validate the Brain (run by its CI)
 
@@ -150,13 +150,13 @@ func usageError(why string) error { return fmt.Errorf("%s\n\n%w", why, errUsage)
 
 func main() { os.Exit(cli(os.Args[1:], os.Stdout, os.Stderr)) }
 
-// cli runs nerve on args, printing to stdout and stderr, and returns its
-// exit code.
 // hookBudget bounds autosync's git commands, well under the 600 seconds
 // Claude Code gives a command hook before it cancels it and drops its
 // report.
 const hookBudget = 5 * time.Minute
 
+// cli runs nerve on args, printing to stdout and stderr, and returns its
+// exit code.
 func cli(args []string, stdout, stderr io.Writer) int {
 	mode := infra.AsText
 	flagArgs := args
@@ -182,9 +182,9 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	switch {
 	case r.Finish(err) || err == nil:
 	case errors.Is(err, errUsage):
-		_, _ = fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, infra.Visible(err.Error()))
 	default:
-		_, _ = fmt.Fprintln(stderr, "error:", err)
+		_, _ = fmt.Fprintln(stderr, "error:", infra.Visible(err.Error()))
 	}
 	if err != nil && mode != infra.AsHook { // a hook that fails would only hide the report
 		return 1

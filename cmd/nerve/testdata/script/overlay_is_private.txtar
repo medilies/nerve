@@ -8,4 +8,4 @@ exec nerve project add app
 
 exec sh -c 'umask 022 && nerve setting set env.T x'
 
-perm $HOME/.config/nerve/overlays/app.json 600
+perm $NERVE_CONFIG/overlays/app.json 600

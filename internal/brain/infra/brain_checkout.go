@@ -72,6 +72,9 @@ type projectTable struct {
 func (b BrainCheckout) Load() (domain.Manifest, error) {
 	var f manifestFile
 	meta, err := toml.DecodeFile(filepath.Join(b.root, domain.ManifestFile), &f)
+	if errors.Is(err, fs.ErrNotExist) {
+		return domain.Manifest{}, fmt.Errorf("%s has no %s: a Brain is a git repo with %[2]s at its top; make one there, or run nerve init on the folder that holds yours", b.root, domain.ManifestFile)
+	}
 	if err != nil {
 		return domain.Manifest{}, fmt.Errorf("%s: %w", domain.ManifestFile, err)
 	}
@@ -344,10 +347,10 @@ func (b BrainCheckout) MovePin(repo, old, new string) error {
 var pullTimeout = 30 * time.Second
 
 // Pull fast-forwards the checkout from its upstream. It skips a checkout
-// that is not a git repo, has a detached HEAD, no upstream, or uncommitted
-// changes to tracked files, or whose remote it cannot reach. It fails when
-// the checkout has diverged. Untracked files never block a fast-forward;
-// git refuses on its own if one would be overwritten.
+// that is not a git repo, has a detached HEAD, no upstream, uncommitted
+// changes to tracked files, or untracked files where the pull would bring
+// files, or whose remote it cannot reach or no longer has the branch. It
+// fails when the checkout has diverged.
 func (b BrainCheckout) Pull(r app.Reporter) error {
 	if _, err := os.Stat(filepath.Join(b.root, ".git")); err != nil {
 		return nil
@@ -356,7 +359,9 @@ func (b BrainCheckout) Pull(r app.Reporter) error {
 		r.Add(app.Event{Kind: app.EvPullSkipped, Path: b.root, Detail: why})
 		return nil
 	}
-	branch, err := git(b.root, "symbolic-ref", "-q", "--short", "HEAD")
+	// The full name: a tag of the same name would make the short one
+	// heads/<branch>.
+	branch, err := git(b.root, "symbolic-ref", "-q", "HEAD")
 	switch {
 	case err == nil:
 	case exitCode(err) == 1: // 1: HEAD is not a branch
@@ -366,7 +371,7 @@ func (b BrainCheckout) Pull(r app.Reporter) error {
 	}
 	// The branch's own config, not its tracking ref, which only a fetch
 	// may make.
-	switch _, err := git(b.root, "config", "branch."+trim(branch)+".merge"); {
+	switch _, err := git(b.root, "config", "branch."+strings.TrimPrefix(trim(branch), "refs/heads/")+".merge"); {
 	case exitCode(err) == 1: // 1: no such key
 		return skip("no upstream branch")
 	case err != nil:
@@ -379,7 +384,8 @@ func (b BrainCheckout) Pull(r app.Reporter) error {
 	case trim(out) != "":
 		return skip("uncommitted changes")
 	}
-	if _, err := gitWithin(pullTimeout, b.root, "fetch", "-q"); err != nil {
+	// Pruned, so that a branch gone from the remote is gone here too.
+	if _, err := gitWithin(pullTimeout, b.root, "fetch", "-q", "--prune"); err != nil {
 		return skip("could not fetch: " + firstLine(err))
 	}
 	if _, err := git(b.root, "rev-parse", "-q", "--verify", "@{upstream}"); err != nil {
@@ -394,6 +400,12 @@ func (b BrainCheckout) Pull(r app.Reporter) error {
 	case err != nil:
 		return skip("cannot read its git state: " + firstLine(err))
 	}
+	switch inWay, err := b.inTheWay(); {
+	case err != nil:
+		return skip("cannot read its git state: " + firstLine(err))
+	case len(inWay) > 0:
+		return skip("untracked files stand where it would bring files: " + strings.Join(inWay, ", "))
+	}
 	before := b.Head()
 	if _, err := git(b.root, "merge", "-q", "--ff-only", "@{upstream}"); err != nil {
 		return fmt.Errorf("pull %s: %s", b.root, firstLine(err))
@@ -404,7 +416,33 @@ func (b BrainCheckout) Pull(r app.Reporter) error {
 	return nil
 }
 
+// inTheWay lists the untracked files, not ignored, that stand where the
+// upstream adds files: git would refuse to fast-forward over them.
+func (b BrainCheckout) inTheWay() ([]string, error) {
+	added, err := git(b.root, "diff", "-z", "--name-only", "--no-renames", "--diff-filter=A", "HEAD", "@{upstream}")
+	if err != nil || added == "" {
+		return nil, err
+	}
+	untracked, err := git(b.root, "ls-files", "-z", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	adds := strings.Split(strings.TrimSuffix(added, "\x00"), "\x00")
+	var in []string
+	for _, f := range strings.Split(strings.TrimSuffix(untracked, "\x00"), "\x00") {
+		if f != "" && slices.Contains(adds, f) {
+			in = append(in, f)
+		}
+	}
+	return in, nil
+}
+
+// Head is the Brain's commit, or "" when the Brain is no git repo of its
+// own, even inside one.
 func (b BrainCheckout) Head() string {
+	if _, err := os.Stat(filepath.Join(b.root, ".git")); err != nil {
+		return ""
+	}
 	out, err := git(b.root, "rev-parse", "HEAD")
 	if err != nil {
 		return ""
@@ -472,7 +510,12 @@ func (b BrainCheckout) OwnSkills() ([]app.OwnSkill, error) {
 	var skills []app.OwnSkill
 	for _, e := range entries {
 		path := filepath.Join(dir, e.Name())
-		if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
+		fi, err := os.Stat(path)
+		switch {
+		case err != nil && e.Type()&fs.ModeSymlink != 0:
+			skills = append(skills, app.OwnSkill{Skill: domain.Skill{Name: e.Name(), Dir: path}, Err: errors.New("a link to a folder that is gone")})
+			continue
+		case err != nil || !fi.IsDir():
 			continue
 		}
 		s, err := readSkill(e.Name(), path, "own")

@@ -18,7 +18,7 @@ func TestSkillInstallsTheEmbeddedSkillWhereLinksPointTo(t *testing.T) {
 
 	s, err := n.Skill()
 
-	if err != nil || s.Name != "nerve" || s.Dir != e.path(".cache/nerve/skill/nerve") || e.read(filepath.Join(s.Dir, "SKILL.md")) != skillMD("nerve", "") {
+	if err != nil || s.Name != "nerve" || s.Dir != e.cache("skill/nerve") || e.read(filepath.Join(s.Dir, "SKILL.md")) != skillMD("nerve", "") {
 		t.Errorf("got %+v (%v)", s, err)
 	}
 }
@@ -51,7 +51,7 @@ func TestSkillReplacesTheCachedCopyAtOnce(t *testing.T) {
 func TestSessionsStartingAtOnceReadAWholeSkill(t *testing.T) {
 	e := newTestEnv(t)
 	versions := []string{skillMD("nerve", "license: a\n"), skillMD("nerve", "license: b\nx: y\n"+strings.Repeat("  more\n", 2000))}
-	path := e.path(".cache/nerve/skill/nerve/SKILL.md")
+	path := e.cache("skill/nerve/SKILL.md")
 	if _, err := (Nerve{SkillMD: []byte(versions[0])}).Skill(); err != nil {
 		t.Fatal(err)
 	}

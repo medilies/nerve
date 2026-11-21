@@ -42,6 +42,36 @@ var nerveAllows = []string{
 	"permissions.ask", "permissions.defaultMode", "permissions.deny", "spinnerTipsEnabled", "syncClaudeAiSkills",
 }
 
+// nerveLists are the settings nerve allows that hold a list of text.
+var nerveLists = []string{"disabledMcpjsonServers", "enabledMcpjsonServers", "permissions.allow", "permissions.ask", "permissions.deny"}
+
+// ListOfText is what a setting of nerveLists holds.
+const ListOfText = `holds a list of text, such as ["Read"]`
+
+// MisTyped names the settings of nerveLists that s holds as anything but a
+// list of text.
+func MisTyped(s map[string]any) []string {
+	whole := map[string]bool{}
+	for _, k := range nerveLists {
+		path, _ := ParseKey(k)
+		whole[LeafKey(path)] = true
+	}
+	l := leavesUpTo(s, whole)
+	var keys []string
+	for _, k := range nerveLists {
+		path, _ := ParseKey(k)
+		v, ok := l[LeafKey(path)]
+		if !ok {
+			continue
+		}
+		list, isList := v.([]any)
+		if !isList || slices.ContainsFunc(list, func(x any) bool { _, text := x.(string); return !text }) {
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
 // nerveWrites are the settings nerve writes from a Brain's hooks and
 // plugins, which the Brain never sets itself.
 var nerveWrites = []string{"enabledPlugins", "hooks"}
@@ -99,7 +129,7 @@ func (m Manifest) Validate() error {
 		}
 	}
 	for i, s := range m.Sources {
-		if slices.ContainsFunc(m.Sources[:i], func(o Source) bool { return o.Repo == s.Repo }) {
+		if slices.ContainsFunc(m.Sources[:i], func(o Source) bool { return strings.EqualFold(o.Repo, s.Repo) }) {
 			return fmt.Errorf("%s: %s is in two [[source]] tables: list all its skills in one", ManifestFile, s.Repo)
 		}
 		if !RepoPattern.MatchString(s.Repo) || slices.ContainsFunc(strings.Split(s.Repo, "/"), func(p string) bool { return p == "." || p == ".." }) {
@@ -255,13 +285,25 @@ func (m Manifest) Refusals() []Problem {
 	settings := func(where, fix string, s map[string]any) {
 		l := Leaves(s)
 		for _, k := range SortedKeys(l) {
-			switch why := m.SettingRefusal(k, l[k]); why {
-			case "":
-			case NotAllowed:
-				add(where+Dotted(k), why+": list it in allowed-settings, or "+fix)
-			default:
-				add(where+Dotted(k), why+": "+fix)
+			why := m.SettingRefusal(k, l[k])
+			if why == "" {
+				continue
 			}
+			shown, fix := ShowKey(k), fix
+			if shown != Dotted(k) { // no command can name it
+				fix = "take it out of " + ManifestFile + ", then nerve setting set it per project, which keeps it in the local overlay"
+			}
+			switch {
+			case why == NotAllowed && WrittenByNerve(k):
+				add(where+shown, why+": "+ShareNerves)
+			case why == NotAllowed:
+				add(where+shown, why+": list it in allowed-settings, or "+fix)
+			default:
+				add(where+shown, why+": "+fix)
+			}
+		}
+		for _, k := range MisTyped(s) {
+			add(where+k, ListOfText+": write it as one")
 		}
 	}
 	text := func(key string, v any) {
@@ -287,10 +329,14 @@ func (m Manifest) Refusals() []Problem {
 		for _, kind := range ItemKinds {
 			text("project."+name+"."+kind+"s", *pr.List(kind))
 		}
-		settings("project."+name+".settings.", "run nerve setting rm on it, then nerve setting set, which keeps it in the local overlay", pr.Settings)
+		settings("project."+name+".settings.", "run nerve setting rm --project "+name+" on it, then nerve setting set --project "+name+", which keeps it in the local overlay", pr.Settings)
 	}
 	return p
 }
+
+// ShareNerves says how to share a setting nerve writes from a Brain's
+// plugins and hooks.
+const ShareNerves = "share a plugin with nerve plugin add, a hook with [hook.<name>]"
 
 // WrittenByNerve says whether a leaf key is one nerve writes from a Brain's
 // hooks and plugins, which no allowed-settings can let the Brain set.

@@ -12,7 +12,7 @@ exec nerve sync --here
 
 link .claude/skills/go-stack $HOME/brain/skills/go-stack
 link .claude/agents/reviewer.md $HOME/brain/agents/reviewer.md
-link .claude/skills/nerve $HOME/.cache/nerve/skill/nerve
+link .claude/skills/nerve $NERVE_CACHE/skill/nerve
 grep '"model": "opus"' .claude/settings.local.json
 grep '"SessionStart"' .claude/settings.local.json
 exec git status --porcelain --untracked-files=all

@@ -147,7 +147,7 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 		if o.Here {
 			discard = "nerve sync --here --discard"
 		}
-		errs = append(errs, fmt.Errorf("settings drifted in %d of %d working trees: move each change into the Brain, or drop it with %s", drifted, len(trees), discard))
+		errs = append(errs, fmt.Errorf("settings drifted in %d of %d working trees: keep each change with nerve setting set or add, or drop it with %s", drifted, len(trees), discard))
 	}
 	return errors.Join(errs...)
 }
@@ -287,7 +287,12 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 			}
 		}
 	}()
-	if err := s.link(dir, links, &st); err != nil {
+	// A tree nerve has no state for, that already holds its links, is a
+	// checkout that moved: what it holds as the Brain wants it is nerve's,
+	// as adopt takes it, so that cleaning it takes that out.
+	fresh := len(st.Links) == 0 && st.Settings == nil
+	adopted, err := s.link(dir, links, &st)
+	if err != nil {
 		return false, err
 	}
 	excluded = true
@@ -299,7 +304,7 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 		return false, err
 	}
 	want := domain.Want(s.m, p, s.cmd, overlay, s.Brain.Root())
-	if held, err = s.reconcile(settingsPath(dir), want, &st); err != nil {
+	if held, err = s.reconcile(settingsPath(dir), want, overlay, &st, fresh && adopted); err != nil {
 		return held, err
 	}
 	st.Commit = s.Brain.Head()
@@ -371,8 +376,9 @@ func (a App) exclude(tree domain.Tree, links map[string]domain.Link) error {
 
 // reconcile writes a settings file as the Brain wants it, except for drift
 // and personal settings, and reports each key it changes or holds back, and
-// each personal setting the first time it sees it.
-func (s *syncer) reconcile(path string, want map[string]any, st *domain.TreeState) (bool, error) {
+// each personal setting the first time it sees it. In a checkout that
+// moved, nothing the file holds counts as there before nerve.
+func (s *syncer) reconcile(path string, want, overlay map[string]any, st *domain.TreeState, moved bool) (bool, error) {
 	current, err := s.Trees.ReadSettings(path)
 	if err != nil {
 		return false, err
@@ -380,9 +386,16 @@ func (s *syncer) reconcile(path string, want map[string]any, st *domain.TreeStat
 	rc := domain.Reconcile(current, st.Settings, want, s.discard)
 	if st.Settings == nil || current == nil { // nerve's first write to this file
 		st.Before = rc.Before
+		if moved {
+			st.Before = nil
+		}
 	}
 	for _, c := range rc.Drift {
-		s.r.Add(driftEvent(path, c))
+		e := driftEvent(path, c)
+		if domain.FromOverlay(c, overlay) {
+			e.Detail = "local overlay"
+		}
+		s.r.Add(e)
 	}
 	if rc.Write {
 		if err := s.Trees.WriteSettings(path, rc.Result); err != nil {
@@ -430,8 +443,8 @@ func (a App) ours(dir, rel string, l domain.Link) bool {
 // already has a skill or agent of that name, it leaves it, skips that item,
 // and says so; a link someone pointed elsewhere is theirs, and left alone. A link that already
 // points where nerve would point it, as one left by a checkout that moved,
-// becomes nerve's.
-func (s *syncer) link(dir string, links []domain.Link, st *domain.TreeState) error {
+// becomes nerve's. It returns whether it took any link that way.
+func (s *syncer) link(dir string, links []domain.Link, st *domain.TreeState) (adopted bool, err error) {
 	ours := func(rel string) bool {
 		l, ok := st.Links[rel]
 		return ok && s.ours(dir, rel, l)
@@ -453,11 +466,14 @@ func (s *syncer) link(dir string, links []domain.Link, st *domain.TreeState) err
 			} // else a link someone pointed elsewhere: theirs, left alone
 			continue
 		}
-		if !same(rel, l) { // else already as nerve would make it: adopted
+		switch {
+		case !same(rel, l):
 			if err := s.Trees.Link(path, l.Target); err != nil {
-				return err
+				return adopted, err
 			}
 			s.r.Add(Event{Kind: EvLinked, Path: path, Target: l.Target})
+		case !ours(rel): // already as nerve would make it: adopted
+			adopted = true
 		}
 		next[rel] = l
 		st.Links[rel] = l // ours from here on, should a later link collide
@@ -468,12 +484,12 @@ func (s *syncer) link(dir string, links []domain.Link, st *domain.TreeState) err
 		}
 		path := filepath.Join(dir, rel)
 		if err := s.Trees.Remove(path); err != nil {
-			return err
+			return adopted, err
 		}
 		s.r.Add(Event{Kind: EvRemoved, Path: path})
 	}
 	st.Links = next
-	return nil
+	return adopted, nil
 }
 
 // throughLink refuses a tree where a folder or file nerve writes is a link:

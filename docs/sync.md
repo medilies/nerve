@@ -7,18 +7,21 @@ the one around the working directory, a worktree included.
 ## What sync does
 
 - **Pulls the Brain**, fast-forward only. It skips the pull, and says
-  why, while tracked files have uncommitted changes, the checkout has
-  no upstream or a detached HEAD, or its remote cannot be reached. It
-  fails if the checkout has diverged.
+  why, while tracked files have uncommitted changes, untracked files
+  stand where it would bring files, the checkout has no upstream or a
+  detached HEAD, or its remote cannot be reached or no longer has the
+  branch. It fails if the checkout has diverged.
   - It never asks for a password: a remote that needs one is skipped.
 - **Checks nerve against the Brain's pin**, and reports a release that
-  differs: install the pinned one. It never replaces itself.
+  differs: install the pinned one. It never replaces itself, and says
+  nothing to a development build.
 - **Refuses a checkout** where git tracks `.claude/settings.local.json`,
   or does not ignore it: add `**/.claude/settings.local.json` to your
   global git ignore file. nerve never edits `.gitignore`.
 - **Refuses a checkout** where `.claude`, `.claude/skills`,
-  `.claude/agents` or `.claude/settings.local.json` is a link, since
-  nerve would write outside it. `nerve project rm` refuses it too.
+  `.claude/agents` or `.claude/settings.local.json` is a link, or the
+  repo's `info/exclude` or its folder, since nerve would write outside
+  it. `nerve project rm` refuses it too.
 - **Refuses a checkout** whose project lists a skill, agent or hook the
   Brain does not offer, a skill it offers both as its own and from a
   source, or a plugin ID that is not `<plugin>@<marketplace>`, as
@@ -36,7 +39,8 @@ the one around the working directory, a worktree included.
   project's, then its plugins (`enabledPlugins`), hooks and autosync
   hook, then the local overlay. Objects merge key by key, arrays are
   joined without repeats, and anything else in a later layer wins.
-  Personal settings stay, as [below](#personal-settings).
+  Personal settings stay, as [below](#personal-settings). A file nerve
+  makes is readable by you only, since the overlay may hold secrets.
 - **Unlists a checkout that is gone**, on a full sync, and forgets a
   worktree that is. A worktree git cannot locate is left as it is, and
   reported, while its project is in the Brain.
@@ -56,8 +60,8 @@ skipped, if it was.
 - When it links a skill, Claude Code rescans skills, so the skill is
   usable in that session.
 - It never fails the session: an error is part of the report.
-- It gives git five minutes in all. A skill it could not fetch by then
-  is reported, and comes at a later sync.
+- It gives up on git before Claude Code stops waiting. A skill it could
+  not fetch in time is reported, and comes at a later sync.
 - `nerve project autosync off`, or `--all` for the Brain's default,
   takes the hook out at the next sync.
 
@@ -72,7 +76,8 @@ or `nerve setting add`.
 
 A setting the checkout had before nerve first wrote its file, that the
 Brain sets the same, is the Brain's from then on, but `project rm`
-leaves it while it holds that value.
+leaves it while it holds that value. A checkout that moved holds
+nerve's links: there, every setting as the Brain sets it is nerve's.
 
 ## Drift
 

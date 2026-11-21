@@ -64,7 +64,7 @@ command = "{{brain}}/hooks/go-fmt.sh"   # {{brain}} is the Brain's path
 
 ## Acting on what nerve reports
 
-- **`drift`**: Claude Code or the user changed a setting here that the Brain sets, and nerve left it as is. With `item`, it is one item of a list. For each, ask: keep it for this project (`setting set`, or `setting add` for an item), for every project (`--common`), or drop it. `nerve sync --here --discard` drops all of this checkout's drift at once: say so, and run it only after the user agrees to lose all of it. A value or key shown as `(hidden)` is sensitive: never ask the user to paste it.
+- **`drift`**: Claude Code or the user changed a setting here that the Brain sets, and nerve left it as is. With `item`, it is one item of a list. With `detail` `local overlay`, the local overlay sets it, and `setting set` keeps it there. For each, ask: keep it for this project (`setting set`, or `setting add` for an item), for every project (`--common`), or drop it. `nerve sync --here --discard` drops all of this checkout's drift at once: say so, and run it only after the user agrees to lose all of it. A value or key shown as `(hidden)` is sensitive: never ask the user to paste it.
 - **`personal`**: a setting here the Brain does not set, such as an approval in `permissions.allow` or one the project had before nerve. nerve keeps it, and reports it once. Offer to share it (`setting set`, `setting add`, `--common`) only when it looks useful elsewhere; otherwise leave it.
 - **`unlisted`**: this machine no longer lists a checkout: its folder is gone, or its project left the Brain, as `detail` says. `nerve project add` lists it again.
 - **`problem`**: propose a fix for each.

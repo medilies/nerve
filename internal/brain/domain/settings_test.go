@@ -277,7 +277,7 @@ func emptyLeaf(o map[string]any, k string) bool {
 func TestReconcileTakesAValueAndAnObjectAtOneKeyAsAWhole(t *testing.T) {
 	rc := domain.Reconcile(obj(t, `{"a": 1}`), nil, obj(t, `{"a": {"b": 2}}`), false)
 
-	if text(rc.Result) != `{"a":1}` || len(rc.Drift) != 1 || rc.Drift[0] != (domain.Change{Key: "a", Before: `{"b":2}`, After: "1"}) {
+	if text(rc.Result) != `{"a":1}` || len(rc.Drift) != 1 || rc.Drift[0] != (domain.Change{Key: "a", Before: `{"b":2}`, After: "1", Leaf: "a"}) {
 		t.Errorf("result %s, drift %+v, want the file's value kept as drift of a", text(rc.Result), rc.Drift)
 	}
 	if rc := domain.Reconcile(obj(t, `{"a": 1}`), nil, obj(t, `{"a": {"b": 2}}`), true); text(rc.Result) != `{"a":{"b":2}}` {
@@ -541,7 +541,7 @@ func TestReconcileTakesAListItemByItem(t *testing.T) {
 	if got := text(rc.Next); got != `{"permissions":{"allow":["Read","Edit"],"deny":["Cron"]}}` {
 		t.Errorf("next is %s, want what nerve means, so drift stays drift", got)
 	}
-	wantDrift := []domain.Change{{Key: "permissions.deny", Item: true, Before: `"Cron"`, After: "unset"}}
+	wantDrift := []domain.Change{{Key: "permissions.deny", Item: true, Before: `"Cron"`, After: "unset", Leaf: domain.LeafKey([]string{"permissions", "deny"}), Value: "Cron"}}
 	if !reflect.DeepEqual(rc.Drift, wantDrift) {
 		t.Errorf("drift is %+v", rc.Drift)
 	}
@@ -629,5 +629,21 @@ func TestOverridesOfCommonLeaveAnEmptyObjectOut(t *testing.T) {
 
 	if got := domain.OverridesOfCommon(p, obj(t, `{"permissions": {}}`)); len(got) > 0 {
 		t.Errorf("overrides are %v, want none: an empty object holds no setting", got)
+	}
+}
+
+func TestMisTypedNamesNervesListsHeldAsAnythingButAListOfText(t *testing.T) {
+	for _, c := range []struct {
+		settings map[string]any
+		want     []string
+	}{
+		{map[string]any{"permissions": map[string]any{"deny": []any{"Cron"}, "allow": []any{}}, "model": "opus"}, nil},
+		{map[string]any{"permissions": map[string]any{"deny": "Cron"}}, []string{"permissions.deny"}},
+		{map[string]any{"permissions": map[string]any{"allow": map[string]any{"x": 1.0}}}, []string{"permissions.allow"}},
+		{map[string]any{"enabledMcpjsonServers": []any{"a", 1.0}}, []string{"enabledMcpjsonServers"}},
+	} {
+		if got := domain.MisTyped(c.settings); !slices.Equal(got, c.want) {
+			t.Errorf("%v: got %v, want %v", c.settings, got, c.want)
+		}
 	}
 }

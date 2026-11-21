@@ -30,7 +30,7 @@ const (
 	EvWrote        = "wrote"          // Path
 	EvKept         = "kept"           // Path, which nerve made, is left for the user; Detail says why
 	EvSetting      = "setting"        // Key at Path went from Local to Brain
-	EvDrift        = "drift"          // Key at Path changed outside the Brain, from Brain to Local, and was left as is; with Item, that item of the list
+	EvDrift        = "drift"          // Key at Path changed outside the Brain, from Brain to Local, and was left as is; with Item, that item of the list; Detail "local overlay" when the overlay gives it
 	EvPersonal     = "personal"       // Key at Path holds Local, or with Item that item of the list, which the Brain does not set: kept
 	EvProblem      = "problem"        // Detail is wrong with Path (at Key)
 	EvOK           = "ok"             // Detail
@@ -73,13 +73,17 @@ func (e Event) String() string {
 		}
 		return fmt.Sprintf("set      %s = %s (was %s)", e.Key, e.Brain, e.Local)
 	case EvDrift:
+		from := "the Brain"
+		if e.Detail != "" {
+			from = "the " + e.Detail
+		}
 		switch {
 		case e.Item != "" && e.Local != "unset":
-			return fmt.Sprintf("drift    %s has %s here, not in the Brain: left as is", e.Key, e.Item)
+			return fmt.Sprintf("drift    %s has %s here, not in %s: left as is", e.Key, e.Item, from)
 		case e.Item != "":
-			return fmt.Sprintf("drift    %s lacks %s here, which the Brain has: left as is", e.Key, e.Item)
+			return fmt.Sprintf("drift    %s lacks %s here, which %s has: left as is", e.Key, e.Item, from)
 		}
-		return fmt.Sprintf("drift    %s is %s here, %s in the Brain: left as is", e.Key, e.Local, e.Brain)
+		return fmt.Sprintf("drift    %s is %s here, %s in %s: left as is", e.Key, e.Local, e.Brain, from)
 	case EvPersonal:
 		if e.Item != "" {
 			return fmt.Sprintf("personal %s has %s: kept, the Brain does not set it", e.Key, e.Item)

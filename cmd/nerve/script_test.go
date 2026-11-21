@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -49,6 +50,7 @@ func setupWorld(env *testscript.Env) error {
 		"XDG_CONFIG_HOME":     filepath.Join(home, ".config"),
 		"GIT_CONFIG_GLOBAL":   os.DevNull,
 		"GIT_CONFIG_NOSYSTEM": "1",
+		"LC_ALL":              "C", // git's messages, as scripts match them
 		"GIT_CONFIG_COUNT":    "3",
 		"GIT_CONFIG_KEY_0":    "user.name",
 		"GIT_CONFIG_VALUE_0":  "t",
@@ -59,6 +61,14 @@ func setupWorld(env *testscript.Env) error {
 	} {
 		env.Setenv(k, v)
 	}
+	// nerve's own folders, as os.UserConfigDir and os.UserCacheDir find
+	// them on this system.
+	config, cache := filepath.Join(home, ".config"), filepath.Join(home, ".cache")
+	if runtime.GOOS == "darwin" {
+		config, cache = filepath.Join(home, "Library", "Application Support"), filepath.Join(home, "Library", "Caches")
+	}
+	env.Setenv("NERVE_CONFIG", filepath.Join(config, "nerve"))
+	env.Setenv("NERVE_CACHE", filepath.Join(cache, "nerve"))
 	env.Cd = home
 	// As Claude Code does the first time it writes a settings.local.json.
 	if err := writeNew(filepath.Join(home, ".config", "git", "ignore"), "**/.claude/settings.local.json\n"); err != nil {

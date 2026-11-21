@@ -132,11 +132,18 @@ const (
 // its worktrees share. Syncs of two worktrees at once take turns, so
 // neither writes a block that lacks the other's links.
 func (LocalTrees) SyncExclude(dir string, wanted func() ([]string, error)) error {
-	out, err := git(dir, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude")
+	// The common git folder, where info/ is for every worktree: git would
+	// give info/exclude with its links followed.
+	out, err := git(dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return err
 	}
-	path := trim(out)
+	path := filepath.Join(trim(out), "info", "exclude")
+	for p, what := range map[string]string{filepath.Dir(path): "folder", path: "file"} {
+		if fi, err := os.Lstat(p); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("%s is a link, so nerve would write outside the repo: make it a plain %s", p, what)
+		}
+	}
 	unlock, err := lockFolder(filepath.Dir(path))
 	if err != nil {
 		return err
@@ -218,5 +225,5 @@ func (LocalTrees) ReadSettings(path string) (map[string]any, error) { return rea
 func (LocalTrees) Frontmatter(path string) (map[string]string, error) { return readFrontmatter(path) }
 
 func (LocalTrees) WriteSettings(path string, settings map[string]any) error {
-	return writeObject(path, settings, false)
+	return writeObject(path, settings, mine)
 }

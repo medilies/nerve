@@ -174,6 +174,9 @@ func TestCheckRefusesSensitiveValues(t *testing.T) {
 	if out := check(t, e); !strings.Contains(out, "common.settings.apiKeyHelper: apiKeyHelper may hold secrets") {
 		t.Errorf("check says:\n%s", out)
 	}
+	if err := e.app.Check(&recorder{}); err == nil || err.Error() != "1 problem" {
+		t.Errorf("got %v", err)
+	}
 }
 
 func TestCheckPassesAGoodBrain(t *testing.T) {
@@ -214,4 +217,29 @@ func TestStatusSaysNothingOfThePinToADevelopmentBuild(t *testing.T) {
 	if strings.Contains(r.String(), "install") {
 		t.Errorf("tells a development build to install the pin:\n%s", r)
 	}
+}
+
+func TestStatusReportsAListedSkillThatIsNotLinked(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
+	e.listed("app", "/w/app").Skills = []string{"grilling"} // which the source does not serve
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	r := &recorder{}
+
+	e.must(r, e.app.Status(target("/w/app"), r))
+
+	contains(t, r, "problem  /w/app/.claude/skills/grilling: listed, but not linked: nerve sync --here says why")
+}
+
+func TestStatusSaysDriftFromTheOverlayIsTheOverlays(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.machine.overlays["app"] = map[string]any{"model": "opus"}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	e.trees.settings["/w/app/.claude/settings.local.json"]["model"] = "sonnet"
+	r := &recorder{}
+
+	e.must(r, e.app.Status(target("/w/app"), r))
+
+	contains(t, r, `drift    model is "sonnet" here, "opus" in the local overlay`)
 }

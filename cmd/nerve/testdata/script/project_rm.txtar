@@ -22,7 +22,7 @@ stdout '^kept     .*/overlays/app.json: the local overlay of project app may hol
 ! exists .claude/skills
 ! grep nerve .git/info/exclude
 cmp .claude/settings.local.json $HOME/want-settings
-grep API_KEY $HOME/.config/nerve/overlays/app.json
+grep API_KEY $NERVE_CONFIG/overlays/app.json
 ! grep app $HOME/brain/brain.toml
 
 -- proj/.claude/settings.local.json --

@@ -379,3 +379,52 @@ func TestSetSettingInCommonNamesTheKeyAndWhy(t *testing.T) {
 		t.Errorf("got %v, want %q", err, want)
 	}
 }
+
+func TestSetSettingRefusesAnythingButAListOfTextAtOneOfNervesLists(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+
+	for key, v := range map[string]any{"permissions.deny": "Cron", "permissions.allow.x": 1.0} {
+		err := e.app.SetSetting(target("/w/app"), key, v, false, &recorder{})
+		if err == nil || !strings.HasSuffix(err.Error(), "holds a list of text, such as [\"Read\"]: nerve setting add adds one item") {
+			t.Errorf("%s: got %v", key, err)
+		}
+	}
+	if err := e.app.AddSetting(target("/w/app"), "permissions.deny", 1.0, true, &recorder{}); err == nil {
+		t.Errorf("added a number to a list of text")
+	}
+	if e.brain.saves != 0 {
+		t.Errorf("saved the Brain")
+	}
+}
+
+func TestSetSettingInCommonDropsTheValueEveryOverlayHeldForIt(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.listed("web", "/w/web")
+	e.machine.overlays["app"] = map[string]any{"model": "sonnet", "statusLine": "x"}
+	e.machine.overlays["web"] = map[string]any{"model": "haiku"}
+	r := &recorder{}
+
+	e.must(r, e.app.SetSetting(target("/w/app"), "model", "opus", true, r))
+
+	if got := jsonText(e.machine.overlays["app"]); got != `{"statusLine":"x"}` {
+		t.Errorf("app's overlay is %s", got)
+	}
+	if _, kept := e.machine.overlays["web"]; kept {
+		t.Errorf("web's overlay is %s", jsonText(e.machine.overlays["web"]))
+	}
+}
+
+func TestSetSettingWhoseOverlaySaveFailsChangesNothing(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.machine.fail["SaveOverlay"] = errors.New("overlays: read-only")
+	r := &recorder{}
+
+	err := e.app.SetSetting(target("/w/app"), "env.TOKEN", "abc", false, r)
+
+	if err == nil || e.brain.saves != 0 || e.machine.overlays["app"] != nil || len(r.events) > 0 {
+		t.Errorf("got %v, saves %d, overlay %v, events:\n%s", err, e.brain.saves, e.machine.overlays["app"], r)
+	}
+}

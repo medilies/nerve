@@ -58,9 +58,6 @@ func (f MachineFiles) Load() (domain.Machine, error) {
 		return domain.Machine{}, fmt.Errorf("%s: %w", path, err)
 	}
 	if keys := meta.Undecoded(); len(keys) > 0 {
-		if keys[0][0] == "config" {
-			return domain.Machine{}, fmt.Errorf("%s: [[config]] is gone since nerve v0.3, which carries nothing to user level: remove it", path)
-		}
 		return domain.Machine{}, fmt.Errorf("%s: unknown keys %v", path, keys)
 	}
 	if mf.Brain == "" {
@@ -157,7 +154,7 @@ func (f MachineFiles) Overlay(project string) (map[string]any, string, error) {
 
 func (f MachineFiles) SaveOverlay(project string, settings map[string]any) (string, error) {
 	path := f.overlayPath(project)
-	return path, writeObject(path, settings, true)
+	return path, writeObject(path, settings, private)
 }
 
 func (f MachineFiles) DropOverlay(project string) (string, error) {
@@ -226,7 +223,7 @@ func (f MachineFiles) State(dir string) (domain.TreeState, error) {
 }
 
 func (f MachineFiles) SaveState(st domain.TreeState) error {
-	return writeJSON(f.statePath(st.Path), fromDomain(st), true)
+	return writeJSON(f.statePath(st.Path), fromDomain(st), private)
 }
 
 func (f MachineFiles) DropState(dir string) error {

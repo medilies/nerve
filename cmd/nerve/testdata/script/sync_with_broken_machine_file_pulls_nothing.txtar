@@ -11,7 +11,7 @@ cd ../proj
 exec git remote add origin ../up
 exec git fetch -q origin
 exec git branch -q -u origin/main
-replace $HOME/.config/nerve/config.toml 'brain = "~/brain"' 'brain = "relative/path"'
+replace $NERVE_CONFIG/config.toml 'brain = "~/brain"' 'brain = "relative/path"'
 
 exec nerve sync --here --hook
 

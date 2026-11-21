@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/medilies/nerve/internal/brain/domain"
 )
@@ -69,8 +70,20 @@ func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir s
 	if err != nil {
 		return err
 	}
+	linked := map[string]bool{}
 	for _, rel := range domain.SortedKeys(st.Links) {
+		linked[st.Links[rel].Item()] = true
 		r.Add(Event{Kind: EvItem, Project: name, Item: st.Links[rel].Item(), Detail: "linked as " + rel})
+	}
+	// A listed item with nothing in its place: one sync could not link,
+	// such as a skill it could not fetch.
+	for _, kind := range []string{"skill", "agent"} {
+		for _, n := range *p.List(kind) {
+			l := domain.Link{Kind: kind, Name: n}
+			if path := filepath.Join(dir, l.Rel()); !linked[l.Item()] && !a.Trees.Present(path) {
+				r.Add(Event{Kind: EvProblem, Path: path, Detail: "listed, but not linked: nerve sync --here says why"})
+			}
+		}
 	}
 	for _, kind := range []string{"skill", "agent"} {
 		for _, e := range a.othersItems(dir, kind, st) {
@@ -93,7 +106,11 @@ func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir s
 	}
 	rc := domain.Reconcile(current, st.Settings, domain.Want(m, p, cmd, overlay, a.Brain.Root()), false)
 	for _, c := range rc.Drift {
-		r.Add(driftEvent(path, c))
+		e := driftEvent(path, c)
+		if domain.FromOverlay(c, overlay) {
+			e.Detail = "local overlay"
+		}
+		r.Add(e)
 	}
 	return nil
 }

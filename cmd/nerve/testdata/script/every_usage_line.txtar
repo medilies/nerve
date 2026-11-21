@@ -20,7 +20,7 @@ stdout '^added    hook fmt to project app$'
 exec nerve plugin add gopls@claude-plugins-official
 stdout '^added    plugin gopls@claude-plugins-official'
 exec nerve skill ls
-stdout 'skill go-stack own, not linked yet: sync'
+stdout 'skill go-stack own, not linked: nerve sync --here links it, or says why not'
 exec nerve agent ls
 stdout 'agent reviewer own'
 exec nerve hook ls

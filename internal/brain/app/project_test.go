@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -251,6 +252,30 @@ func TestRemovingAProjectFromAMovedCheckoutNeverSyncedTakesOutWhatNerveMade(t *t
 	}
 }
 
+func TestRemovingAProjectFromAMovedCheckoutSyncedSinceTakesOutWhatNerveMade(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go-stack")
+	e.listed("app", "/w/old").Skills = []string{"go-stack"}
+	e.project("app").Settings = map[string]any{"model": "opus"}
+	e.must(e.sync("/w/old", app.SyncOptions{}))
+	links, settings := e.trees.links, e.settings("/w/old") // as moved, with .git, to /w/new
+	e.trees.links = map[string]string{}
+	for p, target := range links {
+		e.trees.links[strings.Replace(p, "/w/old", "/w/new", 1)] = target
+	}
+	settings["outputStyle"] = "terse" // the user's own
+	e.trees.settings["/w/new/.claude/settings.local.json"] = settings
+	e.checkout("/w/new")
+	e.machine.machine.Checkouts = []domain.Checkout{{Path: "/w/new", Project: "app"}}
+	e.must(e.sync("/w/new", app.SyncOptions{}))
+
+	e.must(&recorder{}, e.app.RemoveProject("app", &recorder{}))
+
+	if len(e.trees.links) > 0 || jsonText(e.settings("/w/new")) != `{"outputStyle":"terse"}` {
+		t.Errorf("links %v, settings %s: want only the user's own left", e.trees.links, jsonText(e.settings("/w/new")))
+	}
+}
+
 func TestRemovingAProjectKeepsWhatItsCheckoutHadAsTheBrainSetsIt(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus", "permissions": map[string]any{"allow": []any{"Read", "Edit"}}}
@@ -290,5 +315,23 @@ func TestAddProjectWhoseBrainSaveFailsListsNothing(t *testing.T) {
 
 	if len(e.machine.machine.Checkouts) > 0 || len(r.events) > 0 {
 		t.Errorf("checkouts %v, events:\n%s", e.machine.machine.Checkouts, r)
+	}
+}
+
+func TestAddProjectWhoseMachineSaveFailsJoinsTheBrainsEntryOnARetry(t *testing.T) {
+	e := newEnv(t)
+	e.checkout("/w/app")
+	e.machine.fail["Save"] = errors.New("config.toml: read-only")
+	if err := e.app.AddProject("/w/app", "app", &recorder{}); err == nil {
+		t.Fatal("add passed")
+	}
+	delete(e.machine.fail, "Save")
+	r := &recorder{}
+
+	e.must(r, e.app.AddProject("/w/app", "app", r))
+
+	contains(t, r, "project  app: already in the Brain: this checkout joins it")
+	if len(e.machine.machine.Checkouts) != 1 {
+		t.Errorf("checkouts are %v", e.machine.machine.Checkouts)
 	}
 }

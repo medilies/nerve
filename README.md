@@ -81,9 +81,6 @@ nerve needs git 2.31 or later. Your Brain is a git repo with a
 nerve init ~/dev/brain
 ```
 
-`sync` reports when this machine runs another release than the one the
-Brain pins.
-
 ## Usage
 
 ```sh

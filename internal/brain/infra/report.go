@@ -34,7 +34,7 @@ func (r *Report) Add(e app.Event) {
 		r.events = append(r.events, e)
 		return
 	}
-	_, _ = fmt.Fprintln(r.w, visible(e.String()))
+	_, _ = fmt.Fprintln(r.w, Visible(e.String()))
 }
 
 // gathered is the events gathered so far, nil when printed as they come.
@@ -90,7 +90,7 @@ func hookOutput(events []app.Event, err error) map[string]any {
 	if err != nil {
 		lines = append(lines, "error: "+err.Error())
 	}
-	out := map[string]any{"systemMessage": "nerve: " + visible(strings.Join(lines, "\n"))}
+	out := map[string]any{"systemMessage": "nerve: " + Visible(strings.Join(lines, "\n"))}
 	if reload {
 		out["hookSpecificOutput"] = map[string]any{"hookEventName": "SessionStart", "reloadSkills": true}
 	}

@@ -163,7 +163,7 @@ func TestWriteObjectRefusesWhatJSONCannotHoldAndKeepsTheFile(t *testing.T) {
 	path := e.path("app/settings.json")
 	e.write(path, `{"model": "opus"}`)
 
-	if err := writeObject(path, map[string]any{"x": math.Inf(1)}, false); err == nil {
+	if err := writeObject(path, map[string]any{"x": math.Inf(1)}, anyone); err == nil {
 		t.Errorf("wrote inf")
 	}
 	if got := e.read(path); got != `{"model": "opus"}` {
@@ -180,7 +180,7 @@ func TestSettingsKeepTheirTextAndEveryDigit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeObject(path, obj, false); err != nil {
+	if err := writeObject(path, obj, anyone); err != nil {
 		t.Fatal(err)
 	}
 
@@ -241,9 +241,9 @@ func TestGitStopsAtTheRunsDeadline(t *testing.T) {
 	SetDeadline(time.Now().Add(-time.Second))
 	t.Cleanup(func() { SetDeadline(time.Time{}) })
 
-	_, err := git(e.path("."), "version")
+	_, err := git(e.path("."), "-c", "x.y=z", "version")
 
-	if err == nil || !strings.Contains(err.Error(), "out of time") {
-		t.Errorf("got %v, want git stopped", err)
+	if err == nil || err.Error() != "git version: out of time for this run" {
+		t.Errorf("got %v, want git version stopped", err)
 	}
 }

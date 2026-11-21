@@ -166,6 +166,30 @@ func TestSyncExcludeRefusesADamagedBlock(t *testing.T) {
 	}
 }
 
+func TestSyncExcludeRefusesAnExcludeFileOrFolderThatIsALink(t *testing.T) {
+	for _, linked := range []string{"info/exclude", "info"} {
+		t.Run(linked, func(t *testing.T) {
+			e := newTestEnv(t)
+			app := e.repo(e.path("app"))
+			outside := e.path("dotfiles/" + linked)
+			e.write(e.path("dotfiles/info/exclude"), "*.log\n")
+			if err := os.RemoveAll(filepath.Join(app, ".git", linked)); err != nil {
+				t.Fatal(err)
+			}
+			e.link(filepath.Join(app, ".git", linked), outside)
+
+			err := LocalTrees{}.SyncExclude(app, lines([]string{".claude/skills/a"}))
+
+			if err == nil || !strings.HasSuffix(err.Error(), "is a link, so nerve would write outside the repo: make it a plain "+map[string]string{"info": "folder", "info/exclude": "file"}[linked]) {
+				t.Errorf("got %v", err)
+			}
+			if got := e.read(e.path("dotfiles/info/exclude")); got != "*.log\n" {
+				t.Errorf("the file outside became %q", got)
+			}
+		})
+	}
+}
+
 func TestSyncExcludeKeepsLinesAfterItsBlock(t *testing.T) {
 	e := newTestEnv(t)
 	app := e.repo(e.path("app"))
@@ -325,5 +349,26 @@ func TestFrontmatterReadsAMarkdownFile(t *testing.T) {
 	}
 	if _, err := (LocalTrees{}).Frontmatter(e.path("app/.claude/agents/README.md")); err == nil {
 		t.Errorf("a file with no frontmatter reads as one")
+	}
+}
+
+func TestWriteSettingsMakesANewFileForTheUserOnlyAndKeepsAnOldOnesMode(t *testing.T) {
+	e := newTestEnv(t)
+	fresh, old := e.path("a/.claude/settings.local.json"), e.path("b/.claude/settings.local.json")
+	e.write(old, "{}")
+	if err := os.Chmod(old, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{fresh, old} {
+		if err := (LocalTrees{}).WriteSettings(path, map[string]any{"env": map[string]any{"TOKEN": "x"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for path, want := range map[string]os.FileMode{fresh: 0o600, old: 0o640} {
+		if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != want {
+			t.Errorf("%s: got %v (%v), want %v", path, fi.Mode().Perm(), err, want)
+		}
 	}
 }

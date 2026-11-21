@@ -77,10 +77,10 @@ func (SourceCache) Diff(src domain.Source, name, to string) (string, error) {
 	return b.String(), nil
 }
 
-// visible is s with no control character that a terminal would act on, and
+// Visible is s with no control character that a terminal would act on, and
 // each invisible one, such as a bidi override or a line separator, named:
 // what a source's text or a folder name holds is shown as it is.
-func visible(s string) string {
+func Visible(s string) string {
 	var b strings.Builder
 	for _, r := range s {
 		writeVisible(&b, r)
@@ -124,7 +124,8 @@ func fetch(repo, sha string) (string, error) {
 	}
 	defer func() { _ = os.RemoveAll(tmp) }() // a no-op once renamed
 	for _, args := range [][]string{
-		{"init", "-q"},
+		// No template: no hook of the user's lands in the repo.
+		{"init", "-q", "--template="},
 		{"fetch", "-q", "--depth", "1", "--", repoURL(repo), sha},
 		// A link becomes a file holding its target: no link in a source
 		// may reach out of it into the user's files.
@@ -133,11 +134,16 @@ func fetch(repo, sha string) (string, error) {
 		if args[0] == "-c" {
 			// The files as committed: no filter of the user's, such as
 			// git-lfs, runs on someone else's repo, and no line end changes.
-			if err := os.WriteFile(filepath.Join(tmp, ".git", "info", "attributes"), []byte("* -filter -text\n"), 0o644); err != nil {
+			info := filepath.Join(tmp, ".git", "info")
+			if err := os.MkdirAll(info, 0o755); err != nil {
+				return "", err
+			}
+			if err := os.WriteFile(filepath.Join(info, "attributes"), []byte("* -filter -text\n"), 0o644); err != nil {
 				return "", err
 			}
 		}
-		if _, err := git(tmp, args...); err != nil {
+		// No hook of the user's runs on someone else's repo either.
+		if _, err := git(tmp, append([]string{"-c", "core.hooksPath=/dev/null"}, args...)...); err != nil {
 			return "", fmt.Errorf("fetch %s@%s: %w", repo, sha[:7], err)
 		}
 	}
@@ -172,8 +178,13 @@ func sweep(dir string) {
 // also be in skills/; it must be in one place only.
 func findSkill(tree, path, name string) (string, error) {
 	base := filepath.Join(tree, filepath.FromSlash(path))
-	if meta, err := readFrontmatter(filepath.Join(base, "SKILL.md")); err == nil && meta["name"] == name {
+	meta, rootErr := readFrontmatter(filepath.Join(base, "SKILL.md"))
+	if rootErr == nil && meta["name"] == name {
 		return base, nil
+	}
+	unread := "" // a root SKILL.md that may be the skill
+	if rootErr != nil && fileExists(filepath.Join(base, "SKILL.md")) {
+		unread = "; its root SKILL.md cannot be read: " + rootErr.Error()
 	}
 	places := []string{name}
 	if path == "" {
@@ -192,7 +203,7 @@ func findSkill(tree, path, name string) (string, error) {
 	case len(found) > 1:
 		return "", fmt.Errorf("skill %q is in both %s: %s", name, strings.Join(found, " and "), fix)
 	case path != "":
-		return "", fmt.Errorf("no skill %q in %s/%s/: %s", name, path, name, fix)
+		return "", fmt.Errorf("no skill %q in %s/%s/: %s%s", name, path, name, fix, unread)
 	}
-	return "", fmt.Errorf("no skill %q at the root, in skills/%s/ or in %s/: %s", name, name, name, fix)
+	return "", fmt.Errorf("no skill %q at the root, in skills/%s/ or in %s/: %s%s", name, name, name, fix, unread)
 }

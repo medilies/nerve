@@ -31,7 +31,7 @@ func TestSkillFetchesASkillAtItsPin(t *testing.T) {
 
 	for name, dir := range map[string]string{"grilling": "skills/grilling", "tdd": "tdd"} {
 		s, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, name)
-		if err != nil || s.Origin != "acme/up" || s.Dir != e.path(".cache/nerve/sources/acme/up/"+sha+"/"+dir) {
+		if err != nil || s.Origin != "acme/up" || s.Dir != e.cache("sources/acme/up/"+sha+"/"+dir) {
 			t.Errorf("%s: got %+v (%v)", name, s, err)
 		}
 	}
@@ -46,7 +46,7 @@ func TestSkillTakesAWholeRepoWhoseRootIsTheSkill(t *testing.T) {
 
 	s, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, "tui-test")
 
-	if err != nil || s.Dir != e.path(".cache/nerve/sources/acme/up/"+sha) {
+	if err != nil || s.Dir != e.cache("sources/acme/up/"+sha) {
 		t.Errorf("got %+v (%v)", s, err)
 	}
 }
@@ -143,7 +143,7 @@ func TestTwoFetchesOfOnePinAtOnceBothSucceed(t *testing.T) {
 			t.Errorf("a fetch failed: %v", err)
 		}
 	}
-	if leftovers, _ := filepath.Glob(e.path(".cache/nerve/sources/acme/up/*.tmp-*")); len(leftovers) > 0 {
+	if leftovers, _ := filepath.Glob(e.cache("sources/acme/up/*.tmp-*")); len(leftovers) > 0 {
 		t.Errorf("left %v", leftovers)
 	}
 }
@@ -179,7 +179,7 @@ func TestDiffShowsBidiControlsAndCutsAHugeDiff(t *testing.T) {
 func TestFetchSweepsAFolderAKilledFetchLeft(t *testing.T) {
 	e := newTestEnv(t)
 	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
-	stale := e.path(".cache/nerve/sources/acme/up/" + strings.Repeat("0", 40) + ".tmp-123")
+	stale := e.cache("sources/acme/up/" + strings.Repeat("0", 40) + ".tmp-123")
 	e.write(filepath.Join(stale, "x"), "x")
 	old := time.Now().Add(-2 * time.Hour)
 	if err := os.Chtimes(stale, old, old); err != nil {
@@ -223,6 +223,39 @@ func TestFetchRunsNoFilterOfTheUsers(t *testing.T) {
 	}
 }
 
+func TestFetchRunsNoHookOfTheUsers(t *testing.T) {
+	for _, key := range []string{"core.hooksPath", "init.templateDir"} {
+		t.Run(key, func(t *testing.T) {
+			e := newTestEnv(t)
+			sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+			hooks := e.path("hooks")
+			if key == "init.templateDir" {
+				hooks = e.path("template/hooks")
+			}
+			for _, hook := range []string{"post-checkout", "reference-transaction"} {
+				e.write(filepath.Join(hooks, hook), "#!/bin/sh\ntouch "+e.path("hooked")+"\n")
+				if err := os.Chmod(filepath.Join(hooks, hook), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("GIT_CONFIG_COUNT", "2")
+			t.Setenv("GIT_CONFIG_KEY_1", key)
+			t.Setenv("GIT_CONFIG_VALUE_1", filepath.Dir(hooks))
+			if key == "core.hooksPath" {
+				t.Setenv("GIT_CONFIG_VALUE_1", hooks)
+			}
+
+			if _, err := (SourceCache{}).Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling"); err != nil {
+				t.Fatal(err)
+			}
+
+			if fileExists(e.path("hooked")) {
+				t.Errorf("fetching a source ran a hook of the user's on it")
+			}
+		})
+	}
+}
+
 func TestFetchKeepsTheSourcesLineEnds(t *testing.T) {
 	e := newTestEnv(t)
 	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
@@ -261,8 +294,10 @@ func TestSkillLooksOnlyInItsPlaces(t *testing.T) {
 	e := newTestEnv(t)
 	sha := e.upstream(map[string]string{"examples/grilling/SKILL.md": skillMD("grilling", "")})
 
-	if _, err := (SourceCache{}).Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling"); err == nil {
-		t.Errorf("found a skill outside the root, skills/ and a folder of its name")
+	_, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling")
+
+	if err == nil || !strings.HasSuffix(err.Error(), `: no skill "grilling" at the root, in skills/grilling/ or in grilling/: name the folder that holds it with path in its [[source]]`) {
+		t.Errorf("got %v, want no skill outside the root, skills/ and a folder of its name", err)
 	}
 }
 
@@ -273,7 +308,7 @@ func TestSkillIsFoundInTheFolderItsPathNames(t *testing.T) {
 	for name, dir := range map[string]string{"grilling": "plugins/x/skills/grilling", "whole": "plugins/x"} {
 		path := map[string]string{"grilling": "plugins/x/skills", "whole": "plugins/x"}[name]
 		s, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha, Path: path}, name)
-		if err != nil || s.Dir != e.path(".cache/nerve/sources/acme/up/"+sha+"/"+dir) {
+		if err != nil || s.Dir != e.cache("sources/acme/up/"+sha+"/"+dir) {
 			t.Errorf("%s: got %+v (%v)", name, s, err)
 		}
 	}
@@ -299,5 +334,16 @@ func TestDiffLooksInTheFolderThePathNames(t *testing.T) {
 
 	if err != nil || !strings.Contains(d, "+Grill harder.") {
 		t.Errorf("diff is %q (%v)", d, err)
+	}
+}
+
+func TestSkillSaysWhenTheRootSKILLmdCannotBeRead(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"SKILL.md": "# grilling, with no frontmatter\n"})
+
+	_, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling")
+
+	if err == nil || !strings.Contains(err.Error(), "; its root SKILL.md cannot be read: ") {
+		t.Errorf("got %v", err)
 	}
 }

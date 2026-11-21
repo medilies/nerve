@@ -44,15 +44,15 @@ plugins = ["gopls-lsp@claude-plugins-official"]
 model = "opus"
 ```
 
-- **`nerve`** pins the release that carries the Brain. When another
-  release runs, `sync` reports it: install the pinned one. nerve never
-  replaces itself, and says nothing to a development build.
+- **`nerve`** pins the release that carries the Brain, which
+  [`sync` checks](sync.md#what-sync-does).
 - **`allowed-settings`** lists settings keys the Brain may hold beyond
   those nerve allows. See [Nothing sensitive](#nothing-sensitive).
 - **`[[source]]`** is a third-party repo on GitHub at a full commit,
   and the skills used from it. Each repo has one table. A link in a
   source arrives as a plain file holding its target. Skill, agent, hook
-  and project names are lowercase words joined by hyphens.
+  and project names are lowercase words of letters and digits, joined
+  by hyphens.
   - A skill is the whole repo when its root `SKILL.md` names it, else
     the folder `skills/<name>/` or `<name>/` holding a `SKILL.md`, in
     one of them only.
@@ -72,7 +72,9 @@ nerve rewrites `brain.toml` in this layout when a command changes it,
 so comments in it are not kept; `nerve skill update` only moves the pin.
 
 nerve refuses `inf`, `nan`, dates and whole numbers beyond 64 bits
-in settings.
+in settings, and anything but a list of text at `permissions.allow`,
+`permissions.ask`, `permissions.deny`, `enabledMcpjsonServers` and
+`disabledMcpjsonServers`.
 
 ## Nothing sensitive
 
@@ -97,11 +99,12 @@ credential, cookie or authorization. Nor are `hooks` and
 
 `check` and `sync` refuse any other setting. They also refuse home
 paths (`/home/…`, `/Users/…`, `/root`), emails, token-like strings,
-private keys, basic auth and credentials in URLs anywhere in
-`brain.toml`: in
-values, settings keys, hook matchers and commands, plugin IDs, and
-names. Each refusal names the commands that move the value to a local
-overlay.
+private keys, basic auth, credentials in URLs, Slack and Discord
+webhooks, and secrets given in a command, such as `TOKEN=…`, anywhere
+in `brain.toml`: in values, settings keys, hook matchers and commands,
+plugin IDs, and names. A `noreply` email is not refused. Each refusal
+of a setting says how to move it to a local overlay, and shows a
+sensitive key as `(hidden)`.
 
 The commands that write the Brain keep them out:
 
@@ -142,7 +145,7 @@ project = "billing"
   as `null`. They never leave the machine, so set them again on each
   one.
   - Setting a key in the Brain drops the overlay's value for it, which
-    would win.
+    would win: with `--common`, from every overlay on this machine.
   - `nerve setting rm` removes a key from the overlay too.
   - `nerve project rm` keeps the project's overlay, and says where it
     is: delete it once you no longer need what it holds.
@@ -158,7 +161,8 @@ or anywhere when this machine names one, validates own skills and
 agents, each pin, what each project lists, and the sensitive values
 above. In a listed checkout, it checks this
 machine's Brain, even when the project has a `brain.toml` of its own.
-In the Brain's CI, run the release it pins:
+In the Brain's CI, run the release it pins, which needs the `nerve`
+pin in `brain.toml`:
 
 ```sh
 go run github.com/medilies/nerve/cmd/nerve@$(sed -n 's/^nerve = "\(.*\)"$/\1/p' brain.toml) check

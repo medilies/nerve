@@ -33,13 +33,13 @@ If your output contradicts an ADR in `docs/adr/`, say so explicitly rather than 
 - A change updates, in the same commit, every doc it makes wrong:
   - the README, `docs/brain.md` and `docs/sync.md`
   - the embedded nerve skill (`cmd/nerve/skill/SKILL.md`) and `nerve help`
-  - `GLOSSARY.md`, `docs/development.md` and `docs/backlog.md`
+  - `GLOSSARY.md`, `docs/development.md`, `docs/backlog.md` and `docs/not-bugs.md`
   - this file
 - Before committing, grep the docs for each command, flag, `brain.toml` key, file and identifier the change renames or removes.
 - Each fact lives in one doc, and the others link to it:
   - Users: the README (what nerve is, install, usage), `brain.md` (`brain.toml`, this machine, checking a Brain), `sync.md` (what sync writes, autosync, drift).
   - Agents in users' projects: the nerve skill.
-  - Contributors: `development.md` (commands, design, releasing), `backlog.md` (ideas left out).
+  - Contributors: `development.md` (commands, design, releasing), `backlog.md` (ideas left out), `not-bugs.md` (behaviour kept on purpose).
   - Agents here: this file.
 - ADRs in `docs/adr/`, plans in `docs/plans/` and `conversation-notes.md` are records. They aren't updated, apart from a status line.
 - Never list in full what the code lists (use cases, ports, adapters, events). Name a few as examples, so the list can't go stale.
@@ -53,6 +53,7 @@ If your output contradicts an ADR in `docs/adr/`, say so explicitly rather than 
 - At the end of each iteration of work, run the tests and the lint (commands in `docs/development.md`), and fix what fails before going on.
 - At the end of each change, ask: review then commit / commit then review / commit without review.
 - Reviews always run in a fresh subagent that has not seen the work, never in the main context.
+- A review reports what `docs/not-bugs.md` lists as ignored, not as findings. Each finding is then fixed, dropped with the feature that causes it, or added there.
 - Commits follow Conventional Commits v1.0.0.
 - Use a Mermaid diagram (or an inline visual) when an explanation would otherwise be long.
 

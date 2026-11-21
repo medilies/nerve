@@ -418,6 +418,25 @@ type Change struct {
 	Item   bool
 	Before string
 	After  string
+	Leaf   string // the key as a leaf path
+	Value  any    // for an item, the item
+}
+
+// FromOverlay says whether a change is to a setting the local overlay
+// gives: at, under or above a key it sets, or an item of a list it holds.
+func FromOverlay(c Change, overlay map[string]any) bool {
+	for k, v := range Leaves(overlay) {
+		if c.Item {
+			if list, _ := v.([]any); k == c.Leaf && hasItem(list, c.Value) {
+				return true
+			}
+			continue
+		}
+		if k == c.Leaf || strings.HasPrefix(k, c.Leaf+Sep) || strings.HasPrefix(c.Leaf, k+Sep) {
+			return true
+		}
+	}
+	return false
 }
 
 // Reconciliation is what a settings file becomes.
@@ -474,7 +493,7 @@ func Reconcile(current, last, want map[string]any, discard bool) Reconciliation 
 		}
 		setOrDelete(result, k, have)
 		setOrDelete(next, k, prev)
-		rc.Drift = append(rc.Drift, Change{Key: ShowKey(k), Before: Show(goal, k), After: Show(have, k)})
+		rc.Drift = append(rc.Drift, Change{Key: ShowKey(k), Before: Show(goal, k), After: Show(have, k), Leaf: k})
 	}
 	for _, k := range unionKeys(have, result) {
 		if !Same(have, result, k) {
@@ -529,7 +548,7 @@ func reconcileList(k string, have, prev, goal map[string]any, discard bool, resu
 			}
 			continue
 		}
-		c := Change{Key: ShowKey(k), Item: true, Before: "unset", After: "unset"}
+		c := Change{Key: ShowKey(k), Item: true, Before: "unset", After: "unset", Leaf: k, Value: x}
 		if inH {
 			kept, c.After = append(kept, x), ShowValue(k, x)
 		}
@@ -656,7 +675,7 @@ func OverridesOfCommon(p *Project, common map[string]any) []string {
 			continue // an empty object holds no setting
 		}
 		if v, ok := base[k]; ok && reflect.DeepEqual(v, l[k]) {
-			same = append(same, Dotted(k))
+			same = append(same, ShowKey(k))
 		}
 	}
 	return same

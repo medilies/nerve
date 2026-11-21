@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -82,6 +83,9 @@ func (a App) Check(r Reporter) error {
 		r.Add(problemEvent(e))
 	}
 	if len(p) > 0 {
+		if len(p) == 1 {
+			return errors.New("1 problem")
+		}
 		return fmt.Errorf("%d problems", len(p))
 	}
 	r.Add(Event{Kind: EvOK, Detail: "no problems"})

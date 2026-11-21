@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/medilies/nerve/internal/brain/domain"
@@ -78,6 +79,20 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 	if domain.HasNull(v) {
 		return fmt.Errorf("%s cannot hold null: to remove a setting, use setting rm", key)
 	}
+	changeAny := change
+	change = func(obj map[string]any, path []string) (map[string]any, error) {
+		was := domain.MisTyped(obj)
+		obj, err := changeAny(obj, path)
+		if err != nil {
+			return nil, err
+		}
+		for _, k := range domain.MisTyped(obj) {
+			if !slices.Contains(was, k) {
+				return nil, fmt.Errorf("%s %s: nerve setting add adds one item", k, domain.ListOfText)
+			}
+		}
+		return obj, nil
+	}
 	l, err := a.load()
 	if err != nil {
 		return err
@@ -100,7 +115,7 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 		switch {
 		case why == "":
 		case why == domain.NotAllowed && domain.WrittenByNerve(k):
-			return fmt.Errorf("%s is %s: %s, or set it per project, where it goes to the local overlay", key, why, shareNerves)
+			return fmt.Errorf("%s is %s: %s, or set it per project, where it goes to the local overlay", key, why, domain.ShareNerves)
 		case why == domain.NotAllowed:
 			return fmt.Errorf("%s is %s: list it in allowed-settings in %s, or set it per project, where it goes to the local overlay", key, why, domain.ManifestFile)
 		default:
@@ -112,7 +127,16 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 			l.m.Common = after
 			err = a.Brain.Save(l.m)
 		}
-		return report(domain.ManifestFile+" (common)", before, after, err)
+		saved := err == nil
+		if err := report(domain.ManifestFile+" (common)", before, after, err); err != nil || !saved {
+			return err
+		}
+		for _, project := range domain.SortedKeys(l.m.Projects) {
+			if err := a.dropOverlaid(project, path, item, r); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	project, p, err := a.project(l, ref)
 	if err != nil {
@@ -132,7 +156,7 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 		}
 		switch {
 		case why == domain.NotAllowed && domain.WrittenByNerve(k):
-			why += ": " + shareNerves
+			why += ": " + domain.ShareNerves
 		case why == domain.NotAllowed:
 			why += ": list it in allowed-settings to share it"
 		}
@@ -151,10 +175,6 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 	}
 	return a.dropOverlaid(project, path, item, r)
 }
-
-// shareNerves says how to share a setting nerve writes from a Brain's
-// plugins and hooks.
-const shareNerves = "share a plugin with nerve plugin add, a hook with [hook.<name>]"
 
 // dropOverlaid takes out of a project's local overlay the value that would
 // win over one just set in the Brain at path: a value at path or above it,

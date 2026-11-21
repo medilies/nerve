@@ -119,6 +119,23 @@ func TestSyncKeepsDriftAndFailsUnlessRunByAutosync(t *testing.T) {
 	}
 }
 
+func TestSyncSaysDriftFromTheOverlayIsTheOverlays(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.machine.overlays["app"] = map[string]any{"env": map[string]any{"FOO": "bar"}, "permissions": map[string]any{"allow": []any{"Bash(deploy)"}}}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	e.trees.settings["/w/app/.claude/settings.local.json"]["env"] = map[string]any{"FOO": "baz"}
+	e.trees.settings["/w/app/.claude/settings.local.json"]["permissions"] = map[string]any{"allow": []any{}}
+
+	r, err := e.sync("/w/app", app.SyncOptions{})
+
+	if err == nil || !strings.Contains(err.Error(), "keep each change with nerve setting set or add") {
+		t.Errorf("got %v", err)
+	}
+	contains(t, r, "drift    env.FOO is (hidden) here, (hidden) in the local overlay: left as is",
+		`drift    permissions.allow lacks "Bash(deploy)" here, which the local overlay has: left as is`)
+}
+
 func TestSyncRemovesWhatLeftTheProject(t *testing.T) {
 	e := newEnv(t)
 	p := e.listed("app", "/w/app")

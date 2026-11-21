@@ -120,3 +120,12 @@ func TestParseFrontmatterRefusesAKeyGivenTwice(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 }
+
+func TestParseFrontmatterKeepsAHashLineInsideABlock(t *testing.T) {
+	for _, block := range []string{"|", ">"} {
+		meta, err := domain.ParseFrontmatter("SKILL.md", "---\ndescription: "+block+"\n  line one\n  # not a comment\n  line two\n# a comment\nname: x\n---\n")
+		if err != nil || meta["description"] != "line one # not a comment line two" || meta["name"] != "x" {
+			t.Errorf("%s: got %q (%v)", block, meta, err)
+		}
+	}
+}

@@ -51,7 +51,8 @@ func ParseFrontmatter(file, text string) (map[string]string, error) {
 	}
 	meta := map[string]string{}
 	key := ""
-	quoted := "" // a quoted value still open, its lines joined
+	quoted := ""   // a quoted value still open, its lines joined
+	block := false // key's value is a folded or literal block, where # is text
 	for _, line := range lines[1 : 1+end] {
 		trimmed := strings.TrimSpace(line)
 		switch {
@@ -60,7 +61,7 @@ func ParseFrontmatter(file, text string) (map[string]string, error) {
 			if v, closed := scalarQuoted(quoted); closed {
 				meta[key], quoted = v, ""
 			}
-		case trimmed == "" || strings.HasPrefix(trimmed, "#"):
+		case trimmed == "" || strings.HasPrefix(trimmed, "#") && (!block || line[0] != ' ' && line[0] != '\t'):
 		case key != "" && (line == "-" || strings.HasPrefix(line, "- ")): // a list item, which YAML lets start at column 0
 			meta[key] = strings.TrimSpace(meta[key] + " " + trimmed)
 		case line[0] != ' ' && line[0] != '\t':
@@ -71,12 +72,12 @@ func ParseFrontmatter(file, text string) (map[string]string, error) {
 			if _, twice := meta[k]; twice {
 				return nil, fmt.Errorf("%s frontmatter gives %q twice", file, k)
 			}
-			key = k
+			key, block = k, false
 			v = strings.TrimSpace(v)
 			if sv, closed := scalarQuoted(v); !closed {
 				quoted = v
 			} else if v = sv; strings.HasPrefix(v, ">") || strings.HasPrefix(v, "|") {
-				v = ""
+				v, block = "", true
 			}
 			meta[key] = v
 		case key != "":
