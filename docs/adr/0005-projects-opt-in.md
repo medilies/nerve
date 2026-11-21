@@ -1,6 +1,6 @@
 # Projects opt in; nothing is carried everywhere
 
-Status: accepted, 2026-11-20; deleting a link and a name the team has superseded by [ADR 0007](0007-drop-guessing-features.md); adding a project that already has settings amended 2026-11-21, to import nothing, and keeping sensitive values out, to an allow-list. Supersedes [ADR 0004](0004-skills-as-plugins.md), and the user-level carrying of [ADR 0003](0003-generated-layered-settings.md).
+Status: accepted, 2026-11-20; deleting a link and a name the team has superseded by [ADR 0007](0007-drop-guessing-features.md); adding a project that already has settings amended 2026-11-21, to import nothing and keep them as personal settings, and keeping sensitive values out, to an allow-list. Supersedes [ADR 0004](0004-skills-as-plugins.md), and the user-level carrying of [ADR 0003](0003-generated-layered-settings.md).
 
 ## Context
 
@@ -77,7 +77,9 @@ skills = ["research"]
 
 ### Adding a project that already has settings
 
-`nerve project add` adds an empty entry, and records nothing of the checkout's existing `settings.local.json`. At the first sync, each existing key the Brain disagrees with is drift: left as is and reported. The user moves it into the Brain with `nerve setting set`, which sends anything sensitive to the overlay, or drops it with `--discard`. `nerve project rm` strips only what nerve wrote, so these keys stay in the file.
+`nerve project add` adds an empty entry, and records nothing of the checkout's existing `settings.local.json`. At the first sync, each existing key the Brain does not set is a personal setting: kept, reported once, and never removed, `--discard` included. A key the Brain sets to another value is drift. The user moves a personal setting into the Brain with `nerve setting set`, which sends anything sensitive to the overlay. `nerve project rm` strips only what nerve wrote, so these keys stay in the file.
+
+A setting the Brain has no opinion on is not drift: the Brain does not disagree with it. Taking it as drift failed every sync by hand until the user moved or discarded it, and `--discard` deleted a value nerve never wrote.
 
 An earlier version imported the file: it sorted each key into the entry, the overlay or nothing, against `common`. That guessed where each key belonged, could carry a value into the Brain unseen, and moved secrets into an overlay that `project rm` then deleted. The idea waits in the [backlog](../backlog.md).
 
@@ -94,5 +96,5 @@ An earlier version imported the file: it sorted each key into the entry, the ove
 - A new machine links each checkout once with `nerve project add <name>`, since the Brain does not say where projects live.
 - Local overlays stay on one machine. A sensitive value has to be set again on each machine.
 - The plugin marketplace layout goes, and skills are invoked by name again (`/go-stack`).
-- Claude Code writes approvals ("don't ask again") and project-local `/config` choices into `settings.local.json`, so drift is common there.
+- Claude Code writes approvals ("don't ask again") and project-local `/config` choices into `settings.local.json`. An approval is a personal setting, and a `/config` choice is drift when the Brain sets that key.
 - The CLI is grouped by noun, like Docker's: `nerve project`, `skill`, `agent`, `hook`, `plugin` and `setting`.

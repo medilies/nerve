@@ -36,6 +36,7 @@ the one around the working directory, a worktree included.
   project's, then its plugins (`enabledPlugins`), hooks and autosync
   hook, then the local overlay. Objects merge key by key, arrays are
   joined without repeats, and anything else in a later layer wins.
+  Personal settings stay, as [below](#personal-settings).
 - **Unlists a checkout that is gone**, on a full sync, and forgets a
   worktree that is. A worktree git cannot locate is left as it is, and
   reported, while its project is in the Brain.
@@ -60,17 +61,26 @@ skipped, if it was.
 - `nerve project autosync off`, or `--all` for the Brain's default,
   takes the hook out at the next sync.
 
+## Personal settings
+
+A setting the Brain does not set, and nerve never wrote, is personal:
+one the checkout had before nerve, say, or an approval Claude Code
+adds to `permissions.allow`. nerve keeps it, reports it the first time
+it sees it, and never removes it, `--discard` and `project rm`
+included. To share it, move it into the Brain with `nerve setting set`
+or `nerve setting add`.
+
 ## Drift
 
-A key the Brain disagrees with, that the checkout had before nerve
-first wrote it, or that changed since, by `/model` or `/config` say, is
-drift. nerve leaves it
-as it is, writes the rest, and reports it at every sync until it is
-resolved. A sync by hand fails on drift; autosync only reports it.
+A setting nerve wrote or the Brain sets, changed in the checkout
+since nerve last wrote it, by `/model` or `/config` say, that the Brain
+disagrees with, is drift. nerve leaves it as it is, writes the rest,
+and reports it at every sync until it is resolved. A sync by hand fails
+on drift; autosync only reports it.
 
-A list is taken item by item. An approval Claude Code adds to
-`permissions.allow` is drift of that one item, and the Brain's other
-changes to the list still arrive.
+A list is taken item by item: an item of the Brain's removed in the
+checkout is drift of that one item, and the Brain's other changes to
+the list still arrive.
 
 An empty object, such as `"permissions": {}`, holds no setting, so it
 never drifts. A key the project holds as a value, and the Brain as an
@@ -80,7 +90,8 @@ To resolve drift:
 
 - Move a value into the Brain with `nerve setting set <key> <value>`,
   or one item of a list with `nerve setting add <key> <item>`.
-- Drop what drifted with `nerve sync --here --discard`.
+- Drop all the checkout's drift with `nerve sync --here --discard`.
+  Personal settings stay.
 
 ## What leaves the Brain leaves the project
 

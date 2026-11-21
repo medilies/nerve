@@ -40,15 +40,15 @@ func keys(changes []domain.Change) []string {
 
 func TestReconcileKeepsDriftAndWritesTheRest(t *testing.T) {
 	current := obj(t, `{"model": "sonnet", "permissions": {"allow": ["Bash(make)"]}}`) // changed here since
-	last := obj(t, `{"model": "opus"}`)
-	want := obj(t, `{"model": "opus", "effortLevel": "high"}`) // the Brain added a key
+	last := obj(t, `{"model": "opus", "permissions": {"allow": ["Read"]}}`)
+	want := obj(t, `{"model": "opus", "effortLevel": "high", "permissions": {"allow": ["Read"]}}`) // the Brain added a key
 
 	rc := domain.Reconcile(current, last, want, false)
 
 	if got := text(rc.Result); got != `{"effortLevel":"high","model":"sonnet","permissions":{"allow":["Bash(make)"]}}` {
 		t.Errorf("result is %s, want the drift kept and the Brain's key written", got)
 	}
-	if got := text(rc.Next); got != `{"effortLevel":"high","model":"opus"}` {
+	if got := text(rc.Next); got != `{"effortLevel":"high","model":"opus","permissions":{"allow":["Read"]}}` {
 		t.Errorf("next is %s, want what nerve means, so drift stays drift", got)
 	}
 	if got := keys(rc.Drift); !reflect.DeepEqual(got, []string{"model", "permissions.allow"}) {
@@ -59,6 +59,22 @@ func TestReconcileKeepsDriftAndWritesTheRest(t *testing.T) {
 	}
 	if got := rc.Changes; len(got) != 1 || got[0] != (domain.Change{Key: "effortLevel", Before: "unset", After: `"high"`}) || !rc.Write {
 		t.Errorf("changes are %v (write %v), want effortLevel set", got, rc.Write)
+	}
+}
+
+func TestReconcileKeepsPersonalSettingsAndSaysWhich(t *testing.T) {
+	current := obj(t, `{"outputStyle": "terse", "permissions": {"allow": ["Read", "Bash(make)"]}}`)
+	written := obj(t, `{"permissions": {"allow": ["Read"]}}`)
+
+	for _, discard := range []bool{false, true} {
+		rc := domain.Reconcile(current, written, written, discard)
+
+		if len(rc.Drift) > 0 || rc.Write || text(rc.Next) != text(written) {
+			t.Errorf("discard %v: drift %v, write %v, next %s: want the personal settings left out of both", discard, rc.Drift, rc.Write, text(rc.Next))
+		}
+		if got := text(rc.Personal); got != `{"outputStyle":"terse","permissions":{"allow":["Bash(make)"]}}` {
+			t.Errorf("discard %v: personal is %s", discard, got)
+		}
 	}
 }
 
@@ -128,7 +144,8 @@ func TestReconcileTakesAnEmptyObjectForNoSetting(t *testing.T) {
 
 // TestReconcileProperties checks Reconcile on every file, last write and
 // Brain made of a few values, as a property: it is idempotent, discard
-// writes what a fresh file gets, and Strip leaves only drift.
+// writes what a fresh file gets plus the personal settings, and Strip
+// leaves only drift and personal settings.
 func TestReconcileProperties(t *testing.T) {
 	checkReconcile(t,
 		[]string{"", `1`, `2`, `["p"]`, `["p","q"]`, `{}`, `{"c":1}`},
@@ -190,18 +207,20 @@ func checkReconcile(t *testing.T, aValues, bValues []string) {
 					written = rc.Result
 				}
 				again := domain.Reconcile(copyObj(written), rc.Next, want, false)
-				if again.Write || len(again.Changes) > 0 || !reflect.DeepEqual(again.Drift, rc.Drift) || text(again.Next) != text(rc.Next) {
+				if again.Write || len(again.Changes) > 0 || !reflect.DeepEqual(again.Drift, rc.Drift) || text(again.Next) != text(rc.Next) || text(again.Personal) != text(rc.Personal) {
 					t.Fatalf("%s: not idempotent: %+v, then %+v", name, rc, again)
 				}
 
 				discard := domain.Reconcile(copyObj(current), last, want, true)
-				if fresh := domain.Reconcile(nil, nil, want, false); len(discard.Drift) > 0 || text(unordered(discard.Result)) != text(unordered(fresh.Result)) {
-					t.Fatalf("%s: discard wrote %s, want %s", name, text(discard.Result), text(fresh.Result))
+				fresh := domain.Reconcile(nil, nil, want, false)
+				if wantDiscard := domain.Merge(fresh.Result, discard.Personal); len(discard.Drift) > 0 || text(unordered(discard.Result)) != text(unordered(wantDiscard)) {
+					t.Fatalf("%s: discard wrote %s, want %s", name, text(discard.Result), text(wantDiscard))
 				}
 
 				rest, _ := domain.Strip(written, rc.Next)
+				personal := domain.Leaves(rc.Personal)
 				for k := range domain.Leaves(rest) {
-					if emptyLeaf(rest, k) {
+					if _, mine := personal[k]; emptyLeaf(rest, k) || mine {
 						continue
 					}
 					if !slices.ContainsFunc(rc.Drift, func(c domain.Change) bool {
@@ -455,22 +474,22 @@ func TestReconcileTakesAListItemByItem(t *testing.T) {
 	if got := text(rc.Next); got != `{"permissions":{"allow":["Read","Edit"],"deny":["Cron"]}}` {
 		t.Errorf("next is %s, want what nerve means, so drift stays drift", got)
 	}
-	wantDrift := []domain.Change{
-		{Key: "permissions.allow", Item: true, Before: "unset", After: `"Bash(make)"`},
-		{Key: "permissions.deny", Item: true, Before: `"Cron"`, After: "unset"},
-	}
+	wantDrift := []domain.Change{{Key: "permissions.deny", Item: true, Before: `"Cron"`, After: "unset"}}
 	if !reflect.DeepEqual(rc.Drift, wantDrift) {
 		t.Errorf("drift is %+v", rc.Drift)
+	}
+	if got := text(rc.Personal); got != `{"permissions":{"allow":["Bash(make)"]}}` {
+		t.Errorf("personal is %s, want the approval", got)
 	}
 }
 
 func TestReconcileDiscardDropsOnlyWhatDrifted(t *testing.T) {
 	last := obj(t, `{"permissions": {"allow": ["Read"]}}`)
-	current := obj(t, `{"permissions": {"allow": ["Read", "Bash(make)"]}}`)
+	current := obj(t, `{"permissions": {"allow": ["Bash(make)"]}}`) // Read removed, an approval added
 
 	rc := domain.Reconcile(current, last, last, true)
 
-	if text(rc.Result) != `{"permissions":{"allow":["Read"]}}` || len(rc.Drift) > 0 {
+	if text(rc.Result) != `{"permissions":{"allow":["Bash(make)","Read"]}}` || len(rc.Drift) > 0 {
 		t.Errorf("result %s, drift %v", text(rc.Result), rc.Drift)
 	}
 }

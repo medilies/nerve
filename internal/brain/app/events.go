@@ -30,6 +30,7 @@ const (
 	EvWrote        = "wrote"          // Path
 	EvSetting      = "setting"        // Key at Path went from Local to Brain
 	EvDrift        = "drift"          // Key at Path changed outside the Brain, from Brain to Local, and was left as is; with Item, that item of the list
+	EvPersonal     = "personal"       // Key at Path holds Local, or with Item that item of the list, which the Brain does not set: kept
 	EvProblem      = "problem"        // Detail is wrong with Path (at Key)
 	EvOK           = "ok"             // Detail
 	EvDiff         = "diff"           // Detail is how Item changed in its source, "" when it did not
@@ -78,6 +79,11 @@ func (e Event) String() string {
 			return fmt.Sprintf("drift    %s lacks %s here, which the Brain has: left as is", e.Key, e.Item)
 		}
 		return fmt.Sprintf("drift    %s is %s here, %s in the Brain: left as is", e.Key, e.Local, e.Brain)
+	case EvPersonal:
+		if e.Item != "" {
+			return fmt.Sprintf("personal %s has %s: kept, the Brain does not set it", e.Key, e.Item)
+		}
+		return fmt.Sprintf("personal %s = %s: kept, the Brain does not set it", e.Key, e.Local)
 	case EvProblem:
 		if e.Key != "" {
 			return fmt.Sprintf("problem  %s: %s: %s", e.Path, e.Key, e.Detail)

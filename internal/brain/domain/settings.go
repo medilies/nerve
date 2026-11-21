@@ -427,31 +427,39 @@ type Change struct {
 
 // Reconciliation is what a settings file becomes.
 type Reconciliation struct {
-	Result  map[string]any // what the file holds
-	Next    map[string]any // what nerve means it to hold: drift does not count
-	Drift   []Change       // from what the Brain wants to what the file has, left as is
-	Changes []Change       // from what the file has to Result
-	Write   bool           // whether the file must be written
+	Result   map[string]any // what the file holds
+	Next     map[string]any // what nerve means it to hold: drift does not count
+	Drift    []Change       // from what the Brain wants to what the file has, left as is
+	Personal map[string]any // the file's settings and list items that neither the Brain nor nerve set, kept as they are
+	Changes  []Change       // from what the file has to Result
+	Write    bool           // whether the file must be written
 }
 
 // Reconcile works out what a settings file holding current should hold to
 // match want, given what nerve meant it to hold when it last wrote it. A key
+// that neither want nor last holds is personal: kept, discard or not. A key
 // changed there since, that want does not agree with, is drift and kept as
 // it is, unless discard is set. A list is reconciled item by item, so an
-// item added or removed there is drift on its own, and the Brain's other
-// items still arrive. A file that is gone (current nil) holds nothing to
-// keep: it is written anew.
+// item added or removed there is personal or drift on its own, and the
+// Brain's other items still arrive. A file that is gone (current nil) holds
+// nothing to keep: it is written anew.
 func Reconcile(current, last, want map[string]any, discard bool) Reconciliation {
 	if current == nil {
 		last = nil
 	}
 	flat := leafLayers(current, last, want)
 	have, prev, goal := flat[0], flat[1], flat[2]
-	result, next := map[string]any{}, map[string]any{}
+	result, next, personal := map[string]any{}, map[string]any{}, map[string]any{}
 	var rc Reconciliation
 	for _, k := range unionKeys(have, prev, goal) {
 		if lists(k, have, prev, goal) {
-			rc.Drift = append(rc.Drift, reconcileList(k, have, prev, goal, discard, result, next)...)
+			rc.Drift = append(rc.Drift, reconcileList(k, have, prev, goal, discard, result, next, personal)...)
+			continue
+		}
+		_, inP := prev[k]
+		_, inG := goal[k]
+		if !inP && !inG {
+			result[k], personal[k] = have[k], have[k]
 			continue
 		}
 		if discard || Same(have, prev, k) || Same(have, goal, k) {
@@ -473,14 +481,17 @@ func Reconcile(current, last, want map[string]any, discard bool) Reconciliation 
 	if len(next) > 0 {
 		rc.Next = Unflatten(next)
 	}
+	if len(personal) > 0 {
+		rc.Personal = Unflatten(personal)
+	}
 	return rc
 }
 
 // reconcileList reconciles the list at k item by item, as Reconcile does
-// keys, into result and next. The result keeps the file's order, and adds
+// keys, into result, next and personal. The result keeps the file's order, and adds
 // the Brain's new items after; next takes the Brain's order, so it does not
 // change with the file's.
-func reconcileList(k string, have, prev, goal map[string]any, discard bool, result, next map[string]any) []Change {
+func reconcileList(k string, have, prev, goal map[string]any, discard bool, result, next, personal map[string]any) []Change {
 	h, _ := have[k].([]any)
 	p, _ := prev[k].([]any)
 	g, _ := goal[k].([]any)
@@ -493,10 +504,14 @@ func reconcileList(k string, have, prev, goal map[string]any, discard bool, resu
 			items = append(items, x)
 		}
 	}
-	kept, means := []any{}, []any{}
+	kept, means, mine := []any{}, []any{}, []any{}
 	var drift []Change
 	for _, x := range items {
 		inH, inP, inG := hasItem(h, x), hasItem(p, x), hasItem(g, x)
+		if inH && !inP && !inG {
+			kept, mine = append(kept, x), append(mine, x)
+			continue
+		}
 		if discard || inH == inP || inH == inG {
 			if inG {
 				kept, means = append(kept, x), append(means, x)
@@ -523,9 +538,17 @@ func reconcileList(k string, have, prev, goal map[string]any, discard bool, resu
 	}
 	// The key itself is there or not as Reconcile decides for any key, so
 	// an empty list someone set stays.
+	onlyFile := hasH && !hasP && !hasG // a list only the file has is personal, empty or not
 	keep, mean := hasG, hasG
-	if !discard && hasH != hasP && hasH != hasG {
+	switch {
+	case onlyFile:
+		keep = true
+		personal[k] = h
+	case !discard && hasH != hasP && hasH != hasG:
 		keep, mean = hasH, hasP
+	}
+	if len(mine) > 0 && !onlyFile {
+		personal[k] = mine
 	}
 	if len(kept) > 0 || keep {
 		result[k] = kept
@@ -534,6 +557,28 @@ func reconcileList(k string, have, prev, goal map[string]any, discard bool, resu
 		next[k] = meant
 	}
 	return drift
+}
+
+// PersonalKeys names each personal setting, and each personal item of a
+// list, with the value or item as shown, sensitive ones hidden: a key or an
+// item, and its shown value.
+func PersonalKeys(personal map[string]any) (names []string, shown map[string]Change) {
+	shown = map[string]Change{}
+	l := Leaves(personal)
+	for _, k := range SortedKeys(l) {
+		items, isList := l[k].([]any)
+		if !isList || len(items) == 0 {
+			names = append(names, ShowKey(k))
+			shown[ShowKey(k)] = Change{Key: ShowKey(k), After: ShowValue(k, l[k])}
+			continue
+		}
+		for _, x := range items {
+			name := ShowKey(k) + " " + ShowValue(k, x)
+			names = append(names, name)
+			shown[name] = Change{Key: ShowKey(k), Item: true, After: ShowValue(k, x)}
+		}
+	}
+	return names, shown
 }
 
 // Strip takes out of current the keys nerve wrote (last) that were not

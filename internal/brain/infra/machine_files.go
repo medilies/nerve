@@ -180,6 +180,7 @@ type treeState struct {
 	Links    map[string]linkState `json:"links,omitempty"`
 	Folders  []string             `json:"folders,omitempty"`
 	Settings map[string]any       `json:"settings,omitempty"`
+	Personal []string             `json:"personal,omitempty"`
 	Commit   string               `json:"commit,omitempty"`
 }
 
@@ -191,7 +192,7 @@ type linkState struct {
 
 func (st treeState) domain() domain.TreeState {
 	domain.Numbers(st.Settings)
-	d := domain.TreeState{Path: st.Path, Repo: st.Repo, Project: st.Project, Folders: st.Folders, Settings: st.Settings, Commit: st.Commit, Links: map[string]domain.Link{}}
+	d := domain.TreeState{Path: st.Path, Repo: st.Repo, Project: st.Project, Folders: st.Folders, Settings: st.Settings, Personal: st.Personal, Commit: st.Commit, Links: map[string]domain.Link{}}
 	for rel, l := range st.Links {
 		d.Links[rel] = domain.Link(l)
 	}
@@ -199,7 +200,7 @@ func (st treeState) domain() domain.TreeState {
 }
 
 func fromDomain(d domain.TreeState) treeState {
-	st := treeState{Path: d.Path, Repo: d.Repo, Project: d.Project, Folders: d.Folders, Settings: d.Settings, Commit: d.Commit}
+	st := treeState{Path: d.Path, Repo: d.Repo, Project: d.Project, Folders: d.Folders, Settings: d.Settings, Personal: d.Personal, Commit: d.Commit}
 	if len(d.Links) > 0 {
 		st.Links = map[string]linkState{}
 		for rel, l := range d.Links {

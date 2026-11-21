@@ -536,7 +536,7 @@ func TestSyncLeavesALinkSomeonePointedElsewhere(t *testing.T) {
 	}
 }
 
-func TestSyncTakesAnApprovalAsDriftOfOneItem(t *testing.T) {
+func TestSyncTakesAnApprovalAsOnePersonalItem(t *testing.T) {
 	e := newEnv(t)
 	p := e.listed("app", "/w/app")
 	p.Settings = map[string]any{"permissions": map[string]any{"allow": []any{"Read"}}}
@@ -551,7 +551,7 @@ func TestSyncTakesAnApprovalAsDriftOfOneItem(t *testing.T) {
 	if got := jsonText(e.settings("/w/app")["permissions"]); got != `{"allow":["Read","Bash(make)","Edit"]}` {
 		t.Errorf("permissions are %s, want the approval kept and Edit added", got)
 	}
-	contains(t, r, `drift    permissions.allow has "Bash(make)" here, not in the Brain: left as is`)
+	contains(t, r, `personal permissions.allow has "Bash(make)": kept, the Brain does not set it`)
 }
 
 func TestSyncNeverReportsASecret(t *testing.T) {
@@ -822,5 +822,27 @@ func TestALinkThatAlreadyPointsWhereNerveWouldIsAdoptedQuietly(t *testing.T) {
 	}
 	if _, ok := e.machine.states["/w/app"].Links[".claude/skills/nerve"]; !ok {
 		t.Errorf("the link was not adopted")
+	}
+}
+
+func TestASettingTheBrainDoesNotSetIsPersonalAndReportedOnce(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app").Settings = map[string]any{"permissions": map[string]any{"allow": []any{"Read"}}}
+	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"outputStyle": "terse", "env": map[string]any{"TOKEN": "x"}}
+
+	r, err := e.sync("/w/app", app.SyncOptions{})
+
+	if err != nil || e.settings("/w/app")["outputStyle"] != "terse" {
+		t.Fatalf("got %v, settings %v: want the sync to pass and keep them", err, e.settings("/w/app"))
+	}
+	contains(t, r,
+		`personal env.TOKEN = (hidden): kept, the Brain does not set it`,
+		`personal outputStyle = "terse": kept, the Brain does not set it`)
+	e.trees.settings["/w/app/.claude/settings.local.json"]["permissions"].(map[string]any)["allow"] = []any{"Read", "Bash(make)"} // an approval
+
+	r = e.must(e.sync("/w/app", app.SyncOptions{}))
+
+	if got := r.String(); strings.Contains(got, "outputStyle") || !strings.Contains(got, `personal permissions.allow has "Bash(make)": kept, the Brain does not set it`) {
+		t.Errorf("want only the new approval reported:\n%s", got)
 	}
 }

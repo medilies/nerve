@@ -23,8 +23,10 @@ nowhere else.
   when a session starts, and tells you what changed.
 - **Revoke everywhere.** Take a skill or a denied tool out of every
   project with one command; each checkout drops it at its next sync.
-- **Nothing lost.** A setting a checkout had before nerve, or that
-  Claude Code changed since, is reported as drift, never overwritten. A link that goes missing is made again.
+- **Nothing lost.** A setting the Brain does not set, one the checkout
+  had before nerve or an approval, is kept. One the Brain sets that
+  Claude Code changed is reported as drift, never overwritten. A link
+  that goes missing is made again.
 - **Pinned and reviewed.** Third-party skills sit at a commit, and move
   only after you read how they changed.
 - **Nothing sensitive in the Brain.** It holds only the settings nerve

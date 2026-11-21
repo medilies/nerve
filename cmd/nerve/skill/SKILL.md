@@ -34,7 +34,7 @@ Always add `--json`, then tell the user what happened in plain words. A command 
 | --- | --- |
 | `nerve status` | Where things stand. |
 | `nerve sync --here` | Carry the Brain to this project. `nerve sync` does every checkout on the machine and builds claude.ai zips. |
-| `nerve project add <name>` | List this checkout. Settings it already has are drift at its first sync. |
+| `nerve project add <name>` | List this checkout. Settings it already has stay, as personal settings. |
 | `nerve project ls` | The Brain's projects, and their checkouts on this machine. |
 | `nerve project rm <name>` | Clean its checkouts here, delete its overlay here, and drop it from the Brain. Ask first. |
 | `nerve skill add\|rm <name>`, `agent …`, `hook …`, `plugin add\|rm <plugin>@<marketplace>` | Change what the project lists. `rm --all` takes it out of every project. |
@@ -63,7 +63,8 @@ command = "{{brain}}/hooks/go-fmt.sh"   # {{brain}} is the Brain's path
 
 ## Acting on what nerve reports
 
-- **`drift`**: Claude Code or the user changed a setting here, and nerve left it as is. With `item`, it is one item of a list, such as an approval in `permissions.allow`. For each, ask: keep it for this project (`setting set`, or `setting add` for an item), for every project (`--common`), only on this machine (the overlay), or drop it (`nerve sync --here --discard`, after the user agrees to lose it). A value or key shown as `(hidden)` is sensitive: never ask the user to paste it.
+- **`drift`**: Claude Code or the user changed a setting here that the Brain sets, and nerve left it as is. With `item`, it is one item of a list. For each, ask: keep it for this project (`setting set`, or `setting add` for an item), for every project (`--common`), or drop it. `nerve sync --here --discard` drops all of this checkout's drift at once: say so, and run it only after the user agrees to lose all of it. A value or key shown as `(hidden)` is sensitive: never ask the user to paste it.
+- **`personal`**: a setting here the Brain does not set, such as an approval in `permissions.allow` or one the project had before nerve. nerve keeps it, and reports it once. Offer to share it (`setting set`, `setting add`, `--common`) only when it looks useful elsewhere; otherwise leave it.
 - **`unlisted`**: a checkout's folder is gone, so this machine no longer lists it. `nerve project add` lists it again.
 - **`problem`**: propose a fix for each.
 - **`diff`** from `skill update`: summarize what changed in the source, and call out anything that widens what a skill can do (new tools, scripts, network access) before the user commits the new pin.

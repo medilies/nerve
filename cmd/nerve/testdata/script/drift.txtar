@@ -1,5 +1,6 @@
-# A setting changed outside the Brain is drift: a sync by hand fails on it
-# until it is moved into the Brain or discarded.
+# A setting the Brain sets, changed outside it, is drift: a sync by hand
+# fails on it until it is moved into the Brain or discarded. One the Brain
+# does not set, such as an approval, is personal: kept, and reported once.
 
 exec nerve init brain
 cd proj
@@ -14,7 +15,7 @@ replace .claude/settings.local.json '"Read"' '"Read", "Bash(make)"'
 ! exec nerve sync --here
 stderr 'nerve sync --here --discard'
 stdout '^drift    model is "sonnet" here, "opus" in the Brain: left as is$'
-stdout '^drift    permissions.allow has "Bash\(make\)" here, not in the Brain: left as is$'
+stdout '^personal permissions.allow has "Bash\(make\)": kept, the Brain does not set it$'
 
 exec nerve setting add permissions.allow 'Bash(make)'
 ! exec nerve sync --here
@@ -22,3 +23,4 @@ exec nerve setting add permissions.allow 'Bash(make)'
 
 exec nerve sync --here --discard
 grep '"model": "opus"' .claude/settings.local.json
+grep '"Bash\(make\)"' .claude/settings.local.json

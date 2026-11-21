@@ -7,10 +7,10 @@ exec nerve project add app
 ! stdout imported
 exec nerve skill add go-stack
 exec nerve setting set model opus
-# What the checkout had before is drift until it is moved or dropped.
-! exec nerve sync --here
-stdout '^drift    outputStyle is "terse" here, unset in the Brain: left as is$'
-stdout '^drift    env.TOKEN is \(hidden\) here, unset in the Brain: left as is$'
+# What the checkout had before is personal: kept, and reported once.
+exec nerve sync --here
+stdout '^personal outputStyle = "terse": kept, the Brain does not set it$'
+stdout '^personal env.TOKEN = \(hidden\): kept, the Brain does not set it$'
 # The user's own, since the sync.
 replace .claude/settings.local.json '"model": "opus"' '"spinnerTipsEnabled": false, "model": "opus"'
 

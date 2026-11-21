@@ -293,7 +293,7 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 		return false, err
 	}
 	want := domain.Want(s.m, p, s.cmd, overlay, s.Brain.Root())
-	if held, err = s.reconcile(settingsPath(dir), want, &st.Settings); err != nil {
+	if held, err = s.reconcile(settingsPath(dir), want, &st); err != nil {
 		return held, err
 	}
 	st.Commit = s.Brain.Head()
@@ -315,7 +315,7 @@ type changes struct {
 }
 
 func (c *changes) Add(e Event) {
-	if e.Kind != EvProblem && e.Kind != EvDrift {
+	if e.Kind != EvProblem && e.Kind != EvDrift && e.Kind != EvPersonal {
 		c.n++
 	}
 	c.Reporter.Add(e)
@@ -361,14 +361,15 @@ func (a App) exclude(tree domain.Tree, links map[string]domain.Link) error {
 	return a.Trees.SyncExclude(tree.Top, domain.SortedKeys(rels))
 }
 
-// reconcile writes a settings file as the Brain wants it, except for drift,
-// and reports each key it changes or holds back.
-func (s *syncer) reconcile(path string, want map[string]any, last *map[string]any) (bool, error) {
+// reconcile writes a settings file as the Brain wants it, except for drift
+// and personal settings, and reports each key it changes or holds back, and
+// each personal setting the first time it sees it.
+func (s *syncer) reconcile(path string, want map[string]any, st *domain.TreeState) (bool, error) {
 	current, err := s.Trees.ReadSettings(path)
 	if err != nil {
 		return false, err
 	}
-	rc := domain.Reconcile(current, *last, want, s.discard)
+	rc := domain.Reconcile(current, st.Settings, want, s.discard)
 	for _, c := range rc.Drift {
 		s.r.Add(driftEvent(path, c))
 	}
@@ -380,7 +381,18 @@ func (s *syncer) reconcile(path string, want map[string]any, last *map[string]an
 	for _, c := range rc.Changes {
 		s.r.Add(Event{Kind: EvSetting, Path: path, Key: c.Key, Local: c.Before, Brain: c.After})
 	}
-	*last = rc.Next
+	names, shown := domain.PersonalKeys(rc.Personal)
+	for _, n := range names {
+		if slices.Contains(st.Personal, n) {
+			continue
+		}
+		e := Event{Kind: EvPersonal, Path: path, Key: shown[n].Key, Local: shown[n].After}
+		if shown[n].Item {
+			e.Item = shown[n].After
+		}
+		s.r.Add(e)
+	}
+	st.Settings, st.Personal = rc.Next, names
 	return len(rc.Drift) > 0, nil
 }
 
