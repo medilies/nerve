@@ -14,6 +14,9 @@ stderr 'cleanupPeriodDays must be a whole number of days, at least 1'
 ! grep 'model|defaultMode|cleanupPeriodDays' $HOME/brain/brain.json
 
 exec nerve setting set --common attribution.commit ''
+exec nerve setting set --common modelSettings.claude-opus-5-5.effortLevel high
+! exec nerve setting set --common effortLevel max
+stderr 'effortLevel must be one of "low", "medium", "high" or "xhigh"'
 exec nerve setting set --common statusLine '{"type":"command","command":"x"}'
 grep '^        "type": "command"$' $HOME/brain/brain.json
 

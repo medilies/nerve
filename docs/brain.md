@@ -87,8 +87,10 @@ A Brain holds only allowed settings, and everything under them:
 
   | Setting | Holds |
   |---|---|
-  | `alwaysThinkingEnabled`, `enableAllProjectMcpServers`, `spinnerTipsEnabled`, `syncClaudeAiSkills` | `true` or `false` |
+  | `alwaysThinkingEnabled`, `disableBundledSkills`, `disableWorkflows`, `enableAllProjectMcpServers`, `enableArtifact`, `spinnerTipsEnabled`, `syncClaudeAiSkills` | `true` or `false` |
   | `model`, `outputStyle` | text |
+  | `effortLevel` | `"low"`, `"medium"`, `"high"` or `"xhigh"` |
+  | `modelSettings` | an object per model, such as `claude-opus-5-5`, whose `effortLevel` is one of those levels |
   | `cleanupPeriodDays` | a whole number, at least 1 |
   | `permissions.allow`, `permissions.ask`, `permissions.deny`, `enabledMcpjsonServers`, `disabledMcpjsonServers` | a list of text |
   | `permissions.defaultMode` | `"default"`, `"acceptEdits"`, `"plan"`, `"dontAsk"` or `"manual"`; Claude Code takes `"auto"` and `"bypassPermissions"` only from `~/.claude/settings.json` |

@@ -611,6 +611,13 @@ func TestMisfitsNameEachSettingNerveAllowsHeldAsClaudeCodeRefusesIt(t *testing.T
 		{`{"attribution": {"commit": false}}`, "attribution: must be false, or hold commit and pr as text and sessionUrl as true or false"},
 		{`{"attribution": {"sessionUrl": "no"}}`, "attribution: must be false, or hold commit and pr as text and sessionUrl as true or false"},
 		{`{"attribution": {"other": ""}}`, "attribution: must be false, or hold commit and pr as text and sessionUrl as true or false"},
+		{`{"enableArtifact": "no"}`, "enableArtifact: must be true or false"},
+		{`{"disableBundledSkills": 1}`, "disableBundledSkills: must be true or false"},
+		{`{"disableWorkflows": "yes"}`, "disableWorkflows: must be true or false"},
+		{`{"effortLevel": "max"}`, `effortLevel: must be one of "low", "medium", "high" or "xhigh"`},
+		{`{"modelSettings": "high"}`, `modelSettings: must hold, for each model, an object whose effortLevel is one of "low", "medium", "high" or "xhigh"`},
+		{`{"modelSettings": {"claude-opus-5-5": "high"}}`, `modelSettings: must hold, for each model, an object whose effortLevel is one of "low", "medium", "high" or "xhigh"`},
+		{`{"modelSettings": {"claude-opus-5-5": {"effortLevel": "max"}}}`, `modelSettings: must hold, for each model, an object whose effortLevel is one of "low", "medium", "high" or "xhigh"`},
 	} {
 		var got []string
 		for _, p := range domain.Misfits(obj(t, c.settings)) {
@@ -629,6 +636,9 @@ func TestMisfitsLeaveWhatClaudeCodeTakes(t *testing.T) {
 		"cleanupPeriodDays": 3650, "enabledMcpjsonServers": [], "disabledMcpjsonServers": ["x"],
 		"permissions": {"allow": ["Read"], "ask": [], "deny": ["Cron"], "defaultMode": "manual"},
 		"attribution": {"commit": "", "pr": "", "sessionUrl": false},
+		"enableArtifact": false, "disableBundledSkills": true, "disableWorkflows": false,
+		"effortLevel": "xhigh",
+		"modelSettings": {"claude-opus-5-5": {"effortLevel": "low", "autoCompactWindow": "auto"}, "claude-sonnet-5-5": {}},
 		"statusLine": {"anything": [1, true]}
 	}`
 	if got := domain.Misfits(obj(t, fits)); len(got) > 0 {

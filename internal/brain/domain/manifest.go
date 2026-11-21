@@ -41,9 +41,14 @@ var nerveAllows = map[string]func(v any) string{
 	"alwaysThinkingEnabled":      boolean,
 	"attribution":                attribution,
 	"cleanupPeriodDays":          days,
+	"disableBundledSkills":       boolean,
+	"disableWorkflows":           boolean,
 	"disabledMcpjsonServers":     listOfText,
+	"effortLevel":                effort,
 	"enableAllProjectMcpServers": boolean,
+	"enableArtifact":             boolean,
 	"enabledMcpjsonServers":      listOfText,
+	"modelSettings":              modelSettings,
 	"model":                      text,
 	"outputStyle":                text,
 	"permissions.allow":          listOfText,
@@ -109,6 +114,34 @@ func mode(v any) string {
 		return fmt.Sprintf("%q does not take effect from a project's settings: set it in ~/.claude/settings.json", v)
 	}
 	return `must be one of "default", "acceptEdits", "plan", "dontAsk" or "manual"`
+}
+
+// effort fits the effort levels Claude Code takes in settings.
+func effort(v any) string {
+	switch v {
+	case "low", "medium", "high", "xhigh":
+		return ""
+	}
+	return `must be one of "low", "medium", "high" or "xhigh"`
+}
+
+// modelSettings fits an object per model, checking only its effortLevel.
+func modelSettings(v any) string {
+	const why = `must hold, for each model, an object whose effortLevel is one of "low", "medium", "high" or "xhigh"`
+	models, ok := v.(map[string]any)
+	if !ok {
+		return why
+	}
+	for _, m := range models {
+		obj, ok := m.(map[string]any)
+		if !ok {
+			return why
+		}
+		if level, ok := obj["effortLevel"]; ok && effort(level) != "" {
+			return why
+		}
+	}
+	return ""
 }
 
 func attribution(v any) string {
