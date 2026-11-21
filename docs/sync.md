@@ -10,7 +10,9 @@ one command:
 - `nerve project add` lists the checkout around the working directory,
   then syncs it.
 - A command that changes `brain.json`, such as `nerve skill add`, keeps
-  it in step: see [Push](#push).
+  it in step: see [Push](#push). The skill, agent, hook, plugin and
+  setting commands then sync the checkout around the working directory,
+  when the change reaches it: its own project, or every project.
 - At each session start, the [session report](#the-session-report) says
   what waits for a sync. It changes nothing.
 

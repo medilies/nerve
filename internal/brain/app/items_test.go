@@ -24,9 +24,9 @@ func TestAddItemAddsWhatTheBrainOffers(t *testing.T) {
 	r := &recorder{}
 
 	for _, item := range [][2]string{{"skill", "go-stack"}, {"skill", "grilling"}, {"agent", "reviewer"}, {"hook", "fmt"}, {"plugin", "gopls@claude-plugins-official"}} {
-		e.must(r, e.app.AddItem(target("/w/app"), item[0], item[1], r))
+		e.must(r, e.app.AddItem(target("/w/app"), item[0], []string{item[1]}, r))
 	}
-	e.must(r, e.app.AddItem(target("/w/app"), "skill", "go-stack", r))
+	e.must(r, e.app.AddItem(target("/w/app"), "skill", []string{"go-stack"}, r))
 
 	p := e.project("app")
 	if !reflect.DeepEqual(p.Skills, []string{"go-stack", "grilling"}) || len(p.Agents)+len(p.Hooks)+len(p.Plugins) != 3 {
@@ -57,7 +57,7 @@ func TestAddItemRefusesWhatTheBrainDoesNotOffer(t *testing.T) {
 		{"", "skill", "grill", "skill grill comes from both skills/ and acme/up: drop one of them"},
 		{"", "skill", "bad", "skill bad: SKILL.md has no frontmatter"},
 	} {
-		err := e.app.AddItem(app.ProjectRef{Dir: "/w/app", Project: c.project}, c.kind, c.name, &recorder{})
+		err := e.app.AddItem(app.ProjectRef{Dir: "/w/app", Project: c.project}, c.kind, []string{c.name}, &recorder{})
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s %s: got %v, want %q", c.kind, c.name, err, c.want)
 		}
@@ -72,10 +72,12 @@ func TestRemoveItemFromTheProjectOrEveryProject(t *testing.T) {
 	e.listed("app", "/w/app").Skills = []string{"go-stack", "tdd"}
 	e.listed("other", "/w/other").Skills = []string{"go-stack"}
 	e.brain.m.Projects["quiet"] = &domain.Project{}
+	e.ownSkill("go-stack")
+	e.ownSkill("tdd")
 	r := &recorder{}
 
-	e.must(r, e.app.RemoveItem(target("/w/app"), "skill", "tdd", false, r))
-	e.must(r, e.app.RemoveItem(target("/w"), "skill", "go-stack", true, r))
+	e.must(r, e.app.RemoveItem(target("/w/app"), "skill", []string{"tdd"}, false, r))
+	e.must(r, e.app.RemoveItem(target("/w"), "skill", []string{"go-stack"}, true, r))
 
 	for _, name := range []string{"app", "other"} {
 		if len(e.project(name).Skills) > 0 {
@@ -83,10 +85,10 @@ func TestRemoveItemFromTheProjectOrEveryProject(t *testing.T) {
 		}
 	}
 	contains(t, r, "dropped  skill go-stack from project app", "dropped  skill go-stack from project other")
-	if err := e.app.RemoveItem(target("/w/app"), "skill", "tdd", false, &recorder{}); err == nil || err.Error() != "project app has no skill tdd" {
+	if err := e.app.RemoveItem(target("/w/app"), "skill", []string{"tdd"}, false, &recorder{}); err == nil || err.Error() != "project app has no skill tdd" {
 		t.Errorf("got %v", err)
 	}
-	if err := e.app.RemoveItem(target("/w"), "skill", "tdd", true, &recorder{}); err == nil || err.Error() != "no project has skill tdd" {
+	if err := e.app.RemoveItem(target("/w"), "skill", []string{"tdd"}, true, &recorder{}); err == nil || err.Error() != "no project has skill tdd" {
 		t.Errorf("got %v", err)
 	}
 }
@@ -97,7 +99,7 @@ func TestRemoveItemWhoseBrainSaveFailsReportsNothingDropped(t *testing.T) {
 	e.brain.failSaves = 1
 	r := &recorder{}
 
-	if err := e.app.RemoveItem(target("/w/app"), "skill", "go-stack", false, r); err == nil {
+	if err := e.app.RemoveItem(target("/w/app"), "skill", []string{"go-stack"}, false, r); err == nil {
 		t.Fatal("remove passed")
 	}
 
@@ -311,7 +313,7 @@ func TestAddItemToACheckoutWhoseProjectLeftTheBrainSaysWhatToDo(t *testing.T) {
 	e.ownSkill("go-stack")
 	delete(e.brain.m.Projects, "app")
 
-	err := e.app.AddItem(target("/w/app"), "skill", "go-stack", &recorder{})
+	err := e.app.AddItem(target("/w/app"), "skill", []string{"go-stack"}, &recorder{})
 
 	if err == nil || !strings.Contains(err.Error(), "nerve sync cleans this checkout, and nerve project add lists it again") {
 		t.Errorf("got %v", err)
@@ -325,7 +327,7 @@ func TestAddItemSaysAnItemIsListedBeforeAnythingElse(t *testing.T) {
 	e.brain.notPushed = map[string]bool{"skills/mine": true} // edited here since
 	r := &recorder{}
 
-	e.must(r, e.app.AddItem(target("/w/app"), "skill", "mine", r))
+	e.must(r, e.app.AddItem(target("/w/app"), "skill", []string{"mine"}, r))
 
 	contains(t, r, "skill mine already in project app")
 }

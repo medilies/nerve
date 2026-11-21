@@ -25,7 +25,8 @@ nowhere else.
   remove it. Each session starts with a report of what waits for a
   sync, and of drift.
 - **Revoke everywhere.** Take a skill or a denied tool out of every
-  project with one command; each checkout drops it at its next sync.
+  project with one command; this checkout drops it at once, and each
+  other one at its next sync.
 - **Nothing lost.** A setting the Brain does not set, one the checkout
   had before nerve or an approval, is kept. One the Brain sets that
   Claude Code changed is drift: a sync fails on it, and `-f` overwrites
@@ -112,7 +113,7 @@ nerve needs git 2.31 or later. It runs on Linux and macOS, not Windows.
 ```sh
 nerve project add                    # list this checkout as a project named after its repo, and sync it
 nerve push                           # commit the Brain's own files, such as a new skill, and push them
-nerve skill add go-stack             # give it a skill; agent, hook and plugin work the same
+nerve skill add go-stack tdd         # give it skills, linked here at once; agent, hook and plugin work the same
 nerve setting set model opus         # a setting for it; --common for every project
 nerve setting add permissions.allow "Bash(make test)"   # one more item in a list
 nerve sync --here                    # make the Brain its remote's, then carry it to this checkout
@@ -127,7 +128,8 @@ nerve check                          # validate the Brain, as its CI does
 
 A command that acts on one project, such as `skill add` or
 `setting set`, acts on the one around the working directory;
-`--project <name>` names another. `nerve push` sends what other
+`--project <name>` names another. It then syncs the checkout here,
+when the change reaches it. `nerve push` sends what other
 commands do not, such as a new own skill, and `nerve sync` refuses to
 drop what was not pushed, unless `-f`. `--json` prints one JSON
 document of what happened. On a terminal, the output is in color;

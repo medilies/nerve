@@ -20,7 +20,9 @@ cd $WORK
 exec nerve init brain
 cd proj
 exec nerve project add app
-exec nerve skill add grilling
+cd $WORK
+exec nerve skill add grilling --project app
+cd proj
 exec sh -c 'echo "{}" > $HOME/brain/unpushed.json'
 exec git -C $HOME/brain add unpushed.json
 exec git -C $HOME/brain commit -qm 'not pushed'

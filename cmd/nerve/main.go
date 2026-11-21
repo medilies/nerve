@@ -46,10 +46,10 @@ const usage = `usage: nerve <command>
   project ls                   the projects, and their checkouts on this machine
   project rm <name>            clean its checkouts here, and drop it from the Brain
 
-  skill add|rm <name>          add a skill to the project, or take it out (rm --all: out of every project)
-  agent add|rm <name>          the same for own agents
-  hook add|rm <name>           the same for hooks defined in the Brain
-  plugin add|rm <plugin>@<marketplace>   the same for Claude Code plugins
+  skill add|rm <name>...       add skills to the project, or take them out (rm --all: out of every project)
+  agent add|rm <name>...       the same for own agents
+  hook add|rm <name>...        the same for hooks defined in the Brain
+  plugin add|rm <plugin>@<marketplace>...   the same for Claude Code plugins
 
   setting set <key> <value>    set a setting in the project (--common: in common, for every project); value is JSON or text
   setting add <key> <value>    add one item to a list setting in the project (--common: in common)
@@ -67,6 +67,8 @@ working directory; --project <name> names another.
 A key that holds a dot is written in double quotes: enabledPlugins."x@y.z".
 -- ends the flags, so a value after it may start with --.
 Commands that change brain.json first bring the remote's, then commit and push the change.
+The skill, agent, hook, plugin and setting commands then sync the checkout around the working
+directory, when the change reaches it.
 --json, with any command, prints one JSON document of its events and error instead of text.
 `
 
@@ -443,10 +445,10 @@ func run(args []string, r *infra.Report) error {
 		do = func(a app.App) error { return a.ListProjects(r) }
 	case cmd == "project" && len(rest) == 2 && rest[0] == "rm":
 		do = func(a app.App) error { return a.RemoveProject(rest[1], r) }
-	case item && len(rest) == 2 && rest[0] == "add":
-		allowed, do = []string{"--project"}, func(a app.App) error { return a.AddItem(ref, cmd, rest[1], r) }
-	case item && len(rest) == 2 && rest[0] == "rm":
-		allowed, do = []string{"--project", "--all"}, func(a app.App) error { return a.RemoveItem(ref, cmd, rest[1], f.all, r) }
+	case item && len(rest) > 1 && rest[0] == "add":
+		allowed, do = []string{"--project"}, func(a app.App) error { return a.AddItem(ref, cmd, rest[1:], r) }
+	case item && len(rest) > 1 && rest[0] == "rm":
+		allowed, do = []string{"--project", "--all"}, func(a app.App) error { return a.RemoveItem(ref, cmd, rest[1:], f.all, r) }
 	case cmd == "setting" && len(rest) == 3 && rest[0] == "set":
 		allowed = []string{"--project", "--common"}
 		do = func(a app.App) error { return a.SetSetting(ref, rest[1], domain.ParseValue(rest[2]), f.common, r) }

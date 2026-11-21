@@ -1,0 +1,35 @@
+# A command that changes what the project gets carries it to the checkout
+# around the working directory, several names of a kind in one push.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+exec nerve agent add reviewer explorer
+stdout '^pushed   the Brain at [0-9a-f]{7}: nerve: add agent reviewer, explorer to project app$'
+stdout '^linked   .*/proj/.claude/agents/reviewer.md -> '
+stdout '^linked   .*/proj/.claude/agents/explorer.md -> '
+exists .claude/agents/reviewer.md
+exists .claude/agents/explorer.md
+
+exec nerve agent rm reviewer explorer
+stdout '^pushed   the Brain at [0-9a-f]{7}: nerve: remove agent reviewer, explorer from project app$'
+! exists .claude/agents/reviewer.md
+! exists .claude/agents/explorer.md
+
+exec nerve setting set model opus
+grep '"model": "opus"' .claude/settings.local.json
+
+! exec nerve agent add reviewer ghost
+stderr 'the Brain has no agent "ghost"'
+! exists .claude/agents/reviewer.md
+
+-- brain/agents/reviewer.md --
+---
+name: reviewer
+description: Reviews.
+---
+-- brain/agents/explorer.md --
+---
+name: explorer
+description: Explores.
+---

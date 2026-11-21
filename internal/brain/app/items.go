@@ -12,8 +12,14 @@ import (
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
-// AddItem adds a skill, agent, hook or plugin to the target project.
-func (a App) AddItem(ref ProjectRef, kind, name string, r Reporter) error {
+// AddItem adds skills, agents, hooks or plugins to the target project, in
+// one push, then syncs the listed checkout around the working directory
+// when the project is its own. One name refused, it adds none.
+func (a App) AddItem(ref ProjectRef, kind string, names []string, r Reporter) error {
+	here, err := a.reachedHere(ref, false)
+	if err != nil {
+		return err
+	}
 	l, err := a.fresh(r)
 	if err != nil {
 		return err
@@ -22,7 +28,37 @@ func (a App) AddItem(ref ProjectRef, kind, name string, r Reporter) error {
 	if err != nil {
 		return err
 	}
-	if why := a.offers(l.m, kind, name); why != "" {
+	list := p.List(kind)
+	var added []string
+	for _, name := range names {
+		if err := a.addable(l.m, kind, name); err != nil {
+			return err
+		}
+		if slices.Contains(*list, name) || slices.Contains(added, name) {
+			r.Add(Event{Kind: EvItem, Project: project, Item: kind + " " + name, Detail: "already in project " + project})
+			continue
+		}
+		if err := a.onRemote(kind, name); err != nil {
+			return err
+		}
+		added = append(added, name)
+	}
+	if len(added) == 0 {
+		return a.syncHere(here, r)
+	}
+	*list = append(*list, added...)
+	if err := a.pushManifest(l.m, fmt.Sprintf("add %s %s to project %s", kind, strings.Join(added, ", "), project), r); err != nil {
+		return err
+	}
+	for _, name := range added {
+		r.Add(Event{Kind: EvAdded, Project: project, Item: kind + " " + name})
+	}
+	return a.syncHere(here, r)
+}
+
+// addable says why the Brain cannot give a project the item, or nil.
+func (a App) addable(m domain.Manifest, kind, name string) error {
+	if why := a.offers(m, kind, name); why != "" {
 		return errors.New(why)
 	}
 	if kind == "skill" {
@@ -30,13 +66,12 @@ func (a App) AddItem(ref ProjectRef, kind, name string, r Reporter) error {
 			return err // one sync would only report
 		}
 	}
-	list := p.List(kind)
-	if slices.Contains(*list, name) {
-		r.Add(Event{Kind: EvItem, Project: project, Item: kind + " " + name, Detail: "already in project " + project})
-		return nil
-	}
-	// What brain.json lists, the remote must hold, or other machines'
-	// syncs refuse the project.
+	return nil
+}
+
+// onRemote refuses an own item the Brain's remote lacks: what brain.json
+// lists, the remote must hold, or other machines' syncs refuse the project.
+func (a App) onRemote(kind, name string) error {
 	rel := ""
 	if _, own, _ := a.Brain.OwnSkill(name); kind == "skill" && own {
 		rel = "skills/" + name
@@ -46,18 +81,19 @@ func (a App) AddItem(ref ProjectRef, kind, name string, r Reporter) error {
 	if rel != "" && !a.Brain.OnRemote(rel) {
 		return fmt.Errorf("%s %s is not on the Brain's remote yet, as it is here: nerve push it, then add it", kind, name)
 	}
-	*list = append(*list, name)
-	if err := a.pushManifest(l.m, fmt.Sprintf("add %s %s to project %s", kind, name, project), r); err != nil {
-		return err
-	}
-	r.Add(Event{Kind: EvAdded, Project: project, Item: kind + " " + name})
 	return nil
 }
 
-// RemoveItem takes an item out of the target project, or with all out of
-// every project.
-func (a App) RemoveItem(ref ProjectRef, kind, name string, all bool, r Reporter) error {
+// RemoveItem takes items out of the target project, or with all out of
+// every project, in one push, then syncs the listed checkout around the
+// working directory when the change reaches it. A name no project it acts
+// on lists, it refuses, and removes none.
+func (a App) RemoveItem(ref ProjectRef, kind string, names []string, all bool, r Reporter) error {
 	if err := onePlace(ref.Project, false, all); err != nil {
+		return err
+	}
+	here, err := a.reachedHere(ref, all)
+	if err != nil {
 		return err
 	}
 	l, err := a.fresh(r)
@@ -75,31 +111,36 @@ func (a App) RemoveItem(ref ProjectRef, kind, name string, all bool, r Reporter)
 		projects = []string{project}
 	}
 	var dropped []Event
-	for _, project := range projects {
-		list := l.m.Projects[project].List(kind)
-		if !slices.Contains(*list, name) {
-			continue
+	for _, name := range names {
+		found := false
+		for _, project := range projects {
+			list := l.m.Projects[project].List(kind)
+			if !slices.Contains(*list, name) {
+				continue
+			}
+			found = true
+			*list = slices.DeleteFunc(*list, func(x string) bool { return x == name })
+			dropped = append(dropped, Event{Kind: EvDropped, Project: project, Item: kind + " " + name})
 		}
-		*list = slices.DeleteFunc(*list, func(x string) bool { return x == name })
-		dropped = append(dropped, Event{Kind: EvDropped, Project: project, Item: kind + " " + name})
-	}
-	if len(dropped) == 0 {
-		if all {
+		switch {
+		case found:
+		case all:
 			return fmt.Errorf("no project has %s %s", kind, name)
+		default:
+			return fmt.Errorf("project %s has no %s %s", projects[0], kind, name)
 		}
-		return fmt.Errorf("project %s has no %s %s", projects[0], kind, name)
 	}
 	where := "project " + projects[0]
 	if all {
 		where = "every project"
 	}
-	if err := a.pushManifest(l.m, fmt.Sprintf("remove %s %s from %s", kind, name, where), r); err != nil {
+	if err := a.pushManifest(l.m, fmt.Sprintf("remove %s %s from %s", kind, strings.Join(names, ", "), where), r); err != nil {
 		return err
 	}
 	for _, e := range dropped {
 		r.Add(e)
 	}
-	return nil
+	return a.syncHere(here, r)
 }
 
 // othersItems lists the skills or agents in a working tree that nerve did

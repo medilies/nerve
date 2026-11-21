@@ -7,7 +7,7 @@ description: Tend this project's place in the user's Brain, the git repo of skil
 
 A **Brain** is one person's git repo: own skills and agents, third-party skills pinned to a commit, hooks, and settings. `brain.json` lists the projects, and what each one gets; a project gets nothing it does not list. The `nerve` CLI carries that into each project's `.claude/settings.local.json` and links in `.claude/skills/` and `.claude/agents/`, all kept out of git. You are its front end: run `nerve` and `git`, read what they report, and make every decision with the user. The CLI never asks; you do.
 
-nerve acts only when told. `nerve sync` brings the remote here: it makes the Brain its remote's, then carries it into the project. It refuses to drop Brain work not pushed, unless `-f`. `nerve push` sends the Brain to its remote. A command that changes `brain.json`, such as `nerve skill add`, takes the remote's first, then commits and pushes that change at once. Each session starts with a report of what waits for a sync; it changes nothing.
+nerve acts only when told. `nerve sync` brings the remote here: it makes the Brain its remote's, then carries it into the project. It refuses to drop Brain work not pushed, unless `-f`. `nerve push` sends the Brain to its remote. A command that changes `brain.json`, such as `nerve skill add`, takes the remote's first, then commits and pushes that change at once; `skill`, `agent`, `hook`, `plugin` and `setting` commands then sync this checkout. Each session starts with a report of what waits for a sync; it changes nothing.
 
 ## What the user asks
 
@@ -44,8 +44,8 @@ Always add `--json`, then tell the user what happened in plain words. A command 
 | `nerve project add [<name>]` | List this checkout, a worktree included, as a project named after its repo or `<name>`, then sync it. Settings it already has stay: as personal settings, or as drift where the Brain sets them otherwise. |
 | `nerve project ls` | The Brain's projects, and their checkouts on this machine. |
 | `nerve project rm <name>` | Clean its checkouts here, and drop it from the Brain. Its overlay stays. Ask first. |
-| `nerve skill add\|rm <name>`, `agent …`, `hook …`, `plugin add\|rm <plugin>@<marketplace>` | Change what the project lists. `rm --all` takes it out of every project. |
-| `nerve setting set <key> <value>` | Value is JSON or text. `--common` for every project. A setting the Brain does not allow goes to the project's overlay on its own; with `--common`, nerve refuses it. `nerve allow add` allows more keys. A setting nerve allows takes only a value Claude Code takes there; the error says what fits. A key that holds a dot or `=` goes in double quotes: `enabledPlugins."x@y.z"`. |
+| `nerve skill add\|rm <name>...`, `agent …`, `hook …`, `plugin add\|rm <plugin>@<marketplace>...` | Change what the project lists, several names of one kind in one push, then sync this checkout. `rm --all` takes them out of every project. |
+| `nerve setting set <key> <value>` | Like every `setting` command, it then syncs this checkout when the change reaches it. Value is JSON or text. `--common` for every project. A setting the Brain does not allow goes to the project's overlay on its own; with `--common`, nerve refuses it. `nerve allow add` allows more keys. A setting nerve allows takes only a value Claude Code takes there; the error says what fits. A key that holds a dot or `=` goes in double quotes: `enabledPlugins."x@y.z"`. |
 | `nerve setting add <key> <value>` | Add one item to a list, such as `permissions.allow`. `--common` and the overlay as for `set`. |
 | `nerve setting rm <key>[=<value>]` | Remove a key, or one item of a list, from the project and its overlay. `--common` from common; `--all` revokes it from common and every project. |
 | `nerve allow add\|rm <key>...` | Add keys to `allowedSettings`, or take them out. `add` refuses a key nerve allows itself; `rm` refuses one the Brain's settings still hold. |
@@ -120,11 +120,11 @@ To change what Claude Code does, find the setting made for it first: know Claude
 2. Ask whether a change is for this project or every project, when it is unclear. Default to this project: nothing should reach a project that does not need it.
 3. Show the user each value before it goes in: the Brain may be public, and nerve does not look for secrets. Anything identifying belongs in the overlay.
 4. After a change to the Brain's own files, such as a new skill, run `nerve check --json`, show the diff of the Brain, and ask to push. On yes, `nerve push --json "<message>"`, with a message that follows the Brain's own commit rules (its README, CLAUDE.md or AGENTS.md win over this skill).
-5. Then `nerve sync --here --json`.
+5. The `skill`, `agent`, `hook`, `plugin` and `setting` commands sync this checkout themselves. After a change by hand, such as an entry of `sources`, `nerve sync --here --json`.
 
 ## Suggesting, unasked
 
-After `nerve skill add` and the sync that links it, read `.claude/skills/<name>/SKILL.md`. When it loads or names other skills the project lacks, such as "call the Skill tool for grilling", suggest each one, and where it comes from: the Brain, or another folder of its source's repo, which the Brain does not list yet. Do this without being asked, and run nothing until the user says yes.
+After `nerve skill add`, which links it, read `.claude/skills/<name>/SKILL.md`. When it loads or names other skills the project lacks, such as "call the Skill tool for grilling", suggest each one, and where it comes from: the Brain, or another folder of its source's repo, which the Brain does not list yet. Do this without being asked, and run nothing until the user says yes.
 
 Put suggestions after a line holding only `---`, apart from what happened.
 

@@ -7,7 +7,7 @@
 - Minimalism: add only what is needed now. No speculative abstractions, unused dependencies or placeholder files. Ideas wait in `docs/backlog.md`.
 - Only where needed ([ADR 0005](docs/adr/0005-projects-opt-in.md)): nerve writes only in listed projects, never at user level, and only what their entry names. Every effect is visible and reported. It removes only what it made, and never edits `.gitignore`.
 - [core.md](core.md) is the reference for what nerve is. Where an ADR disagrees with it, a new ADR follows core.md.
-- Explicit verbs ([ADR 0009](docs/adr/0009-explicit-verbs.md), [ADR 0010](docs/adr/0010-brain-toml-in-step.md)): nerve changes the Brain, its remote or a project only when a command says so; otherwise it reports. `sync` brings the remote here, `push` sends the Brain there, `update` moves pins and syncs here. A command that changes `brain.json` pushes it at once.
+- Explicit verbs ([ADR 0009](docs/adr/0009-explicit-verbs.md), [ADR 0010](docs/adr/0010-brain-toml-in-step.md), [ADR 0014](docs/adr/0014-listing-commands-sync-here.md)): nerve changes the Brain, its remote or a project only when a command says so; otherwise it reports. `sync` brings the remote here, `push` sends the Brain there, `update` moves pins and syncs here. A command that changes `brain.json` pushes it at once; one that changes what a project gets then syncs the checkout here.
 - nerve writes nothing of this machine into the Brain: no checkout paths or repo remotes, which stay in this machine's files. What an allowed setting holds is the user's to judge.
 
 ## Ubiquitous language

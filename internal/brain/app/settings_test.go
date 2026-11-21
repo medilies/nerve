@@ -113,7 +113,7 @@ func TestSettingCommandsRefuseTwoPlacesAtOnce(t *testing.T) {
 		"add --common --project":   e.app.AddSetting(acct, "permissions.deny", "Cron", true, &recorder{}),
 		"rm --all --project":       e.app.RemoveSetting(acct, "model", false, true, &recorder{}),
 		"rm --all --common":        e.app.RemoveSetting(target("/w/app"), "model", true, true, &recorder{}),
-		"skill rm --all --project": e.app.RemoveItem(acct, "skill", "x", true, &recorder{}),
+		"skill rm --all --project": e.app.RemoveItem(acct, "skill", []string{"x"}, true, &recorder{}),
 	} {
 		if err == nil || !strings.Contains(err.Error(), "each say where to act: pass one") {
 			t.Errorf("%s: got %v", name, err)
@@ -292,7 +292,8 @@ func TestSetSettingKeepsAValueThatDidNotFitBefore(t *testing.T) {
 	e.listed("app", "/w/app").Settings = map[string]any{"model": int64(42)}
 	r := &recorder{}
 
-	e.must(r, e.app.SetSetting(target("/w/app"), "outputStyle", "Explanatory", false, r))
+	// From outside the checkout, whose sync refuses the value that does not fit.
+	e.must(r, e.app.SetSetting(app.ProjectRef{Dir: "/w", Project: "app"}, "outputStyle", "Explanatory", false, r))
 }
 
 func TestSetSettingRefusesAnythingButAListOfTextAtOneOfNervesLists(t *testing.T) {
@@ -365,7 +366,7 @@ func TestSettingAValueTheBrainHoldsAlreadyChangesNothing(t *testing.T) {
 
 	e.must(r, e.app.SetSetting(target("/w/app"), "model", "opus", false, r))
 
-	if len(e.brain.manifestPushes) > 0 || strings.Contains(r.String(), "set ") {
+	if len(e.brain.manifestPushes) > 0 || strings.Contains(r.String(), "set      brain.json") {
 		t.Errorf("pushed %q:\n%s", e.brain.manifestPushes, r)
 	}
 	contains(t, r, `model already holds "opus" in brain.json (project app)`)

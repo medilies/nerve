@@ -26,7 +26,7 @@ cp ../tdd.md ../brain/skills/tdd/SKILL.md
 exec nerve push 'add tdd'
 stdout '^pushed   the Brain at [0-9a-f]{7}: add tdd$'
 exec nerve sync --here
-stdout '^synced   app'
+stdout 'app is up to date'
 exec nerve sync --here -f
 stdout 'app is up to date'
 exec nerve sync
@@ -70,10 +70,10 @@ stdout '^  check '
 stdout '^  project add \[<name>\] '
 stdout '^  project ls '
 stdout '^  project rm <name> '
-stdout '^  skill add\|rm <name> '
-stdout '^  agent add\|rm <name> '
-stdout '^  hook add\|rm <name> '
-stdout '^  plugin add\|rm <plugin>@<marketplace> '
+stdout '^  skill add\|rm <name>\.\.\. '
+stdout '^  agent add\|rm <name>\.\.\. '
+stdout '^  hook add\|rm <name>\.\.\. '
+stdout '^  plugin add\|rm <plugin>@<marketplace>\.\.\. '
 stdout '^  setting set <key> <value> '
 stdout '^  setting add <key> <value> '
 stdout '^  setting rm <key>\[=<value>\] '

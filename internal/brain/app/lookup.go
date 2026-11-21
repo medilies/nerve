@@ -63,6 +63,35 @@ func (a App) pushManifest(m domain.Manifest, message string, r Reporter) error {
 	return nil
 }
 
+// reachedHere is the working directory when a change to the project ref
+// names, or with every to every project, reaches the listed checkout
+// around it; "" when it reaches none. A checkout a sync would refuse, it
+// refuses before anything changes.
+func (a App) reachedHere(ref ProjectRef, every bool) (string, error) {
+	machine, err := a.Machine.Load()
+	if err != nil {
+		return "", err
+	}
+	t, project, err := a.here(machine, ref.Dir)
+	if err != nil || !every && ref.Project != "" && ref.Project != project {
+		return "", nil // no listed checkout here, or not its project: the change reaches none
+	}
+	if err := a.precheck(t); err != nil {
+		return "", fmt.Errorf("%s: %w", t.Top, err)
+	}
+	return ref.Dir, nil
+}
+
+// syncHere carries the Brain just pushed to the listed checkout around dir,
+// if any. The Brain is its remote's already: a sync of it would only drop
+// the user's work in it.
+func (a App) syncHere(dir string, r Reporter) error {
+	if dir == "" {
+		return nil
+	}
+	return a.Sync(SyncOptions{Dir: dir, Here: true, brainAsIs: true}, r)
+}
+
 // here returns the working tree around dir and the project its checkout is
 // listed under.
 func (a App) here(machine domain.Machine, dir string) (domain.Tree, string, error) {

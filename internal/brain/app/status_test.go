@@ -57,7 +57,7 @@ func TestStatusWithoutAMachineFileSaysSo(t *testing.T) {
 func TestCommandsOutsideAListedCheckoutSayHowToAddIt(t *testing.T) {
 	e := newEnv(t)
 	e.checkout("/w/app")
-	err := e.app.AddItem(target("/w/app"), "skill", "x", &recorder{})
+	err := e.app.AddItem(target("/w/app"), "skill", []string{"x"}, &recorder{})
 	if err == nil || err.Error() != "/w/app is not a listed checkout: run nerve project add <name> in it, or pass --project" {
 		t.Errorf("got %v", err)
 	}

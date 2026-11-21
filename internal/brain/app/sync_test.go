@@ -1017,7 +1017,7 @@ func TestAddItemRefusesAnOwnItemItsRemoteLacks(t *testing.T) {
 	e.brain.notPushed = map[string]bool{"skills/fresh": true, "agents/rev.md": true}
 
 	for _, item := range [][2]string{{"skill", "fresh"}, {"agent", "rev"}} {
-		err := e.app.AddItem(target("/w/app"), item[0], item[1], &recorder{})
+		err := e.app.AddItem(target("/w/app"), item[0], []string{item[1]}, &recorder{})
 		if err == nil || !strings.Contains(err.Error(), "is not on the Brain's remote yet, as it is here: nerve push it, then add it") {
 			t.Errorf("%s: got %v", item[1], err)
 		}

@@ -23,14 +23,14 @@ func brainCommands(e *env) []struct {
 	}{
 		{"project add", "nerve: add project fresh", func(r *recorder) error { return e.app.AddProject("/w/fresh", "fresh", r) }},
 		{"skill add", "nerve: add skill go-stack to project app", func(r *recorder) error {
-			return e.app.AddItem(target("/w/app"), "skill", "go-stack", r)
+			return e.app.AddItem(target("/w/app"), "skill", []string{"go-stack"}, r)
 		}},
 		{"skill rm", "nerve: remove skill tdd from project app", func(r *recorder) error {
-			return e.app.RemoveItem(target("/w/app"), "skill", "tdd", false, r)
+			return e.app.RemoveItem(target("/w/app"), "skill", []string{"tdd"}, false, r)
 		}},
 		{"skill rm --all", "nerve: remove skill tdd from every project", func(r *recorder) error {
 			e.project("app").Skills = []string{"tdd"}
-			return e.app.RemoveItem(target("/w/app"), "skill", "tdd", true, r)
+			return e.app.RemoveItem(target("/w/app"), "skill", []string{"tdd"}, true, r)
 		}},
 		{"setting set", "nerve: set model in project app", func(r *recorder) error {
 			return e.app.SetSetting(target("/w/app"), "model", "opus", false, r)
@@ -105,12 +105,12 @@ func TestACommandThatCannotBringTheRemoteChangesNothing(t *testing.T) {
 func TestACommandWhosePushFailsChangesNothing(t *testing.T) {
 	e := brainEnv(t)
 	e.brain.manifestPushErr = fmt.Errorf("%w: it has 1 commit", app.ErrRemoteMoved)
-	err := e.app.AddItem(target("/w/app"), "skill", "go-stack", &recorder{})
+	err := e.app.AddItem(target("/w/app"), "skill", []string{"go-stack"}, &recorder{})
 	if err == nil || !strings.Contains(err.Error(), "nothing changed: run the command again") || strings.Contains(err.Error(), "nerve push") {
 		t.Errorf("got %v", err)
 	}
 	e.brain.manifestPushErr = errors.New("cannot push: fatal: unable to access the remote")
-	err = e.app.AddItem(target("/w/app"), "skill", "go-stack", &recorder{})
+	err = e.app.AddItem(target("/w/app"), "skill", []string{"go-stack"}, &recorder{})
 	if err == nil || !strings.HasSuffix(err.Error(), ": nothing changed") {
 		t.Errorf("a push that fails again offers to run it again: %v", err)
 	}

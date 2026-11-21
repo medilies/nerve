@@ -18,10 +18,10 @@ stderr 'nerve sync --here -f'
 stdout '^drift    .*/proj/.claude/settings.local.json: model is "sonnet" here, "opus" in the Brain: left as is$'
 stdout '^personal .*/proj/.claude/settings.local.json: permissions.allow has "Bash\(make\)": kept, the Brain does not set it$'
 
-exec nerve setting add permissions.allow 'Bash(make)'
-! exec nerve sync --here
+# The change syncs this checkout, which still drifts on model.
+! exec nerve setting add permissions.allow 'Bash(make)'
 stdout '^drift    .*/proj/.claude/settings.local.json: model is "sonnet" here, "opus" in the Brain: left as is$'
-! stdout 'permissions.allow'
+! stdout '^personal'
 
 exec nerve sync --here -f
 grep '"model": "opus"' .claude/settings.local.json

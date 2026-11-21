@@ -56,6 +56,7 @@ Behaviour a review may take for a bug, kept on purpose. A review lists what it f
 - **A source's cache is trusted by its folder, and never evicted**, nor are the lock files beside it. It is renamed into place whole, and named by its commit. Fetches of one commit take turns. Only `update` replaces a download with no date beside it, once the new one is whole; a skill read through a link at that moment may miss its files.
 - **The cache needs file locks**, as the exclude lock does. On a filesystem without them, such as NFS without its lock service, fetching a source fails.
 - **`update --dry-run` reads `brain.json` as this machine holds it**, even behind its remote. It moves nothing, so the Brain's work not pushed never stops it; `nerve sync` first makes it the remote's. See [ADR 0013](adr/0013-update-dry-run.md).
+- **A listing command exits 1 when the checkout here drifts**, though its change is pushed. The sync it runs reports the drift, as `update` does. See [ADR 0014](adr/0014-listing-commands-sync-here.md).
 - **`update` shows commit dates in UTC.** A date then reads the same on every machine, whatever its time zone.
 - **A fetch checks out the whole repo, under git's two-minute bound.** A repo too big for it fails each time and caches nothing.
 - **`update` reads the whole diff before cutting it** at 256 KiB.

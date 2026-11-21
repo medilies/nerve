@@ -6,7 +6,10 @@ exec nerve init brain
 cd proj
 exec nerve project add app
 grep '"command": "[^"]* status --hook"' .claude/settings.local.json
-exec nerve skill add go-stack
+# From outside the checkout, which add would sync.
+cd $WORK
+exec nerve skill add go-stack --project app
+cd proj
 cp .claude/settings.local.json $WORK/before.json
 
 exec nerve status --hook

@@ -12,7 +12,9 @@ stderr 'git does not ignore .claude/settings.local.json: add \*\*/.claude/settin
 
 mv $WORK/ignore $HOME/.config/git/ignore
 exec nerve project add app
-exec nerve skill add go-stack
+cd $WORK
+exec nerve skill add go-stack --project app
+cd proj
 cp .claude/settings.local.json $WORK/before.json
 rm $HOME/.config/git/ignore
 

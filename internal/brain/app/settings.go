@@ -65,12 +65,24 @@ func (a App) AddSetting(ref ProjectRef, key string, item any, common bool, r Rep
 var errAlready = errors.New("already there")
 
 // changeSetting changes the settings of a project, its overlay, or common,
-// as change does to one of them, and reports it; item says change adds to a
-// list.
+// as change does to one of them, and reports it, then syncs the listed
+// checkout around the working directory when the change reaches it; item
+// says change adds to a list.
 func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool, r Reporter, change func(map[string]any, []string) (map[string]any, error)) error {
 	if err := onePlace(ref.Project, common, false); err != nil {
 		return err
 	}
+	here, err := a.reachedHere(ref, common)
+	if err != nil {
+		return err
+	}
+	if err := a.changeOneSetting(ref, key, v, common, item, r, change); err != nil {
+		return err
+	}
+	return a.syncHere(here, r)
+}
+
+func (a App) changeOneSetting(ref ProjectRef, key string, v any, common, item bool, r Reporter, change func(map[string]any, []string) (map[string]any, error)) error {
 	path, err := settingKey(key)
 	if err != nil {
 		return err
@@ -268,6 +280,17 @@ func (a App) RemoveSetting(ref ProjectRef, arg string, common, all bool, r Repor
 	if err := onePlace(ref.Project, common, all); err != nil {
 		return err
 	}
+	here, err := a.reachedHere(ref, common || all)
+	if err != nil {
+		return err
+	}
+	if err := a.removeSetting(ref, arg, common, all, r); err != nil {
+		return err
+	}
+	return a.syncHere(here, r)
+}
+
+func (a App) removeSetting(ref ProjectRef, arg string, common, all bool, r Reporter) error {
 	key, raw, hasValue := domain.CutItem(arg)
 	path, err := settingKey(key)
 	if err != nil {
