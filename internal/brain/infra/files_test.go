@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/medilies/nerve/internal/brain/domain"
 )
@@ -171,5 +172,17 @@ func TestGitIgnoresTheRepoAGitHookPointsAt(t *testing.T) {
 	top, err := git(inner, "rev-parse", "--show-toplevel")
 	if err != nil || trim(top) != inner {
 		t.Errorf("git ran in %q (%v), want %s", trim(top), err, inner)
+	}
+}
+
+func TestGitStopsAtTheRunsDeadline(t *testing.T) {
+	e := newTestEnv(t)
+	SetDeadline(time.Now().Add(-time.Second))
+	t.Cleanup(func() { SetDeadline(time.Time{}) })
+
+	_, err := git(e.path("."), "version")
+
+	if err == nil || !strings.Contains(err.Error(), "out of time") {
+		t.Errorf("got %v, want git stopped", err)
 	}
 }

@@ -207,6 +207,14 @@ func shortenHome(path string) string {
 // session start for long.
 const gitTimeout = 2 * time.Minute
 
+// deadline, when set, bounds every git command of this run, whatever its
+// own timeout: autosync must finish before Claude Code stops waiting.
+var deadline time.Time
+
+// SetDeadline makes every git command of this run stop by t; the zero time
+// lifts the bound.
+func SetDeadline(t time.Time) { deadline = t }
+
 // repoEnv are the variables that point git at one repo, as a git hook sets
 // them; nerve names each repo by its folder instead.
 var repoEnv = []string{
@@ -249,6 +257,11 @@ func git(dir string, args ...string) (string, error) { return gitWithin(gitTimeo
 func gitWithin(timeout time.Duration, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	late := !deadline.IsZero() && deadline.Before(time.Now().Add(timeout))
+	if late {
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.askPass="}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool {
@@ -261,7 +274,10 @@ func gitWithin(timeout time.Duration, dir string, args ...string) (string, error
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil {
+		switch {
+		case ctx.Err() != nil && late:
+			return stdout.String(), fmt.Errorf("git %s: out of time for this run", args[0])
+		case ctx.Err() != nil:
 			return stdout.String(), fmt.Errorf("git %s: no answer after %s", args[0], timeout)
 		}
 		var exit *exec.ExitError

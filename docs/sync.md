@@ -58,6 +58,9 @@ skipped, if it was.
 - When it links a skill, Claude Code rescans skills, so the skill is
   usable in that session.
 - It never fails the session: an error is part of the report.
+- It gives git five minutes in all, so Claude Code does not cancel it
+  first. A skill it could not fetch by then is reported, and comes at a
+  later sync.
 - `nerve project autosync off`, or `--all` for the Brain's default,
   takes the hook out at the next sync.
 

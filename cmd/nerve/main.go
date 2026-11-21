@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/medilies/nerve/internal/brain/app"
 	"github.com/medilies/nerve/internal/brain/domain"
@@ -137,6 +138,11 @@ func main() { os.Exit(cli(os.Args[1:], os.Stdout, os.Stderr)) }
 
 // cli runs nerve on args, printing to stdout and stderr, and returns its
 // exit code.
+// hookBudget bounds autosync's git commands, well under the 600 seconds
+// Claude Code gives a command hook before it cancels it and drops its
+// report.
+const hookBudget = 5 * time.Minute
+
 func cli(args []string, stdout, stderr io.Writer) int {
 	mode := infra.AsText
 	pos, f, err := parseFlags(args)
@@ -147,6 +153,7 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	switch {
 	case err == nil && f.hook && len(pos) > 0 && pos[0] == "sync": // only autosync's sync
 		mode = infra.AsHook
+		infra.SetDeadline(time.Now().Add(hookBudget))
 	case slices.Contains(flagArgs, "--json"): // even on a command line nerve refuses
 		mode = infra.AsJSON
 	}
