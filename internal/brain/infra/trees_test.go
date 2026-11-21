@@ -208,3 +208,22 @@ func TestSettingsReadAnEmptyFileOrOneAfterAByteOrderMarkAsNoSettings(t *testing.
 		})
 	}
 }
+
+func TestSettingsKeepEveryDigitOfAWholeNumberBeyondInt64(t *testing.T) {
+	e := newTestEnv(t)
+	path := e.path("proj/.claude/settings.local.json")
+	e.write(path, `{"uid": 18446744073709551615}`)
+	w := LocalTrees{}
+
+	s, err := w.ReadSettings(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.WriteSettings(path, s); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := e.read(path); !strings.Contains(got, `"uid": 18446744073709551615`) {
+		t.Errorf("written as %s", got)
+	}
+}

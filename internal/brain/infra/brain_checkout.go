@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -128,14 +129,14 @@ func (b BrainCheckout) Save(m domain.Manifest) error {
 			f.Hooks[name] = hookTable(h)
 		}
 	}
-	at := nullAt("common.settings", m.Common)
+	at := unfitAt("common.settings", m.Common)
 	for _, name := range domain.SortedKeys(m.Projects) {
 		if at == "" {
-			at = nullAt("project."+name+".settings", m.Projects[name].Settings)
+			at = unfitAt("project."+name+".settings", m.Projects[name].Settings)
 		}
 	}
 	if at != "" {
-		return fmt.Errorf("%s: %s: settings cannot hold null", domain.ManifestFile, at)
+		return fmt.Errorf("%s: %s: settings cannot hold null, or a whole number beyond 64 bits", domain.ManifestFile, at)
 	}
 	if len(m.Common) > 0 {
 		f.Common = &commonTable{Settings: forTOML(m.Common).(map[string]any)}
@@ -228,20 +229,38 @@ func unfit(key string, v any) string {
 	return ""
 }
 
-// nullAt names the first setting under key that holds null, which TOML
-// cannot, or "".
-func nullAt(key string, settings map[string]any) string {
+// unfitAt names the first setting under key that TOML cannot hold: null,
+// or a whole number beyond int64. "" when there is none.
+func unfitAt(key string, settings map[string]any) string {
 	for _, k := range domain.SortedKeys(settings) {
 		v := settings[k]
 		if sub, ok := v.(map[string]any); ok {
-			if at := nullAt(key+"."+k, sub); at != "" {
+			if at := unfitAt(key+"."+k, sub); at != "" {
 				return at
 			}
-		} else if domain.HasNull(v) {
+		} else if domain.HasNull(v) || holdsNumber(v) {
 			return key + "." + k
 		}
 	}
 	return ""
+}
+
+// holdsNumber says whether a value is or holds a json.Number: a whole
+// number beyond int64, which TOML cannot hold.
+func holdsNumber(v any) bool {
+	switch t := v.(type) {
+	case json.Number:
+		return true
+	case []any:
+		return slices.ContainsFunc(t, holdsNumber)
+	case map[string]any:
+		for _, x := range t {
+			if holdsNumber(x) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // forTOML turns decoded JSON into values TOML writes as people would: whole

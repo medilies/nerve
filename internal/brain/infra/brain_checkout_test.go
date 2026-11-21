@@ -298,6 +298,15 @@ func TestSettingsRoundTripBrainTomlWithEveryDigit(t *testing.T) {
 	}
 }
 
+func TestSaveRefusesAWholeNumberBrainTomlCannotHold(t *testing.T) {
+	e := newTestEnv(t)
+	m := domain.Manifest{Common: map[string]any{"a": map[string]any{"uid": domain.ParseValue("18446744073709551615")}}}
+
+	if err := NewBrainCheckout(e.path("brain")).Save(m); err == nil || !strings.Contains(err.Error(), "common.settings.a.uid") {
+		t.Errorf("got %v, want the key named", err)
+	}
+}
+
 func TestSaveNamesASettingThatHoldsNull(t *testing.T) {
 	e := newTestEnv(t)
 	m := domain.Manifest{Projects: map[string]*domain.Project{"app": {Settings: map[string]any{"a": []any{nil, 1}}}}}

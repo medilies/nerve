@@ -641,14 +641,18 @@ func ParseValue(s string) any {
 
 // Numbers makes each number in decoded JSON, read as json.Number, one that
 // compares equal to the same number written another way: an int64 when it
-// is whole and fits, so it keeps every digit, else a float64, as brain.toml
-// and Claude Code hold it. It changes objects and
-// lists in place.
+// is whole and fits, a float64 when it has a fraction or exponent, as
+// brain.toml and Claude Code hold it, and else the json.Number itself, so a
+// whole number beyond int64 keeps every digit. It changes objects and lists
+// in place.
 func Numbers(v any) any {
 	switch t := v.(type) {
 	case json.Number:
 		if i, err := t.Int64(); err == nil {
 			return i
+		}
+		if !strings.ContainsAny(string(t), ".eE") {
+			return t
 		}
 		if f, err := t.Float64(); err == nil {
 			return Numbers(f)

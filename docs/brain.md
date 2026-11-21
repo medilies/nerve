@@ -72,7 +72,8 @@ skills = ["research"]
 nerve rewrites `brain.toml` in this layout when a command changes it,
 so comments in it are not kept; `nerve skill update` only moves the pin.
 
-nerve refuses `inf`, `nan` and dates in settings.
+nerve refuses `inf`, `nan`, dates and whole numbers beyond 64 bits
+in settings.
 
 ## Nothing sensitive
 

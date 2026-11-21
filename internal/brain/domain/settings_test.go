@@ -423,9 +423,9 @@ func TestShowValueHidesTokensAndEmails(t *testing.T) {
 	}
 }
 
-func TestParseValueReadsAWholeNumberBeyondInt64AsAFloat(t *testing.T) {
-	if got, ok := domain.ParseValue("12345678901234567890").(float64); !ok || got != 12345678901234567890 {
-		t.Errorf("reads as %T %v", got, got)
+func TestParseValueKeepsEveryDigitOfAWholeNumberBeyondInt64(t *testing.T) {
+	if got := text(domain.ParseValue("12345678901234567890")); got != "12345678901234567890" {
+		t.Errorf("reads back as %s", got)
 	}
 }
 
