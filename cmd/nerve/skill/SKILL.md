@@ -11,7 +11,7 @@ nerve acts only when told. `nerve sync` brings the remote here: it makes the Bra
 
 ## What the user asks
 
-The user may not know nerve's commands. Their words are not commands: "update my Brain" may mean moving pins, cleaning a list, or syncing. Read what they ask in context, such as what you just offered. When more than one reading fits, ask, naming each option in plain words, before you run anything. Never run a command that pushes at once, such as `update`, `setting`, `skill add` or `project rm`, unless the user asked for that change.
+The user may not know nerve's commands. Their words are not commands: "update my Brain" may mean moving pins, cleaning a list, or syncing. Read what they ask in context, such as what you just offered. When more than one reading fits, ask, naming each option in plain words, before you run anything. Never run a command that pushes at once, such as `update`, `setting`, `skill add`, `allow` or `project rm`, unless the user asked for that change.
 
 ## /nerve on its own
 
@@ -45,10 +45,11 @@ Always add `--json`, then tell the user what happened in plain words. A command 
 | `nerve project ls` | The Brain's projects, and their checkouts on this machine. |
 | `nerve project rm <name>` | Clean its checkouts here, and drop it from the Brain. Its overlay stays. Ask first. |
 | `nerve skill add\|rm <name>`, `agent …`, `hook …`, `plugin add\|rm <plugin>@<marketplace>` | Change what the project lists. `rm --all` takes it out of every project. |
-| `nerve setting set <key> <value>` | Value is JSON or text. `--common` for every project. A setting the Brain does not allow goes to the project's overlay on its own; with `--common`, nerve refuses it. `allowedSettings` in `brain.json` allows more keys. A setting nerve allows takes only a value Claude Code takes there; the error says what fits. A key that holds a dot or `=` goes in double quotes: `enabledPlugins."x@y.z"`. |
+| `nerve setting set <key> <value>` | Value is JSON or text. `--common` for every project. A setting the Brain does not allow goes to the project's overlay on its own; with `--common`, nerve refuses it. `nerve allow add` allows more keys. A setting nerve allows takes only a value Claude Code takes there; the error says what fits. A key that holds a dot or `=` goes in double quotes: `enabledPlugins."x@y.z"`. |
 | `nerve setting add <key> <value>` | Add one item to a list, such as `permissions.allow`. `--common` and the overlay as for `set`. |
 | `nerve setting rm <key>[=<value>]` | Remove a key, or one item of a list, from the project and its overlay. `--common` from common; `--all` revokes it from common and every project. |
-| `nerve update [<repo>]` | Show how each source's skills changed at the source, pin and push the latest commit, then sync this project. Ask first. |
+| `nerve allow add\|rm <key>...` | Add keys to `allowedSettings`, or take them out. `add` refuses a key nerve allows itself; `rm` refuses one the Brain's settings still hold. |
+| `nerve update [<repo>]` | Show each source's pin and tip with their dates, and the files each skill changed; `--diff` adds the whole diff. Then pin and push the tip, and sync this project. It pushes at once: ask first. |
 | `nerve check` | Validate the Brain before pushing. |
 
 An entry of `sources` or `hooks` has no command: add it to `brain.json` by hand, `nerve check`, then `nerve push`.
@@ -91,18 +92,29 @@ A source's `repo` is on GitHub; `path`, optional, is where its skills are when n
 - **`personal`**: a setting here the Brain does not set, such as an approval in `permissions.allow` or one the project had before nerve. nerve keeps it, and reports it once. Offer to share it (`setting set`, `setting add`, `--common`) only when it looks useful elsewhere; otherwise leave it.
 - **`unlisted`**: this machine no longer lists a checkout: its folder is gone, or its project left the Brain, as `detail` says. `nerve project add` lists it again.
 - **`problem`**: propose a fix for each.
+- **`note`**: worth knowing, but not wrong, such as a key `allowedSettings` lists that nerve allows itself. Offer the command it names.
 - **`brain-synced`** with a `detail`: `sync -f` dropped local commits, changes or untracked files in the Brain, naming a few. Say so plainly.
 - **`brain-not-synced`**: the Brain was not made its remote's. Say why, and offer to set its upstream or check the remote.
 - **`pushed`**: the Brain's remote now holds this machine's Brain; `detail` is the commit's message.
 - **`overlay`**: a setting went to the project's local overlay, which never leaves the machine, for the reason `detail` gives.
-- **`diff`** from `update`: summarize what changed in the source, and call out anything that widens what a skill can do (new tools, scripts, network access). The pin is pushed already: to go back, set the old `sha` in `brain.json`, then `nerve push`.
+- **`tip`**, **`changed`** and **`same`** from `update`: show one table, a row per skill, from these events alone:
+
+  | Skill | Pinned (commit, date) | Tip (commit, date) | Summary |
+  | --- | --- | --- | --- |
+
+  - `tip` gives a source's `from`, `fromDate`, `target` and `targetDate`. Each skill's `key` names its source.
+  - For a `changed` skill, summarize its `files` in a few words. For a `same` one, write "no change".
+  - When a file may widen what the skill can do, such as a new script or tool, read it in the `changed` event's `path`, the skill's folder at the tip, and say so in the row.
+  - `--diff` adds the whole diff to the same run, and the pin still moves: add it only when the user asks to read the changes.
+  - The pin is pushed already: to go back, set the old `sha` in `brain.json`, then `nerve push`.
+  - nerve cannot show an update without moving the pin. When the user only wants to look, say so before running it.
 - **`cleaned`**: nerve took its links and settings out of a checkout, for the reason `detail` gives. Say so; nothing to do.
 - **`kept`**: nerve left a file it made, such as the local overlay of a removed project, which may hold a secret. Say where it is; delete it only when the user asks.
 - **`pinned`** and **`already-pinned`**: `update` moved and pushed a source's pin, or found it there already.
 
 ## Changing the Brain
 
-To change what Claude Code does, find the setting made for it first: know Claude Code's settings, or search its settings docs. `enableArtifact: false` turns artifacts off, for one. A permission rule on a tool's name is the fallback, when no setting does it. A key nerve does not allow goes in `allowedSettings` before `--common` takes it. nerve checks the value of a setting it allows, but not of one `allowedSettings` lists: check that value against Claude Code's settings docs before it goes in.
+To change what Claude Code does, find the setting made for it first: know Claude Code's settings, or search its settings docs. `enableArtifact: false` turns artifacts off, for one. A permission rule on a tool's name is the fallback, when no setting does it. A key nerve does not allow needs `nerve allow add` before `--common` takes it. nerve checks the value of a setting it allows, but not of one `allowedSettings` lists: check that value against Claude Code's settings docs before it goes in.
 
 1. Prefer the CLI. Write a new own skill or agent in the Brain's `skills/` or `agents/`, `nerve check --json`, then `nerve push --json "<message>"` it, as in step 4, before `nerve skill add` (or `agent add`) puts it in `brain.json`.
 2. Ask whether a change is for this project or every project, when it is unclear. Default to this project: nothing should reach a project that does not need it.

@@ -31,6 +31,7 @@ Ideas left out of [ADR 0005](adr/0005-projects-opt-in.md) to keep it minimal. Ta
   - The project names the account, never by its email.
 - **Sweeping a killed run's temp files.** A run killed mid-write leaves `.<file>.<random>` beside the file, such as one in the Brain that git shows as untracked. A sweep needs a name only nerve makes, so it never deletes a file of the user's.
 - **The remote in the session report.** Fetch at session start, to say when the Brain's remote is ahead. Today the report reads only this machine.
+- **One repo, several folders.** A source entry has one `path`, and a repo has one entry, so a repo whose skills sit in two folders, such as `skills/engineering/` and `skills/productivity/`, gives skills from only one. Allowing a repo once per `path` needs `update` to find an entry by repo and path, and to move every entry of a repo to its tip together. The one-entry rule came with commit `1db3efb`, when `update` moved only the first entry of a repo and left the other behind unnoticed.
 - **Reading an update before it lands.** `nerve update` pushes the new pin and syncs at once ([ADR 0010](adr/0010-brain-toml-in-step.md)). A dry run would show the diff first, for a source the user does not trust.
 - **Checking a hook's event.** Refuse a hook in `hooks` whose event Claude Code does not have. A list kept in nerve goes stale as Claude Code adds events, and would then refuse a valid one.
 - **Checking git's version.** Say "nerve needs git 2.31" rather than show git's own error on an older git.

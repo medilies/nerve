@@ -67,7 +67,7 @@ A worktree is a checkout like any other: it gets nerve once
 
 A command that changes `brain.json` pushes it at once: `project add`
 and `rm`, `skill`, `agent`, `hook` and `plugin` `add` and `rm`,
-`setting set`, `add` and `rm`, and `update`.
+`setting set`, `add` and `rm`, `allow add` and `rm`, and `update`.
 
 - It first takes the remote's new commits, so it changes `brain.json` as
   the remote holds it.

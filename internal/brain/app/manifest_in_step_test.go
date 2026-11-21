@@ -45,7 +45,12 @@ func brainCommands(e *env) []struct {
 			e.project("app").Settings = map[string]any{"outputStyle": "x"}
 			return e.app.RemoveSetting(target("/w/app"), "outputStyle", false, false, r)
 		}},
-		{"update", "nerve: pin acme/up at " + pinB[:7], func(r *recorder) error { return e.app.Update("/w/app", "", r) }},
+		{"allow add", "nerve: allow statusLine", func(r *recorder) error { return e.app.AllowSettings([]string{"statusLine"}, r) }},
+		{"allow rm", "nerve: stop allowing statusLine", func(r *recorder) error {
+			e.brain.m.AllowedSettings = []string{"statusLine"}
+			return e.app.RemoveAllowedSettings([]string{"statusLine"}, r)
+		}},
+		{"update", "nerve: pin acme/up at " + pinB[:7], func(r *recorder) error { return e.app.Update("/w/app", "", false, r) }},
 		{"project rm", "nerve: remove project app", func(r *recorder) error { return e.app.RemoveProject("app", r) }},
 	}
 }
@@ -57,7 +62,7 @@ func brainEnv(t *testing.T) *env {
 	e.ownSkill("go-stack")
 	e.ownSkill("tdd")
 	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
-	e.sources.heads["acme/up"] = pinB
+	e.sources.tips["acme/up"] = pinB
 	e.sources.skills["acme/up@"+pinB+"/grilling"] = domain.Skill{}
 	return e
 }
@@ -149,7 +154,7 @@ func TestAProjectAddSyncsTheCheckoutButNotTheBrainItJustPushed(t *testing.T) {
 func TestUpdateSyncsTheListedCheckoutAroundTheWorkingDirectory(t *testing.T) {
 	e := brainEnv(t)
 	r := &recorder{}
-	e.must(r, e.app.Update("/w/app", "", r))
+	e.must(r, e.app.Update("/w/app", "", false, r))
 	// The Brain is its remote's once the pin is pushed: a sync of the Brain
 	// would only drop the user's work in it.
 	if e.brain.syncs != 0 {
@@ -162,7 +167,7 @@ func TestUpdateOutsideAListedCheckoutOnlyMovesPins(t *testing.T) {
 	e := brainEnv(t)
 	e.checkout("/w/elsewhere")
 	r := &recorder{}
-	e.must(r, e.app.Update("/w/elsewhere", "", r))
+	e.must(r, e.app.Update("/w/elsewhere", "", false, r))
 	if e.brain.syncs != 0 || len(e.brain.manifestPushes) != 1 {
 		t.Errorf("syncs %d, manifestPushes %q", e.brain.syncs, e.brain.manifestPushes)
 	}
@@ -172,10 +177,10 @@ func TestUpdateReportsAPinOnlyOnceItIsPushed(t *testing.T) {
 	e := brainEnv(t)
 	e.brain.manifestPushErr = errors.New("git push: rejected")
 	r := &recorder{}
-	if err := e.app.Update("/w/app", "", r); err == nil {
+	if err := e.app.Update("/w/app", "", false, r); err == nil {
 		t.Fatal("no error")
 	}
-	if strings.Contains(r.String(), "pinned") {
+	if slices.ContainsFunc(r.events, func(e app.Event) bool { return e.Kind == app.EvPinned }) {
 		t.Errorf("reported a pin that was not pushed:\n%s", r)
 	}
 }
@@ -183,7 +188,7 @@ func TestUpdateReportsAPinOnlyOnceItIsPushed(t *testing.T) {
 func TestUpdateWithNoSourcesSaysSo(t *testing.T) {
 	e := newEnv(t)
 	r := &recorder{}
-	e.must(r, e.app.Update("/w", "", r))
+	e.must(r, e.app.Update("/w", "", false, r))
 	contains(t, r, "brain.json has no sources to update")
 }
 
@@ -214,7 +219,7 @@ func TestUpdateOutsideAListedCheckoutSaysNothingHereIsSynced(t *testing.T) {
 	e.checkout("/w/elsewhere")
 	r := &recorder{}
 
-	e.must(r, e.app.Update("/w/elsewhere", "", r))
+	e.must(r, e.app.Update("/w/elsewhere", "", false, r))
 
 	contains(t, r, "no listed checkout here: nerve sync carries the new pins to each one")
 }

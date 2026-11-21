@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"time"
 
 	"github.com/medilies/nerve/internal/brain/domain"
 )
@@ -60,10 +61,30 @@ type Agent struct {
 type Sources interface {
 	// Skill finds a skill in a source at its pin.
 	Skill(src domain.Source, name string) (domain.Skill, error)
-	// Head is the tip of a repo's default branch.
-	Head(repo string) (string, error)
+	// Tip is the commit at the end of a repo's default branch.
+	Tip(repo string) (string, error)
 	// Diff is how a skill differs between a source's pin and commit to.
-	Diff(src domain.Source, name, to string) (string, error)
+	Diff(src domain.Source, name, to string) (SkillDiff, error)
+	// Committed is when a repo's commit was made.
+	Committed(repo, sha string) (time.Time, error)
+}
+
+// SkillDiff is how a skill differs between two commits of its source: the
+// files that changed, none when it did not, the text of the change, and
+// the skill's folder at the later commit.
+type SkillDiff struct {
+	Files []FileChange
+	Text  string
+	Dir   string
+}
+
+// FileChange is one file of a skill that changed, its path in the skill
+// folder, with the lines added and removed; a binary file has no lines.
+type FileChange struct {
+	Path    string `json:"path"`
+	Added   int    `json:"added"`
+	Removed int    `json:"removed"`
+	Binary  bool   `json:"binary,omitempty"`
 }
 
 // Machine is what this machine keeps and the Brain never holds: the machine

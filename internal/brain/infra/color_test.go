@@ -22,6 +22,13 @@ func TestAColorReportColorsEachLabelByWhatItMeans(t *testing.T) {
 		{app.Event{Kind: app.EvUpToDate, Project: "app", Target: "aaaaaaaaaa", Path: "/w"}, "\x1b[2mapp is up to date at aaaaaaa in /w\x1b[0m\n"},
 		{app.Event{Kind: app.EvDiff, Item: "x", Detail: "@@ -1 +1 @@\n-old\n+new"}, "\x1b[36m@@ -1 +1 @@\x1b[0m\n\x1b[31m-old\x1b[0m\n\x1b[32m+new\x1b[0m\n"},
 		{app.Event{Kind: app.EvDiff, Item: "x", Detail: "diff --git a/x b/x\n--- a/x\n+++ b/x"}, "\x1b[1mdiff --git a/x b/x\x1b[0m\n\x1b[1m--- a/x\x1b[0m\n\x1b[1m+++ b/x\x1b[0m\n"},
+		{app.Event{Kind: app.EvTip, Key: "a/b", From: "aaaaaaaa", FromDate: "d1", Target: "bbbbbbbb", TargetDate: "d2"}, "\x1b[36mtip\x1b[0m      a/b: pinned at aaaaaaa (d1), tip bbbbbbb (d2)\n"},
+		{app.Event{Kind: app.EvAllowed, Key: "k"}, "\x1b[32mallowed\x1b[0m  k\n"},
+		{app.Event{Kind: app.EvDisallowed, Key: "k"}, "\x1b[35mdropped\x1b[0m  k from allowedSettings\n"},
+		{app.Event{Kind: app.EvNote, Path: "b", Detail: "d"}, "\x1b[33mnote\x1b[0m     b: d\n"},
+		{app.Event{Kind: app.EvSame, Item: "skill x"}, "\x1b[2msame     skill x\x1b[0m\n"},
+		{app.Event{Kind: app.EvChanged, Item: "skill x", Files: []app.FileChange{{Path: "f", Added: 1}}}, "\x1b[33mchanged\x1b[0m  skill x: f +1 -0\n"},
+		{app.Event{Kind: app.EvChanged, Item: "skill x", Files: []app.FileChange{{Path: "f", Added: 1}}, Detail: "@@ -0 +1 @@\n+new"}, "\x1b[33mchanged\x1b[0m  skill x: f +1 -0\n\x1b[36m@@ -0 +1 @@\x1b[0m\n\x1b[32m+new\x1b[0m\n"},
 	} {
 		var out bytes.Buffer
 		NewReport(&out, AsText).WithColor(true).Add(c.e)

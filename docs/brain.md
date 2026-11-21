@@ -50,7 +50,8 @@ reasoning is in [ADR 0005](adr/0005-projects-opt-in.md),
 ```
 
 - **`allowedSettings`** lists settings keys the Brain may hold beyond
-  those nerve allows. See [Allowed settings](#allowed-settings).
+  those nerve allows. `nerve allow add` and `nerve allow rm` change it.
+  See [Allowed settings](#allowed-settings).
 - **`sources`** lists third-party repos on GitHub, each at a full commit,
   and the skills used from it. Each repo has one entry. A link in a
   source arrives as a plain file holding its target. Skill, agent, hook
@@ -61,9 +62,14 @@ reasoning is in [ADR 0005](adr/0005-projects-opt-in.md),
     one of them only.
   - `path` names another folder to look in instead, such as
     `"path": "plugins/x/skills"`.
-  - `nerve update [<repo>]` shows how each source's skills changed at
-    the tip of its default branch, pins and pushes that commit, then
-    syncs the listed checkout around the working directory.
+  - All of an entry's skills come from that one folder. A repo that
+    keeps skills in two folders, such as `skills/engineering/` and
+    `skills/productivity/`, gives skills from only one of them.
+  - `nerve update [<repo>]` shows each source's pin and the tip of its
+    default branch, with the date of each, and the files each of its
+    skills changed, with their lines added and removed. `--diff` shows
+    the whole diff too. Then it pins and pushes the tip, and syncs the
+    listed checkout around the working directory.
 - **`hooks`** defines Claude Code hooks by name. `{{brain}}` in any
   value becomes the Brain's checkout path.
 - **`common.settings`** holds the only settings that reach more than
@@ -99,6 +105,12 @@ A Brain holds only allowed settings, and everything under them:
 - those `allowedSettings` lists, such as `"statusLine"` or
   `'extraKnownMarketplaces."acme.tools"'`. nerve does not check what
   they hold.
+  - `nerve allow add <key>...` adds keys. It refuses a key nerve allows
+    itself.
+  - `nerve allow rm <key>...` takes keys out. It refuses one whose
+    settings the Brain still holds: `nerve setting rm` them first.
+  - `nerve check` notes each key it lists that nerve allows itself,
+    without failing.
 
 `hooks` and `enabledPlugins` are never allowed: nerve writes them from
 `hooks` and `plugins`, and `allowedSettings` cannot list them.

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/medilies/nerve/internal/brain/domain"
 )
@@ -134,11 +135,11 @@ func (a App) agentFile(path string) bool {
 }
 
 // Update moves the pin of each source, or of repo alone, to the tip of its
-// default branch, first showing how each of its skills changed, and pushes
-// the new pins. Then it syncs the listed checkout around dir, if any, so
-// the project here gets them. A source that cannot move is reported, and
+// default branch, first showing how each of its skills changed, with the
+// whole diff when full, and pushes the new pins. Then it syncs the listed
+// checkout around dir, if any, so the project here gets them. A source that cannot move is reported, and
 // the others still do.
-func (a App) Update(dir, repo string, r Reporter) error {
+func (a App) Update(dir, repo string, full bool, r Reporter) error {
 	l, err := a.fresh(r)
 	if err != nil {
 		return err
@@ -159,7 +160,7 @@ func (a App) Update(dir, repo string, r Reporter) error {
 		if repo != "" && src.Repo != repo {
 			continue
 		}
-		sha, err := a.pinTip(src, r)
+		sha, err := a.pinTip(src, full, r)
 		switch {
 		case err != nil:
 			r.Add(Event{Kind: EvProblem, Path: domain.ManifestFile, Key: src.Repo, Detail: err.Error()})
@@ -199,22 +200,40 @@ func (a App) Update(dir, repo string, r Reporter) error {
 }
 
 // pinTip finds the tip of a source's default branch and reports how each of
-// its skills changed since the pin.
-func (a App) pinTip(src domain.Source, r Reporter) (string, error) {
-	sha, err := a.Sources.Head(src.Repo)
+// its skills changed since the pin, with the whole diff when full.
+func (a App) pinTip(src domain.Source, full bool, r Reporter) (string, error) {
+	sha, err := a.Sources.Tip(src.Repo)
 	if err != nil || sha == src.SHA {
 		return sha, err
 	}
-	var diffs []Event
+	from, err := a.Sources.Committed(src.Repo, src.SHA)
+	if err != nil {
+		return "", err
+	}
+	to, err := a.Sources.Committed(src.Repo, sha)
+	if err != nil {
+		return "", err
+	}
+	events := []Event{{Kind: EvTip, Key: src.Repo, From: src.SHA, FromDate: day(from), Target: sha, TargetDate: day(to)}}
 	for _, name := range src.Skills {
 		d, err := a.Sources.Diff(src, name, sha)
 		if err != nil {
 			return "", err
 		}
-		diffs = append(diffs, Event{Kind: EvDiff, Item: "skill " + name, Detail: d})
+		e := Event{Kind: EvSame, Key: src.Repo, Item: "skill " + name}
+		if len(d.Files) > 0 {
+			e.Kind, e.Files, e.Path = EvChanged, d.Files, d.Dir
+			if full {
+				e.Detail = d.Text
+			}
+		}
+		events = append(events, e)
 	}
-	for _, e := range diffs {
+	for _, e := range events {
 		r.Add(e)
 	}
 	return sha, nil
 }
+
+// day is the date of t, in UTC.
+func day(t time.Time) string { return t.UTC().Format(time.DateOnly) }

@@ -22,6 +22,11 @@ func (a App) Check(r Reporter) error {
 	for _, e := range p {
 		r.Add(problemEvent(e))
 	}
+	for _, key := range m.AllowedSettings {
+		if path, err := domain.ParseKey(key); err == nil && domain.NerveAllows(path) {
+			r.Add(Event{Kind: EvNote, Path: domain.ManifestFile, Detail: fmt.Sprintf("allowedSettings lists %s, which nerve allows itself: nerve allow rm %s", key, domain.ShellWord(key))})
+		}
+	}
 	if len(p) > 0 {
 		if len(p) == 1 {
 			return errors.New("1 problem")

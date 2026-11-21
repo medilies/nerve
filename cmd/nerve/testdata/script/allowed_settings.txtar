@@ -1,18 +1,21 @@
 # A Brain holds only allowed settings: nerve's own, and those its
-# allowedSettings adds. Any other goes to the local overlay. What an
-# allowed setting holds is the user's to judge.
+# allowedSettings adds, which nerve allow add and rm change. Any other goes
+# to the local overlay. What an allowed setting holds is the user's to judge.
 
 exec nerve init brain
 cd proj
 exec nerve project add app
 
 exec nerve setting set statusLine.command '~/bin/line'
-stdout '^overlay  statusLine.command set in .*overlays/app.json: not an allowed setting: list it in allowedSettings to share it$'
+stdout '^overlay  statusLine.command set in .*overlays/app.json: not an allowed setting: run nerve allow add statusLine.command to share it$'
 ! grep statusLine $HOME/brain/brain.json
 
 exec nerve setting rm statusLine.command
-cp $HOME/allowed.json $HOME/brain/brain.json
-exec nerve push 'allow statusLine'
+exec nerve allow add statusLine mcpServers
+stdout '^allowed  statusLine$'
+stdout '^pushed   the Brain at [0-9a-f]{7}: nerve: allow statusLine, mcpServers$'
+! exec nerve allow add effortLevel
+stderr '^error: nerve allows effortLevel itself: it needs no entry in allowedSettings$'
 exec nerve setting set statusLine.command '~/bin/line'
 stdout '^set      brain.json \(project app\): statusLine.command = "~/bin/line"$'
 grep '^  "allowedSettings": \[\n    "statusLine",\n    "mcpServers"\n  \],$' $HOME/brain/brain.json
@@ -20,18 +23,31 @@ grep '^  "allowedSettings": \[\n    "statusLine",\n    "mcpServers"\n  \],$' $HO
 exec nerve setting set mcpServers.db.headers.X-Api-Key k
 stdout '^set      brain.json \(project app\): mcpServers.db.headers.X-Api-Key = "k"$'
 
+# A key the Brain's settings hold stays allowed until they are removed.
+! exec nerve allow rm mcpServers
+stderr '^error: projects.app.settings.mcpServers.db.headers.X-Api-Key holds it: nerve setting rm --project app mcpServers.db.headers.X-Api-Key first$'
+exec nerve setting rm mcpServers
+exec nerve allow rm mcpServers
+stdout '^dropped  mcpServers from allowedSettings$'
+grep '^  "allowedSettings": \[\n    "statusLine"\n  \],$' $HOME/brain/brain.json
+
+# check notes a key nerve allows itself, and does not fail on it.
+cp $HOME/twice.json $HOME/brain/brain.json
+exec nerve check
+stdout '^note     brain.json: allowedSettings lists effortLevel, which nerve allows itself: nerve allow rm effortLevel$'
+
 cp $HOME/other.json $HOME/brain/brain.json
 ! exec nerve check
-stdout '^problem  brain.json: common.settings.sandbox.enabled: not an allowed setting: list it in allowedSettings, or '
+stdout '^problem  brain.json: common.settings.sandbox.enabled: not an allowed setting: run nerve allow add sandbox.enabled, or '
 ! stdout DB_PASSWORD
 
 cp $HOME/never.json $HOME/brain/brain.json
 ! exec nerve check
 stderr 'allowedSettings: "hooks.Stop" is written by nerve from hooks and plugins'
 
--- allowed.json --
+-- twice.json --
 {
-  "allowedSettings": ["statusLine", "mcpServers"],
+  "allowedSettings": ["effortLevel"],
   "projects": {"app": {}}
 }
 -- other.json --

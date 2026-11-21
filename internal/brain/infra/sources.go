@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -21,7 +23,7 @@ var _ app.Sources = SourceCache{}
 func repoURL(repo string) string { return "https://github.com/" + repo + ".git" }
 
 func (c SourceCache) Skill(src domain.Source, name string) (domain.Skill, error) {
-	tree, err := fetch(src.Repo, src.SHA)
+	tree, err := fetch(src.Repo, src.SHA, false)
 	if err != nil {
 		return domain.Skill{}, err
 	}
@@ -32,59 +34,123 @@ func (c SourceCache) Skill(src domain.Source, name string) (domain.Skill, error)
 	return readSkill(name, dir, src.Repo)
 }
 
-func (SourceCache) Head(repo string) (string, error) {
+func (SourceCache) Tip(repo string) (string, error) {
 	out, err := git("", "ls-remote", "--", repoURL(repo), "HEAD")
 	if err != nil {
 		return "", err
 	}
 	sha, _, _ := strings.Cut(out, "\t")
 	if !domain.SHAPattern.MatchString(sha) {
-		return "", fmt.Errorf("no HEAD for %s", repo)
+		return "", fmt.Errorf("%s has no default branch", repo)
 	}
 	return sha, nil
 }
 
-func (SourceCache) Diff(src domain.Source, name, to string) (string, error) {
-	oldTree, err := fetch(src.Repo, src.SHA)
+func (SourceCache) Committed(repo, sha string) (time.Time, error) {
+	dir, err := fetch(repo, sha, true)
 	if err != nil {
-		return "", err
+		return time.Time{}, err
 	}
-	newTree, err := fetch(src.Repo, to)
+	when, ok := readDate(dir + ".date")
+	if !ok {
+		return time.Time{}, fmt.Errorf("%s@%s: no date in the cache", repo, sha[:7])
+	}
+	return when, nil
+}
+
+// readDate reads the date file fetch writes beside a download.
+func readDate(path string) (time.Time, bool) {
+	b, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return time.Time{}, false
+	}
+	when, err := time.Parse(time.RFC3339, strings.TrimSpace(string(b)))
+	return when, err == nil
+}
+
+func (SourceCache) Diff(src domain.Source, name, to string) (app.SkillDiff, error) {
+	oldTree, err := fetch(src.Repo, src.SHA, true)
+	if err != nil {
+		return app.SkillDiff{}, err
+	}
+	newTree, err := fetch(src.Repo, to, true)
+	if err != nil {
+		return app.SkillDiff{}, err
 	}
 	oldDir, err := findSkill(oldTree, src.Path, name)
 	if err != nil {
-		return "", fmt.Errorf("at its pin %s: %w; fix the pin in %s first", src.SHA[:7], err, domain.ManifestFile)
+		return app.SkillDiff{}, fmt.Errorf("at its pin %s: %w; fix the pin in %s first", src.SHA[:7], err, domain.ManifestFile)
 	}
 	newDir, err := findSkill(newTree, src.Path, name)
 	if err != nil {
-		return "", fmt.Errorf("at %s: %w; drop it from %s first", to[:7], err, domain.ManifestFile)
+		return app.SkillDiff{}, fmt.Errorf("at %s: %w; drop it from %s first", to[:7], err, domain.ManifestFile)
 	}
 	// The source's own text only: no diff tool or text conversion of the
 	// user's, and shown as visible says.
 	// Named from the cache folder both commits sit in, as <commit>/<path>:
 	// the cache's own path tells the reader nothing.
-	dir, from, to := "", oldDir, newDir
+	dir, before, after := "", oldDir, newDir
 	if parent := filepath.Dir(oldTree); parent == filepath.Dir(newTree) {
 		if a, err := filepath.Rel(parent, oldDir); err == nil {
 			if b, err := filepath.Rel(parent, newDir); err == nil {
-				dir, from, to = parent, a, b
+				dir, before, after = parent, a, b
 			}
 		}
 	}
-	out, err := git(dir, "diff", "--no-index", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=", "--dst-prefix=", "--", from, to)
+	diff := []string{"diff", "--no-index", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=", "--dst-prefix="}
+	stat, err := git(dir, append(diff, "--numstat", "-z", "--", before, after)...)
 	if err != nil && exitCode(err) != 1 { // 1: they differ
-		return "", err
+		return app.SkillDiff{}, err
 	}
+	out, err := git(dir, append(diff, "--", before, after)...)
+	if err != nil && exitCode(err) != 1 {
+		return app.SkillDiff{}, err
+	}
+	d := app.SkillDiff{Files: numstat(stat, before, after), Dir: newDir}
 	var b strings.Builder
 	for _, r := range out {
 		if b.Len() >= maxDiff {
-			return b.String() + fmt.Sprintf("\n… the diff is cut at %d bytes: read the rest in %s\n", maxDiff, newDir), nil
+			d.Text = b.String() + fmt.Sprintf("\n… the diff is cut at %d bytes: read the rest in %s\n", maxDiff, newDir)
+			return d, nil
 		}
 		writeVisible(&b, r)
 	}
-	return b.String(), nil
+	d.Text = b.String()
+	return d, nil
+}
+
+// numstat reads git's --numstat -z output of a diff between the folders
+// from and to: each file by its path in them, with its lines.
+func numstat(out, from, to string) []app.FileChange {
+	var files []app.FileChange
+	fields := strings.Split(out, "\x00")
+	for i := 0; i < len(fields); i++ {
+		counts := strings.SplitN(fields[i], "\t", 3)
+		if len(counts) < 3 {
+			continue
+		}
+		path, in := counts[2], ""
+		if path == "" && i+2 < len(fields) { // a pair: the old path, then the new
+			path, in = fields[i+2], to
+			if path == "/dev/null" { // removed
+				path, in = fields[i+1], from
+			}
+			i += 2
+		}
+		if in != "" {
+			path = strings.TrimPrefix(path, in+"/")
+		} else if p, ok := strings.CutPrefix(path, from+"/"); ok {
+			path = p
+		} else {
+			path = strings.TrimPrefix(path, to+"/")
+		}
+		path = strings.NewReplacer("\n", "<U+000A>", "\t", "<U+0009>").Replace(Visible(path)) // one line
+		f := app.FileChange{Path: path, Binary: counts[0] == "-"}
+		f.Added, _ = strconv.Atoi(counts[0])
+		f.Removed, _ = strconv.Atoi(counts[1])
+		files = append(files, f)
+	}
+	return files
 }
 
 // Visible is s with no control character that a terminal would act on, and
@@ -114,17 +180,31 @@ func writeVisible(b *strings.Builder, r rune) {
 const maxDiff = 256 << 10
 
 // fetch returns the files of repo at sha, cached under the user cache dir.
-func fetch(repo, sha string) (string, error) {
+// dated asks for a download that knows when its commit was made: one from
+// before nerve kept dates is downloaded again, and replaced once the new
+// one is whole.
+func fetch(repo, sha string, dated bool) (string, error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
 	dir := filepath.Join(cache, "nerve", "sources", repo, sha)
-	if _, err := os.Stat(dir); err == nil {
-		return dir, nil
-	}
+	date := dir + ".date" // when the commit was made, written once dir is in place
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return "", err
+	}
+	// One fetch of a commit at a time, so none reads a download another
+	// replaces.
+	unlock, err := lock(dir + ".lock")
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	if _, err := os.Stat(dir); err == nil && !dated {
+		return dir, nil
+	}
+	if _, ok := readDate(date); ok && fileExists(dir) {
+		return dir, nil
 	}
 	sweep(filepath.Dir(dir))
 	// Each fetch in its own folder: two syncs may fetch the same pin at once.
@@ -157,26 +237,62 @@ func fetch(repo, sha string) (string, error) {
 			return "", fmt.Errorf("fetch %s@%s: %w", repo, sha[:7], err)
 		}
 	}
+	when, err := git(tmp, "-c", "core.hooksPath=/dev/null", "show", "-s", "--format=%cI", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("fetch %s@%s: %w", repo, sha[:7], err)
+	}
 	// The files only: a skill that is the whole repo carries no .git.
 	if err := os.RemoveAll(filepath.Join(tmp, ".git")); err != nil {
 		return "", err
 	}
-	if err := os.Rename(tmp, dir); err != nil {
-		if _, serr := os.Stat(dir); serr == nil { // another fetch got there first
-			return dir, nil
+	if _, ok := readDate(date); !ok {
+		// A download with no date is set aside, as a killed fetch's
+		// folder that sweep removes, so links into dir break only for
+		// the moment the new one takes its place.
+		old := tmp + "-old"
+		if err := os.Rename(dir, old); err == nil {
+			defer func() { _ = os.RemoveAll(old) }()
 		}
+	}
+	if err := os.Rename(tmp, dir); err != nil {
+		// A folder that stays there is a download of the same commit, by
+		// a nerve that takes no lock, or one that could not be set aside.
+		if _, serr := os.Stat(dir); serr != nil {
+			return "", err
+		}
+	}
+	// Whole or not at all: a reader never sees half a date.
+	part := tmp + ".date"
+	if err := os.WriteFile(part, []byte(strings.TrimSpace(when)+"\n"), 0o644); err != nil {
+		return "", err
+	}
+	if err := os.Rename(part, date); err != nil {
+		_ = os.Remove(part)
 		return "", err
 	}
 	return dir, nil
 }
 
-// sweep removes the folders of fetches into dir that were killed: older
-// than any fetch can run. dir is nerve's own, in its cache.
+// lock holds the lock file at path until the returned func runs.
+func lock(path string) (func(), error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return func() { _ = f.Close() }, nil // closing releases the lock
+}
+
+// sweep removes the folders and date files of fetches into dir that were
+// killed: older than any fetch can run. dir is nerve's own, in its cache.
 func sweep(dir string) {
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		tmp := filepath.Join(dir, e.Name())
-		if fi, err := e.Info(); err == nil && e.IsDir() && strings.Contains(e.Name(), ".tmp-") && time.Since(fi.ModTime()) > time.Hour {
+		if fi, err := e.Info(); err == nil && strings.Contains(e.Name(), ".tmp-") && time.Since(fi.ModTime()) > time.Hour {
 			_ = os.RemoveAll(tmp)
 		}
 	}

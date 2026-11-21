@@ -109,9 +109,9 @@ func TestRefusalsRefuseASettingNoListAllows(t *testing.T) {
 		}}},
 	}
 
-	want := "common.settings.includeCoAuthoredBy: not an allowed setting: list it in allowedSettings, or run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay\n" +
-		"common.settings.statusLine.command: not an allowed setting: list it in allowedSettings, or run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay\n" +
-		"projects.app.settings.permissions.additionalDirectories: not an allowed setting: list it in allowedSettings, or run nerve setting rm --project app on it, then nerve setting set --project app, which keeps it in the local overlay"
+	want := "common.settings.includeCoAuthoredBy: not an allowed setting: run nerve allow add includeCoAuthoredBy, or run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay\n" +
+		"common.settings.statusLine.command: not an allowed setting: run nerve allow add statusLine.command, or run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay\n" +
+		"projects.app.settings.permissions.additionalDirectories: not an allowed setting: run nerve allow add permissions.additionalDirectories, or run nerve setting rm --project app on it, then nerve setting set --project app, which keeps it in the local overlay"
 	if got := refusals(m); got != want {
 		t.Errorf("problems are\n%s\nwant\n%s", got, want)
 	}
@@ -192,5 +192,50 @@ func TestValidateRefusesOneRepoInTwoSourcesWhateverTheCase(t *testing.T) {
 
 	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "is in sources twice") {
 		t.Errorf("got %v", err)
+	}
+}
+
+func TestNerveAllowsAKeyOfItsOwnAndWhatIsUnderIt(t *testing.T) {
+	for key, want := range map[string]bool{
+		"effortLevel":          true,
+		"attribution.commit":   true,
+		"permissions.allow":    true,
+		"permissions":          false, // wider than nerve's permissions keys
+		"statusLine":           false,
+		"effortLevelX":         false,
+		`modelSettings."a.b"`:  true,
+		"permissions.allowXYZ": false,
+	} {
+		path, err := domain.ParseKey(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := domain.NerveAllows(path); got != want {
+			t.Errorf("%s: got %v, want %v", key, got, want)
+		}
+	}
+}
+
+func TestShellWordQuotesOnlyWhatAShellWouldChange(t *testing.T) {
+	for in, want := range map[string]string{
+		"statusLine.command":                  "statusLine.command",
+		"mcpServers.db.headers.X-Api-Key":     "mcpServers.db.headers.X-Api-Key",
+		`extraKnownMarketplaces."acme.tools"`: `'extraKnownMarketplaces."acme.tools"'`,
+		`a."it's"`:                            `'a."it'\''s"'`,
+		"a b":                                 "'a b'",
+	} {
+		if got := domain.ShellWord(in); got != want {
+			t.Errorf("%s: got %s, want %s", in, got, want)
+		}
+	}
+}
+
+func TestARefusalNamesTheAllowCommandAsAShellTakesIt(t *testing.T) {
+	m := domain.Manifest{Common: map[string]any{"extraKnownMarketplaces": map[string]any{"acme.tools": map[string]any{"source": "x"}}}}
+
+	got := refusals(m)
+
+	if want := `run nerve allow add 'extraKnownMarketplaces."acme.tools".source', or`; !strings.Contains(got, want) {
+		t.Errorf("got %s, want %s", got, want)
 	}
 }

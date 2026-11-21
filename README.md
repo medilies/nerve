@@ -31,7 +31,8 @@ nowhere else.
   Claude Code changed is drift: a sync fails on it, and `-f` overwrites
   it. A link that goes missing is made again.
 - **Pinned.** Third-party skills sit at a commit. `nerve update` shows
-  how they changed as it moves the pin, then syncs the project here.
+  which of their files changed as it moves the pin, then syncs the
+  project here. See [sources](docs/brain.md#brainjson).
 - **Only allowed settings in the Brain.** It holds the settings nerve
   allows, and those you allow. Any other setting goes to a local overlay
   that never leaves the machine. What you allow is yours to keep free of
@@ -79,7 +80,7 @@ go install github.com/medilies/nerve/cmd/nerve@latest   # puts nerve in ~/go/bin
 
 ### Then, on each machine
 
-nerve needs git 2.31 or later.
+nerve needs git 2.31 or later. It runs on Linux and macOS, not Windows.
 
 1. Clone your Brain: a git repo with a `brain.json` at its root. No
    Brain yet? Create an empty repo for it on your git host, then:
@@ -117,6 +118,7 @@ nerve sync --here                    # make the Brain its remote's, then carry i
 nerve status                         # where it stands: what waits for a sync, links, drift
 nerve skill rm go-stack --all        # take a skill out of every project
 nerve setting rm permissions.deny=Cron --all   # revoke one denied tool everywhere
+nerve allow add statusLine           # let the Brain hold a setting nerve does not allow itself
 nerve update                         # show how third-party skills changed, move their pins, sync here
 nerve sync                           # every checkout on this machine
 nerve check                          # validate the Brain, as its CI does

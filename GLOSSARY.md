@@ -49,6 +49,10 @@ _Avoid_: copy, install
 The exact commit a third-party skill is used at.
 _Avoid_: version, lock
 
+**Tip**:
+The commit at the end of a source's default branch, where `nerve update` moves its pin.
+_Avoid_: head, latest
+
 **Project**:
 An entry in a Brain naming what one codebase gets from it; nothing reaches a project it does not list.
 _Avoid_: repo, workspace
@@ -81,7 +85,7 @@ Taking the remote's new commits into the Brain checkout by a fast-forward, befor
 _Avoid_: pull, fetch
 
 **Update**:
-Moving each source's pin to its latest commit, after showing how its skills changed, then pushing it and syncing the checkout here.
+Moving each source's pin to its tip, after showing how its skills changed, then pushing it and syncing the checkout here.
 _Avoid_: upgrade, bump
 
 **State**:

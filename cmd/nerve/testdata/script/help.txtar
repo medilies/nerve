@@ -9,6 +9,11 @@ exec nerve
 stdout '^usage: nerve <command>$'
 ! stderr .
 
+# help <command> prints that command's lines, as --help after it does.
+exec nerve help allow
+stdout '^  allow add '
+! stdout '^  init '
+
 ! exec nerve --bogus
 ! stdout .
 stderr '^--bogus is not a flag nerve knows'

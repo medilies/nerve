@@ -6,6 +6,7 @@ import (
 	"maps"
 	"math"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -107,6 +108,17 @@ func FillBrain(v any, brain string) any {
 // Sep joins the keys of a leaf path. Keys may hold dots, as plugin names do,
 // so a dot cannot.
 const Sep = "\x1f"
+
+// ShellWord is s as a shell takes it as one word: as it is when a shell
+// leaves it so, else in single quotes.
+func ShellWord(s string) string {
+	if shellSafe.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_.@/:=+-]+$`)
 
 // Dotted shows a leaf path the way a user writes it: keys joined by dots,
 // and a key that is empty or holds a dot, a quote or = in double quotes,

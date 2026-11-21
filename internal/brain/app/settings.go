@@ -126,7 +126,7 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 		case domain.WrittenByNerve(k):
 			return fmt.Errorf("%s is %s: %s, or set it per project, where it goes to the local overlay", key, why, domain.ShareNerves)
 		default:
-			return fmt.Errorf("%s is %s: list it in allowedSettings in %s, or set it per project, where it goes to the local overlay", key, why, domain.ManifestFile)
+			return fmt.Errorf("%s is %s: run nerve allow add %s, or set it per project, where it goes to the local overlay", key, why, domain.ShellWord(domain.Dotted(k)))
 		}
 		// Every overlay the change drops a value from reads, before any
 		// change is pushed.
@@ -174,7 +174,7 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 		if domain.WrittenByNerve(k) {
 			why += ": " + domain.ShareNerves
 		} else {
-			why += ": list it in allowedSettings to share it"
+			why += ": run nerve allow add " + domain.ShellWord(domain.Dotted(k)) + " to share it"
 		}
 		r.Add(Event{Kind: EvOverlay, Project: project, Key: shown, Path: file, Detail: why})
 		return nil

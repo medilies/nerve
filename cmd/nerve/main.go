@@ -32,8 +32,9 @@ const usage = `usage: nerve <command>
   push [<message>] [-f]        commit everything in the Brain, with <message> or one naming what
                                changed, then push it to its remote;
                                -f, --force overwrites the remote's commits this Brain lacks
-  update [<repo>]              show how each source's skills changed, pin and push its latest
-                               commit, then sync the checkout around the working directory
+  update [<repo>] [--diff]     show each source's pin and tip, and the files of each skill that
+                               changed (--diff: the whole diff), then pin and push the tip, and
+                               sync the checkout around the working directory
   status                       the Brain, and how the project around the working directory
                                stands; outside a listed checkout, every project
   check                        validate the Brain (run by its CI)
@@ -53,8 +54,11 @@ const usage = `usage: nerve <command>
   setting rm <key>[=<value>]   remove a setting, or one item of a list, from the project and its local overlay
                                (--common: from common; --all: from common, every project and their overlays)
 
+  allow add <key>...           let the Brain hold settings keys nerve does not allow itself (allowedSettings)
+  allow rm <key>...            take keys out of allowedSettings, once the Brain's settings no longer hold them
+
   version, --version, -v       print nerve's version
-  help, --help, -h             print this
+  help [<command>], --help, -h print this, or the lines of <command>
 
 status, and the skill, agent, hook, plugin and setting commands act on the project around the
 working directory; --project <name> names another.
@@ -117,6 +121,7 @@ func helpFor(words []string) string {
 type flags struct {
 	project                  string
 	all, common, here, force bool
+	diff                     bool     // update: the whole diff of each changed skill
 	hook                     bool     // the session report: print status as a hook's output
 	json                     bool     // print one JSON document
 	help                     bool     // print the usage
@@ -153,6 +158,8 @@ words:
 			f.force = true
 		case a == "--hook":
 			f.hook = true
+		case a == "--diff":
+			f.diff = true
 		case a == "--project" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-"):
 			i++
 			f.project = args[i]
@@ -387,11 +394,11 @@ func run(args []string, r *infra.Report) error {
 	var do func(app.App) error
 	brainHere := false // run on the Brain around the working directory
 	switch {
-	case cmd == "help" && len(rest) == 0:
+	case cmd == "help":
 		if err := f.only(); err != nil {
 			return err
 		}
-		r.Add(app.Event{Kind: app.EvUsage, Detail: strings.TrimSpace(usage)})
+		r.Add(app.Event{Kind: app.EvUsage, Detail: helpFor(rest)})
 		return nil
 	case cmd == "version" && len(rest) == 0:
 		return printVersion(f, r)
@@ -411,7 +418,8 @@ func run(args []string, r *infra.Report) error {
 	case cmd == "check" && len(rest) == 0:
 		brainHere, do = true, func(a app.App) error { return a.Check(r) }
 	case cmd == "update" && len(rest) <= 1:
-		brainHere, do = true, func(a app.App) error { return a.Update(wd, strings.Join(rest, ""), r) }
+		allowed = []string{"--diff"}
+		brainHere, do = true, func(a app.App) error { return a.Update(wd, strings.Join(rest, ""), f.diff, r) }
 	case cmd == "push" && len(rest) <= 1:
 		allowed = []string{"--force"}
 		brainHere, do = true, func(a app.App) error { return a.Push(strings.Join(rest, ""), f.force, r) }
@@ -443,7 +451,11 @@ func run(args []string, r *infra.Report) error {
 	case cmd == "setting" && len(rest) == 2 && rest[0] == "rm":
 		allowed = []string{"--project", "--common", "--all"}
 		do = func(a app.App) error { return a.RemoveSetting(ref, rest[1], f.common, f.all, r) }
-	case len(rest) == 0 && (item || cmd == "project" || cmd == "setting"): // a group alone
+	case cmd == "allow" && len(rest) > 1 && rest[0] == "add":
+		do = func(a app.App) error { return a.AllowSettings(rest[1:], r) }
+	case cmd == "allow" && len(rest) > 1 && rest[0] == "rm":
+		do = func(a app.App) error { return a.RemoveAllowedSettings(rest[1:], r) }
+	case len(rest) == 0 && (item || cmd == "project" || cmd == "setting" || cmd == "allow"): // a group alone
 		if err := f.only(); err != nil {
 			return err
 		}

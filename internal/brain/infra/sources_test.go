@@ -3,10 +3,12 @@ package infra
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/medilies/nerve/internal/brain/app"
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
@@ -71,12 +73,15 @@ func TestDiffOfASkillThatIsTheWholeRepoNamesNoGitFile(t *testing.T) {
 	next := e.upstream(map[string]string{"SKILL.md": skillMD("tui-test", "") + "Test harder.\n"})
 
 	d, err := SourceCache{}.Diff(domain.Source{Repo: "acme/up", SHA: old}, "tui-test", next)
-	if err != nil || !strings.Contains(d, "+Test harder.") {
-		t.Fatalf("diff is %q (%v)", d, err)
+	if err != nil || !strings.Contains(d.Text, "+Test harder.") {
+		t.Fatalf("diff is %q (%v)", d.Text, err)
 	}
 
+	if want := []app.FileChange{{Path: "SKILL.md", Added: 1}}; !reflect.DeepEqual(d.Files, want) {
+		t.Errorf("files are %+v, want %+v", d.Files, want)
+	}
 	var git []string
-	for line := range strings.Lines(d) {
+	for line := range strings.Lines(d.Text) {
 		if strings.HasPrefix(line, "diff ") && strings.Contains(line, "/.git/") {
 			git = append(git, strings.TrimSpace(line[strings.LastIndex(line, "/.git/")+1:]))
 		}
@@ -93,16 +98,168 @@ func TestDiffShowsHowASkillChangedUpstream(t *testing.T) {
 	src := SourceCache{}
 
 	d, err := src.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", next)
-	if err != nil || !strings.Contains(d, "+Grill harder.") {
-		t.Errorf("diff is %q (%v)", d, err)
+	if err != nil || !strings.Contains(d.Text, "+Grill harder.") {
+		t.Errorf("diff is %q (%v)", d.Text, err)
 	}
-	if head, err := src.Head("acme/up"); err != nil || head != next {
-		t.Errorf("head is %s (%v), want %s", head, err, next)
+	if tip, err := src.Tip("acme/up"); err != nil || tip != next {
+		t.Errorf("tip is %s (%v), want %s", tip, err, next)
 	}
 	e.git(e.path("github/acme/up.git"), "rm", "-q", "-r", "skills/grilling")
 	gone := e.upstream(map[string]string{"skills/other/SKILL.md": skillMD("other", "")})
 	if _, err := src.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", gone); err == nil || !strings.Contains(err.Error(), "drop it from brain.json first") {
 		t.Errorf("got %v", err)
+	}
+}
+
+func TestDiffNamesEachChangedFileOfTheSkillWithItsLines(t *testing.T) {
+	e := newTestEnv(t)
+	old := e.upstream(map[string]string{
+		"skills/grilling/SKILL.md": skillMD("grilling", ""),
+		"skills/grilling/old.md":   "a\nb\n",
+		"skills/grilling/same.md":  "same\n",
+		"skills/other/SKILL.md":    skillMD("other", ""),
+	})
+	e.git(e.path("github/acme/up.git"), "rm", "-q", "skills/grilling/old.md")
+	next := e.upstream(map[string]string{
+		"skills/grilling/SKILL.md":       skillMD("grilling", "") + "One.\nTwo.\n",
+		"skills/grilling/scripts/run.sh": "#!/bin/sh\n",
+		"skills/grilling/logo.png":       "\x00\x01",
+		"skills/other/SKILL.md":          skillMD("other", "") + "Elsewhere.\n",
+	})
+
+	d, err := SourceCache{}.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", next)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if d.Dir != e.cache("sources/acme/up/"+next+"/skills/grilling") {
+		t.Errorf("the skill's folder at the tip is %q", d.Dir)
+	}
+	want := []app.FileChange{
+		{Path: "SKILL.md", Added: 2},
+		{Path: "logo.png", Binary: true},
+		{Path: "old.md", Removed: 2},
+		{Path: "scripts/run.sh", Added: 1},
+	}
+	if !reflect.DeepEqual(d.Files, want) {
+		t.Errorf("files are %+v, want %+v", d.Files, want)
+	}
+}
+
+func TestDiffOfASkillThatDidNotChangeIsEmpty(t *testing.T) {
+	e := newTestEnv(t)
+	old := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	next := e.upstream(map[string]string{"README.md": "elsewhere\n"})
+
+	d, err := SourceCache{}.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", next)
+
+	if err != nil || len(d.Files) > 0 || d.Text != "" {
+		t.Errorf("got %+v (%v)", d, err)
+	}
+}
+
+func TestCommittedIsWhenTheCommitWasMade(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	want, err := time.Parse(time.RFC3339, e.git(e.path("github/acme/up.git"), "show", "-s", "--format=%cI", sha))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := SourceCache{}.Committed("acme/up", sha)
+
+	if err != nil || !got.Equal(want) {
+		t.Errorf("got %v (%v), want %v", got, err, want)
+	}
+}
+
+// oldDownload makes the download of sha as an older nerve left it: no date
+// beside it, and its .git inside.
+func (e *testEnv) oldDownload(sha string) string {
+	e.t.Helper()
+	if _, err := (SourceCache{}).Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling"); err != nil {
+		e.t.Fatal(err)
+	}
+	dir := e.cache("sources/acme/up/" + sha)
+	if err := os.Remove(dir + ".date"); err != nil {
+		e.t.Fatal(err)
+	}
+	e.write(filepath.Join(dir, ".git", "HEAD"), sha+"\n")
+	return dir
+}
+
+// offline makes the fake GitHub unreachable.
+func (e *testEnv) offline() {
+	e.t.Helper()
+	if err := os.Rename(e.path("github"), e.path("github-gone")); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+func TestADownloadWithNoDateIsFetchedAgainForItsDate(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	dir := e.oldDownload(sha)
+
+	if _, err := (SourceCache{}).Committed("acme/up", sha); err != nil {
+		t.Fatal(err)
+	}
+
+	if fileExists(filepath.Join(dir, ".git")) || !fileExists(dir+".date") {
+		t.Errorf("the old download stays: .git %v, date %v", fileExists(filepath.Join(dir, ".git")), fileExists(dir+".date"))
+	}
+}
+
+func TestADownloadWithADateItCannotReadIsFetchedAgain(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	dir := e.oldDownload(sha)
+	e.write(dir+".date", "") // as a killed run may leave it
+
+	got, err := SourceCache{}.Committed("acme/up", sha)
+
+	if err != nil || got.IsZero() {
+		t.Errorf("got %v (%v)", got, err)
+	}
+}
+
+func TestASkillInADownloadWithNoDateNeedsNoNetwork(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	dir := e.oldDownload(sha)
+	e.offline()
+
+	s, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling")
+
+	if err != nil || s.Dir != filepath.Join(dir, "skills", "grilling") {
+		t.Errorf("got %+v (%v)", s, err)
+	}
+}
+
+func TestAFailedFetchAgainKeepsTheOldDownload(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	dir := e.oldDownload(sha)
+	e.offline()
+
+	if _, err := (SourceCache{}).Committed("acme/up", sha); err == nil {
+		t.Fatal("no error offline")
+	}
+
+	if !fileExists(filepath.Join(dir, "skills", "grilling", "SKILL.md")) {
+		t.Errorf("the old download is gone")
+	}
+}
+
+func TestDiffShowsAFileNameOnOneLine(t *testing.T) {
+	e := newTestEnv(t)
+	old := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	next := e.upstream(map[string]string{"skills/grilling/a\nb\tc.md": "x\n"})
+
+	d, err := SourceCache{}.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", next)
+
+	if err != nil || len(d.Files) != 1 || d.Files[0].Path != "a<U+000A>b<U+0009>c.md" {
+		t.Errorf("got %+v (%v)", d.Files, err)
 	}
 }
 
@@ -121,8 +278,8 @@ func TestDiffShowsOnlyTheSourcesTextAsItIs(t *testing.T) {
 
 	d, err := SourceCache{}.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", next)
 
-	if err != nil || strings.Contains(d, "DIFF TOOL") || strings.ContainsAny(d, "\x1b\x07") || !strings.Contains(d, "Grill.") {
-		t.Errorf("diff is %q (%v)", d, err)
+	if err != nil || strings.Contains(d.Text, "DIFF TOOL") || strings.ContainsAny(d.Text, "\x1b\x07") || !strings.Contains(d.Text, "Grill.") {
+		t.Errorf("diff is %q (%v)", d.Text, err)
 	}
 }
 
@@ -168,11 +325,11 @@ func TestDiffShowsBidiControlsAndCutsAHugeDiff(t *testing.T) {
 
 	d, err := SourceCache{}.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", next)
 
-	if err != nil || strings.ContainsRune(d, '‮') || !strings.Contains(d, "a<U+202E>b") {
-		t.Errorf("got %v, and the bidi control is not shown as such: %q", err, d[:min(len(d), 300)])
+	if err != nil || strings.ContainsRune(d.Text, '‮') || !strings.Contains(d.Text, "a<U+202E>b") {
+		t.Errorf("got %v, and the bidi control is not shown as such: %q", err, d.Text[:min(len(d.Text), 300)])
 	}
-	if len(d) > 300_000 || !strings.Contains(d, "the diff is cut") {
-		t.Errorf("the diff is %d bytes, uncut", len(d))
+	if len(d.Text) > 300_000 || !strings.Contains(d.Text, "the diff is cut") {
+		t.Errorf("the diff is %d bytes, uncut", len(d.Text))
 	}
 }
 
@@ -195,6 +352,25 @@ func TestFetchSweepsAFolderAKilledFetchLeft(t *testing.T) {
 	}
 }
 
+func TestFetchSweepsADateFileAKilledFetchLeft(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	stale := e.cache("sources/acme/up/" + strings.Repeat("0", 40) + ".tmp-123.date")
+	e.write(stale, "2026-")
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := (SourceCache{}).Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling"); err != nil {
+		t.Fatal(err)
+	}
+
+	if fileExists(stale) {
+		t.Errorf("the killed fetch's date file is still there")
+	}
+}
+
 func TestDiffShowsALineSeparatorAsSuch(t *testing.T) {
 	e := newTestEnv(t)
 	old := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
@@ -202,8 +378,8 @@ func TestDiffShowsALineSeparatorAsSuch(t *testing.T) {
 
 	d, err := SourceCache{}.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", next)
 
-	if err != nil || !strings.Contains(d, "a<U+2028>b<U+2029>c") {
-		t.Errorf("got %v: %q", err, d)
+	if err != nil || !strings.Contains(d.Text, "a<U+2028>b<U+2029>c") {
+		t.Errorf("got %v: %q", err, d.Text)
 	}
 }
 
@@ -332,8 +508,8 @@ func TestDiffLooksInTheFolderThePathNames(t *testing.T) {
 
 	d, err := SourceCache{}.Diff(domain.Source{Repo: "acme/up", SHA: old, Path: "plugins/x/skills"}, "grilling", next)
 
-	if err != nil || !strings.Contains(d, "+Grill harder.") {
-		t.Errorf("diff is %q (%v)", d, err)
+	if err != nil || !strings.Contains(d.Text, "+Grill harder.") {
+		t.Errorf("diff is %q (%v)", d.Text, err)
 	}
 }
 
@@ -345,5 +521,42 @@ func TestSkillSaysWhenTheRootSKILLmdCannotBeRead(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "; its root SKILL.md cannot be read: ") {
 		t.Errorf("got %v", err)
+	}
+}
+
+func TestNumstatCutsOnlyTheFolderEachPathIsIn(t *testing.T) {
+	out := "0\t1\t\x00old/new/x.md\x00/dev/null\x00" + "1\t0\t\x00/dev/null\x00new/old/y.md\x00"
+
+	got := numstat(out, "old", "new")
+
+	want := []app.FileChange{{Path: "new/x.md", Removed: 1}, {Path: "old/y.md", Added: 1}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestAFetchWaitsForAnotherFetchOfTheSameCommit(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	dir := e.oldDownload(sha)
+	unlock, err := lock(dir + ".lock") // another fetch of it, under way
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := SourceCache{}.Committed("acme/up", sha)
+		done <- err
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("the fetch did not wait")
+	case <-time.After(200 * time.Millisecond):
+	}
+	unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

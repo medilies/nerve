@@ -3,7 +3,10 @@
 // and the network only through its ports.
 package app
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Event is one thing a use case did or found. Kind says which; the other
 // fields are set as that kind needs.
@@ -17,6 +20,11 @@ type Event struct {
 	Local   string `json:"local,omitempty"` // a settings value as JSON, "unset" when absent
 	Brain   string `json:"brain,omitempty"` // likewise, as the Brain would write it
 	Detail  string `json:"detail,omitempty"`
+	// For a source's tip: the pin's commit, and when each commit was made.
+	From       string       `json:"from,omitempty"`
+	FromDate   string       `json:"fromDate,omitempty"`
+	TargetDate string       `json:"targetDate,omitempty"`
+	Files      []FileChange `json:"files,omitempty"` // for a changed skill
 }
 
 // Kinds of Event.
@@ -30,7 +38,10 @@ const (
 	EvPersonal     = "personal"         // Key at Path holds Local, or with Item that item of the list, which the Brain does not set: kept
 	EvProblem      = "problem"          // Detail is wrong with Path (at Key)
 	EvOK           = "ok"               // Detail
-	EvDiff         = "diff"             // Detail is how Item changed in its source, "" when it did not
+	EvDiff         = "diff"             // Detail is how Item, brain.json, changed in the Brain and was not pushed
+	EvTip          = "tip"              // source Key, pinned at From of FromDate, has its tip at Target of TargetDate
+	EvChanged      = "changed"          // Item from source Key changed in Files since the pin, and is at Path at the tip; Detail is the diff, when asked
+	EvSame         = "same"             // Item from source Key did not change since the pin
 	EvPinned       = "pinned"           // the skills from repo Detail moved to Target
 	EvAlreadyThere = "already-pinned"   // repo Detail is already at Target
 	EvBrainSynced  = "brain-synced"     // the Brain at Path is now its upstream's Target; Detail what it dropped, if anything
@@ -48,6 +59,9 @@ const (
 	EvSynced       = "synced"           // Project at Path is at Brain commit Target
 	EvUpToDate     = "up-to-date"       // Project at Path is at Brain commit Target, and nothing changed
 	EvUsage        = "usage"            // Detail is how to run nerve
+	EvAllowed      = "allowed"          // allowedSettings lists Key now, or Detail "already"
+	EvDisallowed   = "disallowed"       // allowedSettings no longer lists Key
+	EvNote         = "note"             // Detail is worth knowing about Path, but not wrong
 	EvVersion      = "version"          // Detail is nerve's version
 )
 
@@ -90,10 +104,24 @@ func (e Event) String() string {
 		}
 		return fmt.Sprintf("problem  %s: %s", e.Path, e.Detail)
 	case EvDiff:
-		if e.Detail == "" {
-			return "no diff  " + e.Item
-		}
 		return e.Detail
+	case EvTip:
+		return fmt.Sprintf("tip      %s: pinned at %s (%s), tip %s (%s)", e.Key, Short(e.From), e.FromDate, Short(e.Target), e.TargetDate)
+	case EvChanged:
+		files := make([]string, len(e.Files))
+		for i, f := range e.Files {
+			files[i] = fmt.Sprintf("%s +%d -%d", f.Path, f.Added, f.Removed)
+			if f.Binary {
+				files[i] = f.Path + " binary"
+			}
+		}
+		line := fmt.Sprintf("changed  %s: %s", e.Item, strings.Join(files, ", "))
+		if e.Detail != "" {
+			return line + "\n" + e.Detail
+		}
+		return line
+	case EvSame:
+		return "same     " + e.Item
 	case EvPinned:
 		return fmt.Sprintf("pinned   %s at %s", e.Detail, Short(e.Target))
 	case EvAlreadyThere:
@@ -115,6 +143,15 @@ func (e Event) String() string {
 			return fmt.Sprintf("brain    %s (%s)", e.Path, e.Detail)
 		}
 		return "brain    " + e.Path
+	case EvAllowed:
+		if e.Detail != "" {
+			return fmt.Sprintf("allowed  %s %s", e.Key, e.Detail)
+		}
+		return "allowed  " + e.Key
+	case EvDisallowed:
+		return fmt.Sprintf("dropped  %s from allowedSettings", e.Key)
+	case EvNote:
+		return fmt.Sprintf("note     %s: %s", e.Path, e.Detail)
 	case EvAdded:
 		return fmt.Sprintf("added    %s to project %s", e.Item, e.Project)
 	case EvDropped:

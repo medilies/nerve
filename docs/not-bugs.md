@@ -23,6 +23,9 @@ Behaviour a review may take for a bug, kept on purpose. A review lists what it f
 - **A gone worktree's lines stay in the exclude block** until a checkout of its repo syncs. Nothing else writes the block, and an extra line only hides a path from git.
 - **Folders a sync makes on the way to a link get no event of their own.** The `linked` line names the path.
 - **After a move, a checkout whose nerve skill link was deleted keeps its other links as the user's.** nerve's own link is its only sign of a past sync; without it, nerve cannot tell its links from the user's.
+- **Links into a cleared cache break until the next sync.** The system owns the cache folder, and a sync fetches and links again. sync.md says so.
+- **Links point outside the project**, so a container or sandbox that mounts only the project does not see the skills. Copies would lose live edits of own skills and need their own drift.
+- **No Windows.** Links are symlinks, which Windows gives only with extra rights, and releases build for Linux and macOS. The README says so.
 
 ## Machine files and runs
 
@@ -43,13 +46,16 @@ Behaviour a review may take for a bug, kept on purpose. A review lists what it f
 - **Sync prints personal and drifted values as they are**, in text and JSON. They are the user's own, in their own checkout, and the session report shows them only to the user.
 - **A hook's event is not checked.** Claude Code adds events; a list in nerve would refuse a new one. See the [backlog](backlog.md).
 - **An overlay can add items to a Brain list, but not take one out.** Arrays join without repeats, as sync.md says.
+- **A suggested `nerve allow add` names the setting's own key**, such as `mcpServers.db.headers.X-Api-Key`, not a wider one. Only where needed: allowing more is the user's choice.
 
 ## Sources
 
 - **`push` checks every pin, so a source it cannot fetch, offline say, blocks it.** Every machine syncs what it pushes; the check names the source.
 
 - **nerve looks for a skill in fixed places**, not the whole repo: the root, `skills/<name>/`, `<name>/`, or where `path` says.
-- **A source's cache is trusted by its folder, and never evicted.** It is renamed into place whole, and named by its commit.
+- **A source's cache is trusted by its folder, and never evicted**, nor are the lock files beside it. It is renamed into place whole, and named by its commit. Fetches of one commit take turns. Only `update` replaces a download with no date beside it, once the new one is whole; a skill read through a link at that moment may miss its files.
+- **The cache needs file locks**, as the exclude lock does. On a filesystem without them, such as NFS without its lock service, fetching a source fails.
+- **`update` shows commit dates in UTC.** A date then reads the same on every machine, whatever its time zone.
 - **A fetch checks out the whole repo, under git's two-minute bound.** A repo too big for it fails each time and caches nothing.
 - **`update` reads the whole diff before cutting it** at 256 KiB.
 
@@ -66,10 +72,12 @@ Behaviour a review may take for a bug, kept on purpose. A review lists what it f
 - **Git's own words stay in git's sense**: upstream, the global git ignore file, the repo. So does the machine file's `path` key.
 - **`nerve help` repeats what the README says of `--project`.** The usage is the CLI's own text, not a doc.
 - **brain.md lists the allowed settings in full.** Users need the list where they write `brain.json`; a review checks it against `nerveAllows`.
+- **An event's kind and its text label may differ**, such as `disallowed` printed as `dropped`, or `brain-not-synced` as `no sync`. The label fits the text's first column; the kind names the event in JSON.
+- **The nerve skill names each event an agent acts on.** It says what to do with each one, which no other doc does; a review checks it against the event kinds.
 - **The report shows private-use characters as they are.** It makes control characters and invisible format characters visible, which can hide or rewrite text; private-use ones cannot.
 
 ## Tests
 
 - **The open-bug machinery has no users**: the `[bugs]` script condition, `NERVE_OPEN_BUGS`, `openBug`. CLAUDE.md's test rule relies on it.
-- **The exclude lock test waits 200 ms.** Showing that a second run cannot get in needs a wait, and a working lock never fails it.
+- **The exclude lock and fetch lock tests wait 200 ms.** Showing that a second run cannot get in needs a wait, and a working lock never fails it.
 - **Some fakes never fail or follow links**, such as `Load`, `State` and `Locate`. No bug hides behind them; the adapters' own tests cover those paths.

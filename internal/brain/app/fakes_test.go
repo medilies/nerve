@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/medilies/nerve/internal/brain/app"
 	"github.com/medilies/nerve/internal/brain/domain"
@@ -164,7 +165,8 @@ func (b *fakeBrain) Agents() ([]app.Agent, error) {
 // fakeSources serves skills by repo, commit and name.
 type fakeSources struct {
 	skills map[string]domain.Skill // repo@sha/name
-	heads  map[string]string
+	tips   map[string]string
+	files  map[string][]app.FileChange // repo@sha/name: how it changed since its pin
 }
 
 func (s *fakeSources) Skill(src domain.Source, name string) (domain.Skill, error) {
@@ -175,13 +177,23 @@ func (s *fakeSources) Skill(src domain.Source, name string) (domain.Skill, error
 	return sk, nil
 }
 
-func (s *fakeSources) Head(repo string) (string, error) { return s.heads[repo], nil }
+func (s *fakeSources) Tip(repo string) (string, error) { return s.tips[repo], nil }
 
-func (s *fakeSources) Diff(src domain.Source, name, to string) (string, error) {
+func (s *fakeSources) Diff(src domain.Source, name, to string) (app.SkillDiff, error) {
 	if _, ok := s.skills[src.Repo+"@"+to+"/"+name]; !ok {
-		return "", fmt.Errorf("at %s: no skill %q; drop it from brain.json first", to[:7], name)
+		return app.SkillDiff{}, fmt.Errorf("at %s: no skill %q; drop it from brain.json first", to[:7], name)
 	}
-	return fmt.Sprintf("diff %s %s..%s", name, src.SHA[:7], to[:7]), nil
+	files := s.files[src.Repo+"@"+to+"/"+name]
+	if len(files) == 0 {
+		return app.SkillDiff{}, nil
+	}
+	return app.SkillDiff{Files: files, Text: fmt.Sprintf("diff %s %s..%s", name, src.SHA[:7], to[:7]), Dir: "/cache/" + src.Repo + "/" + to + "/" + name}, nil
+}
+
+// Committed dates pinA and pinB a day apart, as the tests name them.
+func (s *fakeSources) Committed(repo, sha string) (time.Time, error) {
+	day := map[string]int{pinA: 2, pinB: 3}[sha]
+	return time.Date(2026, 10, day, 23, 0, 0, 0, time.FixedZone("", -5*3600)), nil
 }
 
 type fakeMachine struct {
@@ -520,7 +532,7 @@ func newEnv(t *testing.T) *env {
 	e := &env{
 		t:       t,
 		brain:   &fakeBrain{own: map[string]domain.Skill{}, agents: map[string]bool{}, head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		sources: &fakeSources{skills: map[string]domain.Skill{}, heads: map[string]string{}},
+		sources: &fakeSources{skills: map[string]domain.Skill{}, tips: map[string]string{}, files: map[string][]app.FileChange{}},
 		machine: &fakeMachine{machine: domain.Machine{Brain: "/brain"}, fail: map[string]error{}, overlays: map[string]map[string]any{}, states: map[string]domain.TreeState{}, unreadable: map[string]bool{}},
 		trees: &fakeTrees{dirs: map[string]bool{}, links: map[string]string{}, dangling: map[string]bool{}, files: map[string]bool{},
 			settings: map[string]map[string]any{}, unignored: map[string]bool{}, tracked: map[string]bool{},

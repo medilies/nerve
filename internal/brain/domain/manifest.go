@@ -354,9 +354,19 @@ type Problem struct {
 	Detail string
 }
 
+// NerveAllows says whether nerve allows the settings key at path on its
+// own: it is one of nerve's, or under one.
+func NerveAllows(path []string) bool { return covers(SortedKeys(nerveAllows), LeafKey(path)) }
+
 // allows says whether a leaf key is an allowed setting, or under one.
 func (m Manifest) allows(key string) bool {
-	for _, a := range slices.Concat(SortedKeys(nerveAllows), m.AllowedSettings) {
+	return covers(SortedKeys(nerveAllows), key) || covers(m.AllowedSettings, key)
+}
+
+// covers says whether a leaf key is one of keys, as users write them, or
+// under one.
+func covers(keys []string, key string) bool {
+	for _, a := range keys {
 		path, err := ParseKey(a)
 		if err != nil {
 			continue
@@ -406,7 +416,7 @@ func (m Manifest) Refusals() []Problem {
 				add(where+Dotted(k), why+": "+ShareNerves)
 				continue
 			}
-			add(where+Dotted(k), why+": list it in allowedSettings, or "+fix)
+			add(where+Dotted(k), why+": run nerve allow add "+ShellWord(Dotted(k))+", or "+fix)
 		}
 		for _, f := range Misfits(s) {
 			add(where+f.Key, f.Detail)

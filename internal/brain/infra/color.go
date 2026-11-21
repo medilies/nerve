@@ -22,12 +22,12 @@ const (
 // labels colors the label that starts an event's line.
 var labels = map[string]string{
 	app.EvLinked: made, app.EvWrote: made, app.EvAdded: made, app.EvPushed: made,
-	app.EvBrainSynced: made, app.EvSynced: made, app.EvPinned: made, app.EvOK: made,
-	app.EvRemoved: takeOut, app.EvDropped: takeOut, app.EvCleaned: takeOut,
+	app.EvBrainSynced: made, app.EvSynced: made, app.EvPinned: made, app.EvOK: made, app.EvAllowed: made,
+	app.EvRemoved: takeOut, app.EvDropped: takeOut, app.EvCleaned: takeOut, app.EvDisallowed: takeOut,
 	app.EvDrift: look, app.EvPersonal: look, app.EvKept: look, app.EvOverlay: look,
-	app.EvUnlisted: look, app.EvBrainSkipped: look,
+	app.EvUnlisted: look, app.EvBrainSkipped: look, app.EvChanged: look, app.EvNote: look,
 	app.EvProblem: wrong,
-	app.EvBrain:   info, app.EvProject: info, app.EvCheckout: info, app.EvItem: info,
+	app.EvBrain:   info, app.EvProject: info, app.EvCheckout: info, app.EvItem: info, app.EvTip: info,
 }
 
 // Colors says whether to color text written to f: a terminal, unless
@@ -45,9 +45,12 @@ func paint(code, s string) string { return "\x1b[" + code + "m" + s + "\x1b[0m" 
 // paintEvent colors line, an event's text with control characters hidden.
 func paintEvent(e app.Event, line string) string {
 	switch {
-	case e.Kind == app.EvDiff && e.Detail != "":
+	case e.Kind == app.EvDiff:
 		return paintDiff(line)
-	case e.Kind == app.EvDiff, e.Kind == app.EvUpToDate, e.Kind == app.EvAlreadyThere:
+	case e.Kind == app.EvChanged && e.Detail != "":
+		first, diff, _ := strings.Cut(line, "\n")
+		return paintLabel(look, first) + "\n" + paintDiff(diff)
+	case e.Kind == app.EvUpToDate, e.Kind == app.EvAlreadyThere, e.Kind == app.EvSame:
 		return paint(idle, line)
 	case e.Kind == app.EvUsage:
 		return PaintCommands(line)

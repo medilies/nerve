@@ -1,6 +1,7 @@
-# update shows how a source's skills changed upstream, then moves the pin
-# to its tip, pushes it, and syncs the checkout here; a second update finds
-# it there.
+# update shows how a source's skills changed upstream: its pin and tip with
+# their dates, and each skill's changed files, the whole diff only with
+# --diff. Then it moves the pin to the tip, pushes it, and syncs the
+# checkout here; a second update finds it there.
 
 mkdir github/acme/up.git/skills/grilling
 cp v1.md github/acme/up.git/skills/grilling/SKILL.md
@@ -23,7 +24,9 @@ exec nerve project add app
 exec nerve skill add grilling
 exec nerve update
 
-stdout '\+Grill harder\.'
+stdout '^tip      acme/up: pinned at [0-9a-f]{7} \(\d{4}-\d\d-\d\d\), tip [0-9a-f]{7} \(\d{4}-\d\d-\d\d\)$'
+stdout '^changed  skill grilling: SKILL.md \+1 -0$'
+! stdout 'Grill harder'
 stdout '^pushed   the Brain at [0-9a-f]{7}: nerve: pin acme/up at [0-9a-f]{7}$'
 stdout '^pinned   acme/up at [0-9a-f]{7}$'
 stdout '^linked   .*/proj/.claude/skills/grilling -> '
@@ -34,6 +37,12 @@ cd $WORK/brain
 
 exec nerve update acme/up
 stdout '^acme/up is already pinned at '
+
+cp $WORK/v3.md $WORK/github/acme/up.git/skills/grilling/SKILL.md
+exec git -C $WORK/github/acme/up.git commit -qam v3
+exec nerve update --diff
+stdout '^changed  skill grilling: SKILL.md \+1 -1$'
+stdout '^\+Grill hardest\.$'
 
 -- v1.md --
 ---
@@ -46,3 +55,9 @@ name: grilling
 description: Grills.
 ---
 Grill harder.
+-- v3.md --
+---
+name: grilling
+description: Grills.
+---
+Grill hardest.

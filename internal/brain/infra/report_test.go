@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -34,7 +35,7 @@ func TestJSONReportIsOneDocumentOfEventsAndTheError(t *testing.T) {
 		Events []app.Event
 		Error  string
 	}
-	if err := json.Unmarshal(out.Bytes(), &doc); err != nil || len(doc.Events) != 1 || doc.Events[0] != (app.Event{Kind: app.EvWrote, Path: "/x"}) || doc.Error != "boom" {
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil || len(doc.Events) != 1 || !reflect.DeepEqual(doc.Events[0], app.Event{Kind: app.EvWrote, Path: "/x"}) || doc.Error != "boom" {
 		t.Errorf("document %s (%v)", out.String(), err)
 	}
 }

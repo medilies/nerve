@@ -106,27 +106,55 @@ func TestRemoveItemWhoseBrainSaveFailsReportsNothingDropped(t *testing.T) {
 	}
 }
 
-func TestUpdateShowsEachSkillsDiffThenMovesThePin(t *testing.T) {
+func TestUpdateShowsEachSkillsChangesThenMovesThePin(t *testing.T) {
 	e := newEnv(t)
-	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
-	e.sources.heads["acme/up"] = pinB
+	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling", "tdd"}}}
+	e.sources.tips["acme/up"] = pinB
 	e.sources.skills["acme/up@"+pinB+"/grilling"] = domain.Skill{}
+	e.sources.skills["acme/up@"+pinB+"/tdd"] = domain.Skill{}
+	e.sources.files["acme/up@"+pinB+"/grilling"] = []app.FileChange{{Path: "SKILL.md", Added: 3, Removed: 1}, {Path: "logo.png", Binary: true}}
 	r := &recorder{}
 
-	e.must(r, e.app.Update("/w", "https://github.com/acme/up.git", r))
+	e.must(r, e.app.Update("/w", "https://github.com/acme/up.git", false, r))
 
 	if got := e.brain.m.Sources[0].SHA; got != pinB {
 		t.Errorf("pinned at %s", got)
 	}
-	contains(t, r, "diff grilling 5863806..84b741e", "pinned   acme/up at 84b741e")
+	contains(t, r,
+		"tip      acme/up: pinned at 5863806 (2026-10-03), tip 84b741e (2026-10-04)",
+		"changed  skill grilling: SKILL.md +3 -1, logo.png binary",
+		"same     skill tdd",
+		"pinned   acme/up at 84b741e",
+	)
+	for _, ev := range r.events {
+		if ev.Kind == app.EvChanged && ev.Path != "/cache/acme/up/"+pinB+"/grilling" {
+			t.Errorf("changed skill is at %q, want its folder at the tip", ev.Path)
+		}
+	}
+	if strings.Contains(r.String(), "diff grilling") {
+		t.Errorf("shows the whole diff unasked:\n%s", r)
+	}
 
 	r = &recorder{}
-	e.must(r, e.app.Update("/w", "", r))
+	e.must(r, e.app.Update("/w", "", false, r))
 	contains(t, r, "acme/up is already pinned at "+pinB)
 
-	if err := e.app.Update("/w", "acme/other", &recorder{}); err == nil || err.Error() != "acme/other is not a source in brain.json" {
+	if err := e.app.Update("/w", "acme/other", false, &recorder{}); err == nil || err.Error() != "acme/other is not a source in brain.json" {
 		t.Errorf("got %v", err)
 	}
+}
+
+func TestUpdateWithDiffShowsTheWholeDiffOfEachChangedSkill(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
+	e.sources.tips["acme/up"] = pinB
+	e.sources.skills["acme/up@"+pinB+"/grilling"] = domain.Skill{}
+	e.sources.files["acme/up@"+pinB+"/grilling"] = []app.FileChange{{Path: "SKILL.md", Added: 1}}
+	r := &recorder{}
+
+	e.must(r, e.app.Update("/w", "", true, r))
+
+	contains(t, r, "changed  skill grilling: SKILL.md +1 -0", "diff grilling 5863806..84b741e")
 }
 
 func TestUpdateLeavesASourceThatDropsASkillAndMovesTheOthers(t *testing.T) {
@@ -135,11 +163,11 @@ func TestUpdateLeavesASourceThatDropsASkillAndMovesTheOthers(t *testing.T) {
 		{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}},
 		{Repo: "acme/other", SHA: pinA, Skills: []string{"tdd"}},
 	}
-	e.sources.heads["acme/up"], e.sources.heads["acme/other"] = pinB, pinB
+	e.sources.tips["acme/up"], e.sources.tips["acme/other"] = pinB, pinB
 	e.sources.skills["acme/other@"+pinB+"/tdd"] = domain.Skill{}
 	r := &recorder{}
 
-	err := e.app.Update("/w", "", r)
+	err := e.app.Update("/w", "", false, r)
 
 	if err == nil || e.brain.m.Sources[0].SHA != pinA || e.brain.m.Sources[1].SHA != pinB {
 		t.Errorf("got %v, sources %v", err, e.brain.m.Sources)

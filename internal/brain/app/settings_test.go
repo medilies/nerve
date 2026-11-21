@@ -35,9 +35,9 @@ func TestSetSettingSendsASettingNoListAllowsToTheOverlay(t *testing.T) {
 	if e.project("app").Settings != nil || e.brain.saves != 0 {
 		t.Errorf("a setting no list allows reached the Brain")
 	}
-	contains(t, r, "overlay  statusLine.command set in /cfg/nerve/overlays/app.json: not an allowed setting: list it in allowedSettings to share it")
+	contains(t, r, "overlay  statusLine.command set in /cfg/nerve/overlays/app.json: not an allowed setting: run nerve allow add statusLine.command to share it")
 	err := e.app.SetSetting(target("/w/app"), "statusLine.command", "~/bin/line", true, &recorder{})
-	if err == nil || !strings.Contains(err.Error(), "statusLine.command is not an allowed setting: list it in allowedSettings") {
+	if err == nil || !strings.Contains(err.Error(), "statusLine.command is not an allowed setting: run nerve allow add statusLine.command") {
 		t.Errorf("got %v, want common refused", err)
 	}
 }
@@ -271,7 +271,7 @@ func TestSetSettingInCommonNamesTheKeyAndWhy(t *testing.T) {
 
 	err := e.app.SetSetting(target("/w/app"), "apiKeyHelper", "x", true, &recorder{})
 
-	if want := "apiKeyHelper is not an allowed setting: list it in allowedSettings in brain.json, or set it per project, where it goes to the local overlay"; err == nil || err.Error() != want {
+	if want := "apiKeyHelper is not an allowed setting: run nerve allow add apiKeyHelper, or set it per project, where it goes to the local overlay"; err == nil || err.Error() != want {
 		t.Errorf("got %v, want %q", err, want)
 	}
 }
