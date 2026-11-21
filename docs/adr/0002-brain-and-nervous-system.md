@@ -1,6 +1,6 @@
 # Brain and Nervous system as separate repos
 
-Status: accepted, 2026-11-16
+Status: accepted, 2026-11-16; `sync` bringing `nerve` to the pin superseded by [ADR 0007](0007-drop-guessing-features.md), which only reports a release that differs.
 
 ## Context
 

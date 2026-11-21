@@ -1,12 +1,14 @@
 # Removing a project takes out everything nerve made, and keeps what the
-# checkout had before and what the user set since.
+# checkout had before, even a setting the Brain sets the same, what the
+# user set since, and the local overlay, which may hold a secret.
 
 exec nerve init brain
 cd proj
 exec nerve project add app
-! stdout imported
 exec nerve skill add go-stack
 exec nerve setting set model opus
+exec nerve setting set env.API_KEY x
+stdout '^overlay  env.API_KEY set in '
 # What the checkout had before is personal: kept, and reported once.
 exec nerve sync --here
 stdout '^personal outputStyle = "terse": kept, the Brain does not set it$'
@@ -15,15 +17,16 @@ stdout '^personal env.TOKEN = \(hidden\): kept, the Brain does not set it$'
 replace .claude/settings.local.json '"model": "opus"' '"spinnerTipsEnabled": false, "model": "opus"'
 
 exec nerve project rm app
+stdout '^kept     .*/overlays/app.json: the local overlay of project app may hold what is nowhere else: delete it once you no longer need it$'
 
 ! exists .claude/skills
 ! grep nerve .git/info/exclude
 cmp .claude/settings.local.json $HOME/want-settings
-! exists $HOME/.config/nerve/overlays/app.json
+grep API_KEY $HOME/.config/nerve/overlays/app.json
 ! grep app $HOME/brain/brain.toml
 
 -- proj/.claude/settings.local.json --
-{"outputStyle": "terse", "env": {"TOKEN": "x"}}
+{"outputStyle": "terse", "env": {"TOKEN": "x"}, "model": "opus"}
 -- brain/skills/go-stack/SKILL.md --
 ---
 name: go-stack
@@ -34,6 +37,7 @@ description: Does go-stack.
   "env": {
     "TOKEN": "x"
   },
+  "model": "opus",
   "outputStyle": "terse",
   "spinnerTipsEnabled": false
 }

@@ -15,6 +15,6 @@ replace $HOME/.config/nerve/config.toml 'brain = "~/brain"' 'brain = "relative/p
 
 exec nerve sync --here --hook
 
-! stdout 'pulled'
+stdout 'error: .*config.toml: brain \\"relative/path\\" must be absolute'
 exec git rev-list --count HEAD
 stdout '^1$'

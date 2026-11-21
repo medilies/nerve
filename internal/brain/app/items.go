@@ -27,6 +27,11 @@ func (a App) AddItem(ref ProjectRef, kind, name string, r Reporter) error {
 	if why := a.offers(l.m, kind, name); why != "" {
 		return errors.New(why)
 	}
+	if kind == "skill" {
+		if _, own, err := a.Brain.OwnSkill(name); own && err != nil {
+			return err // one sync would only report
+		}
+	}
 	if why := domain.SensitiveText(name); why != "" {
 		msg := fmt.Sprintf("%s %q %s, so it cannot go in the Brain", kind, name, why)
 		if kind == "plugin" {
@@ -161,7 +166,8 @@ func (a App) ListItems(ref ProjectRef, kind string, r Reporter) error {
 
 // othersItems lists the skills or agents in a working tree that nerve did
 // not link, each as the team's or, for a link someone made, as yours. A
-// skill is a folder holding a SKILL.md, and an agent a .md file.
+// skill is a folder holding a SKILL.md, and an agent a .md file whose
+// frontmatter names and describes it, as Claude Code reads agents.
 func (a App) othersItems(dir, kind string, st domain.TreeState) []Event {
 	sub := map[string]string{"skill": "skills", "agent": "agents"}[kind]
 	var events []Event
@@ -169,7 +175,7 @@ func (a App) othersItems(dir, kind string, st domain.TreeState) []Event {
 		rel := path.Join(".claude", sub, e)
 		l, known := st.Links[rel]
 		_, isLink := a.Trees.LinkTarget(filepath.Join(dir, rel))
-		isItem := kind == "agent" && strings.HasSuffix(e, ".md") ||
+		isItem := kind == "agent" && strings.HasSuffix(e, ".md") && (isLink || a.agentFile(filepath.Join(dir, rel))) ||
 			kind == "skill" && (isLink || a.Trees.Exists(filepath.Join(dir, rel, "SKILL.md")))
 		if known && a.ours(dir, rel, l) || strings.HasPrefix(e, ".") || !isItem {
 			continue
@@ -181,6 +187,13 @@ func (a App) othersItems(dir, kind string, st domain.TreeState) []Event {
 		events = append(events, Event{Kind: EvItem, Project: st.Project, Item: kind + " " + strings.TrimSuffix(e, ".md"), Detail: whose})
 	}
 	return events
+}
+
+// agentFile says whether the Markdown file at path is an agent Claude Code
+// reads: its frontmatter gives a name and a description.
+func (a App) agentFile(path string) bool {
+	meta, err := a.Trees.Frontmatter(path)
+	return err == nil && meta["name"] != "" && meta["description"] != ""
 }
 
 // UpdatePin prints how each skill used from repo differs between its pin and

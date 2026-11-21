@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -95,22 +96,45 @@ func TestATempFileHasItsFilesModeBeforeItHoldsAnything(t *testing.T) {
 	}
 }
 
-func TestWriteFileSweepsTheTempFilesOfAKilledRun(t *testing.T) {
+func TestWriteFileLeavesTheFilesBesideIt(t *testing.T) {
 	e := newTestEnv(t)
 	path := e.path("app/.claude/settings.local.json")
-	stale := e.path("app/.claude/.settings.local.json.abc123")
-	e.write(stale, "{}")
 	old := time.Now().Add(-2 * time.Hour)
-	if err := os.Chtimes(stale, old, old); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{".settings.local.json.bak", ".settings.local.json.abc123"} {
+		e.write(e.path("app/.claude/"+name), "{}")
+		if err := os.Chtimes(e.path("app/.claude/"+name), old, old); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	if err := writeFile(path, []byte("{}")); err != nil {
 		t.Fatal(err)
 	}
 
-	if fileExists(stale) {
-		t.Errorf("the killed run's temp file is still there")
+	for _, name := range []string{".settings.local.json.bak", ".settings.local.json.abc123"} {
+		if !fileExists(e.path("app/.claude/" + name)) {
+			t.Errorf("%s, which nerve did not make here, is gone", name)
+		}
+	}
+}
+
+func TestWritePrivateIsForTheUserOnlyWhateverTheUmask(t *testing.T) {
+	e := newTestEnv(t)
+	defer syscall.Umask(syscall.Umask(0o022))
+	path := e.path("cfg/nerve/overlays/app.json")
+	e.write(path, "{}") // as an earlier nerve left it: 0644
+
+	if err := writePrivate(path, []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePrivate(e.path("cfg/nerve/state/x.json"), []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+
+	for p, want := range map[string]os.FileMode{path: 0o600, e.path("cfg/nerve/state/x.json"): 0o600, e.path("cfg/nerve/state"): 0o700} {
+		if fi, err := os.Stat(p); err != nil || fi.Mode().Perm() != want {
+			t.Errorf("%s: mode %v (%v), want %v", p, fi.Mode().Perm(), err, want)
+		}
 	}
 }
 
@@ -139,7 +163,7 @@ func TestWriteObjectRefusesWhatJSONCannotHoldAndKeepsTheFile(t *testing.T) {
 	path := e.path("app/settings.json")
 	e.write(path, `{"model": "opus"}`)
 
-	if err := writeObject(path, map[string]any{"x": math.Inf(1)}); err == nil {
+	if err := writeObject(path, map[string]any{"x": math.Inf(1)}, false); err == nil {
 		t.Errorf("wrote inf")
 	}
 	if got := e.read(path); got != `{"model": "opus"}` {
@@ -156,7 +180,7 @@ func TestSettingsKeepTheirTextAndEveryDigit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeObject(path, obj); err != nil {
+	if err := writeObject(path, obj, false); err != nil {
 		t.Fatal(err)
 	}
 

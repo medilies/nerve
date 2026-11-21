@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -126,10 +127,11 @@ func parseFlags(args []string) ([]string, flags, error) {
 	return pos, f, nil
 }
 
-// isNumber says whether a word is a number, such as -1, which is a value.
+// isNumber says whether a word is a number, such as -1, which is a value:
+// not -inf or -nan, which no setting holds.
 func isNumber(s string) bool {
-	_, err := strconv.ParseFloat(s, 64)
-	return err == nil
+	f, err := strconv.ParseFloat(s, 64)
+	return err == nil && !math.IsInf(f, 0) && !math.IsNaN(f)
 }
 
 // only refuses a flag the command does not take; any command takes --json.

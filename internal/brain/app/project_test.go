@@ -141,13 +141,14 @@ func TestRemoveProjectCleansItsTreesAndDropsIt(t *testing.T) {
 	if got := e.trees.excludes["/w/app"]; got != nil {
 		t.Errorf("the exclude block is left: %v", got)
 	}
-	if _, ok := e.machine.overlays["app"]; ok {
-		t.Errorf("the local overlay is left")
+	if _, ok := e.machine.overlays["app"]; !ok {
+		t.Errorf("the local overlay is gone, and what it held with it")
 	}
 	if _, ok := e.trees.links["/w/other/.claude/skills/nerve"]; !ok {
 		t.Errorf("another project was cleaned")
 	}
-	contains(t, r, "cleaned  /w/app: project app removed", "removed  /cfg/nerve/overlays/app.json", "project  app: dropped from brain.toml")
+	contains(t, r, "cleaned  /w/app: project app removed", "project  app: dropped from brain.toml",
+		"kept     /cfg/nerve/overlays/app.json: the local overlay of project app may hold what is nowhere else: delete it once you no longer need it")
 	if err := e.app.RemoveProject("app", &recorder{}); err == nil {
 		t.Errorf("removing it again passed")
 	}
@@ -215,23 +216,6 @@ func TestInitNamesTheBrainOnce(t *testing.T) {
 	}
 }
 
-func TestRemovingAProjectWhoseBrainSaveFailsKeepsItsOverlay(t *testing.T) {
-	e := newEnv(t)
-	e.listed("app", "/w/app")
-	e.machine.overlays["app"] = map[string]any{"env": map[string]any{"TOKEN": "x"}}
-	e.must(e.sync("/w/app", app.SyncOptions{}))
-	e.brain.failSaves = 1
-	r := &recorder{}
-
-	if err := e.app.RemoveProject("app", r); err == nil {
-		t.Fatal("remove passed")
-	}
-
-	if _, ok := e.machine.overlays["app"]; !ok || strings.Contains(r.String(), "overlays/app.json") {
-		t.Errorf("the overlay of a project still in the Brain is gone or reported removed:\n%s", r)
-	}
-}
-
 func TestRemovingAProjectWhoseBrainSaveFailsKeepsItsCheckoutListed(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
@@ -277,5 +261,47 @@ func TestRemovingAProjectFromAMovedCheckoutNeverSyncedTakesOutWhatNerveMade(t *t
 
 	if len(e.trees.links) > 0 || jsonText(e.settings("/w/new")) != `{"outputStyle":"terse"}` {
 		t.Errorf("links %v, settings %s: want only the user's own left", e.trees.links, jsonText(e.settings("/w/new")))
+	}
+}
+
+func TestRemovingAProjectKeepsWhatItsCheckoutHadAsTheBrainSetsIt(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus", "permissions": map[string]any{"allow": []any{"Read", "Edit"}}}
+	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus", "permissions": map[string]any{"allow": []any{"Read"}}}
+	if _, err := e.sync("/w/app", app.SyncOptions{Hook: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	e.must(&recorder{}, e.app.RemoveProject("app", &recorder{}))
+
+	if got := jsonText(e.settings("/w/app")); got != `{"model":"opus","permissions":{"allow":["Read"]}}` {
+		t.Errorf("settings are %s, want what the checkout had before nerve", got)
+	}
+}
+
+func TestRemovingAProjectNeverSyncedLeavesItsCheckoutsSettings(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
+	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus"}
+
+	e.must(&recorder{}, e.app.RemoveProject("app", &recorder{}))
+
+	if got := jsonText(e.settings("/w/app")); got != `{"model":"opus"}` {
+		t.Errorf("settings are %s, want the file nerve never wrote left as it is", got)
+	}
+}
+
+func TestAddProjectWhoseBrainSaveFailsListsNothing(t *testing.T) {
+	e := newEnv(t)
+	e.checkout("/w/app")
+	e.brain.failSaves = 1
+	r := &recorder{}
+
+	if err := e.app.AddProject("/w/app", "app", r); err == nil {
+		t.Fatal("add passed")
+	}
+
+	if len(e.machine.machine.Checkouts) > 0 || len(r.events) > 0 {
+		t.Errorf("checkouts %v, events:\n%s", e.machine.machine.Checkouts, r)
 	}
 }

@@ -4,8 +4,11 @@ import (
 	"archive/zip"
 	"bytes"
 	"os"
+	"reflect"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/medilies/nerve/internal/brain/domain"
 )
@@ -53,6 +56,55 @@ func TestZipHoldsTheSkillUnderItsNameTheSameEachTime(t *testing.T) {
 	}
 }
 
+// names lists the files a zip holds.
+func names(t *testing.T, b []byte) []string {
+	t.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	return names
+}
+
+func TestZipLeavesOutDotFilesAndFolders(t *testing.T) {
+	e := newTestEnv(t)
+	e.write(e.path("s/x/SKILL.md"), skillMD("x", ""))
+	e.write(e.path("s/x/.env"), "TOKEN=x")
+	e.write(e.path("s/x/.venv/lib/a.py"), "a")
+	e.write(e.path("s/x/refs/.DS_Store"), "x")
+	e.write(e.path("s/x/.git"), "gitdir: /elsewhere") // a worktree's or a submodule's
+
+	b, err := ZipCache{}.Zip(domain.Skill{Name: "x", Dir: e.path("s/x")})
+
+	if got := names(t, b); err != nil || !reflect.DeepEqual(got, []string{"x/SKILL.md"}) {
+		t.Errorf("zip holds %v (%v)", got, err)
+	}
+}
+
+func TestZipRefusesAFileThatIsNotARegularOne(t *testing.T) {
+	e := newTestEnv(t)
+	e.write(e.path("s/x/SKILL.md"), skillMD("x", ""))
+	if err := syscall.Mkfifo(e.path("s/x/pipe"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+
+	go func() { _, err := ZipCache{}.Zip(domain.Skill{Name: "x", Dir: e.path("s/x")}); done <- err }()
+
+	select {
+	case err := <-done:
+		if err == nil || err.Error() != "pipe is not a regular file, which a zip cannot hold" {
+			t.Errorf("got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("zipping a pipe hangs")
+	}
+}
+
 func TestZipRefusesALinkItCannotHold(t *testing.T) {
 	e := newTestEnv(t)
 	e.write(e.path("secret.txt"), "TOPSECRET")
@@ -73,9 +125,9 @@ func TestZipRefusesALinkItCannotHold(t *testing.T) {
 			e.link(e.path("s/x/"+link), map[string]string{"notes.md": "../../secret.txt", "refs": e.path("s/x"), "gone.md": "nowhere"}[link])
 			defer func() { _ = os.Remove(e.path("s/x/" + link)) }()
 
-			zip, err := z.Zip(s)
+			_, err := z.Zip(s)
 
-			if err == nil || !strings.Contains(err.Error(), want+", which a zip cannot hold") || bytes.Contains(zip, []byte("TOPSECRET")) {
+			if err == nil || !strings.Contains(err.Error(), want+", which a zip cannot hold") {
 				t.Errorf("got %v", err)
 			}
 		})

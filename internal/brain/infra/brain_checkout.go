@@ -117,8 +117,12 @@ func (b BrainCheckout) Load() (domain.Manifest, error) {
 	return m, m.Validate()
 }
 
-// Save writes brain.toml in nerve's own layout. Comments are not kept.
+// Save writes brain.toml in nerve's own layout, refusing what Load would.
+// Comments are not kept.
 func (b BrainCheckout) Save(m domain.Manifest) error {
+	if err := m.Validate(); err != nil {
+		return err
+	}
 	f := manifestFile{Nerve: m.Nerve, Autosync: m.Autosync, Allowed: m.AllowedSettings}
 	for _, s := range m.Sources {
 		f.Sources = append(f.Sources, sourceTable(s))
@@ -337,7 +341,7 @@ func (b BrainCheckout) MovePin(repo, old, new string) error {
 
 // pullTimeout bounds the fetch of a pull, so autosync reports a network
 // that does not answer before Claude Code stops waiting for it.
-const pullTimeout = 30 * time.Second
+var pullTimeout = 30 * time.Second
 
 // Pull fast-forwards the checkout from its upstream. It skips a checkout
 // that is not a git repo, has a detached HEAD, no upstream, or uncommitted
@@ -352,15 +356,21 @@ func (b BrainCheckout) Pull(r app.Reporter) error {
 		r.Add(app.Event{Kind: app.EvPullSkipped, Path: b.root, Detail: why})
 		return nil
 	}
-	switch _, err := git(b.root, "symbolic-ref", "-q", "HEAD"); {
+	branch, err := git(b.root, "symbolic-ref", "-q", "--short", "HEAD")
+	switch {
 	case err == nil:
 	case exitCode(err) == 1: // 1: HEAD is not a branch
 		return skip("detached HEAD")
 	default:
 		return skip("cannot read its git state: " + firstLine(err))
 	}
-	if _, err := git(b.root, "rev-parse", "--abbrev-ref", "@{upstream}"); err != nil {
+	// The branch's own config, not its tracking ref, which only a fetch
+	// may make.
+	switch _, err := git(b.root, "config", "branch."+trim(branch)+".merge"); {
+	case exitCode(err) == 1: // 1: no such key
 		return skip("no upstream branch")
+	case err != nil:
+		return skip("cannot read its git state: " + firstLine(err))
 	}
 	out, err := git(b.root, "status", "--porcelain", "--untracked-files=no")
 	switch {
@@ -370,7 +380,10 @@ func (b BrainCheckout) Pull(r app.Reporter) error {
 		return skip("uncommitted changes")
 	}
 	if _, err := gitWithin(pullTimeout, b.root, "fetch", "-q"); err != nil {
-		return skip("could not reach its remote")
+		return skip("could not fetch: " + firstLine(err))
+	}
+	if _, err := git(b.root, "rev-parse", "-q", "--verify", "@{upstream}"); err != nil {
+		return skip("its upstream branch is not on the remote")
 	}
 	switch _, err := git(b.root, "merge-base", "--is-ancestor", "HEAD", "@{upstream}"); {
 	case exitCode(err) == 1: // 1: HEAD is not behind the upstream
@@ -413,13 +426,24 @@ func (b BrainCheckout) State() string {
 	if trim(out) != "" {
 		parts = append(parts, "uncommitted changes")
 	}
-	if _, err := git(b.root, "rev-parse", "--abbrev-ref", "@{upstream}"); err == nil {
-		out, err := git(b.root, "rev-list", "--count", "@{upstream}..HEAD")
-		switch {
+	// Against the upstream, else, on a branch with none, against every
+	// remote branch. A Brain with no remote has nowhere to push.
+	notPushed := []string{"@{upstream}..HEAD"}
+	if _, err := git(b.root, "rev-parse", "--abbrev-ref", "@{upstream}"); err != nil {
+		notPushed = nil
+		if remotes, err := git(b.root, "remote"); err == nil && trim(remotes) != "" {
+			notPushed = []string{"HEAD", "--not", "--remotes"}
+		}
+	}
+	if notPushed != nil {
+		out, err := git(b.root, append([]string{"rev-list", "--count"}, notPushed...)...)
+		switch n := trim(out); {
 		case err != nil:
 			parts = append(parts, "cannot count the commits not pushed: "+firstLine(err))
-		case trim(out) != "0":
-			parts = append(parts, trim(out)+" commits not pushed")
+		case n == "1":
+			parts = append(parts, "1 commit not pushed")
+		case n != "0":
+			parts = append(parts, n+" commits not pushed")
 		}
 	}
 	return strings.Join(parts, ", ")
@@ -464,12 +488,19 @@ func (b BrainCheckout) AgentFile(name string) (string, bool) {
 }
 
 func (b BrainCheckout) Agents() ([]app.Agent, error) {
-	files, err := filepath.Glob(filepath.Join(b.root, "agents", "*.md"))
+	entries, err := os.ReadDir(filepath.Join(b.root, "agents"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
 	var agents []app.Agent
-	for _, f := range files {
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		f := filepath.Join(b.root, "agents", e.Name())
 		rel, _ := filepath.Rel(b.root, f)
 		ag := app.Agent{Name: strings.TrimSuffix(filepath.Base(f), ".md"), Rel: rel}
 		ag.Meta, ag.Err = readFrontmatter(f)

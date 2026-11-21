@@ -1,6 +1,6 @@
 # A word that starts with one dash and a letter is a flag nerve does not
 # know, not a name or a key; -- lets one through, and a negative number is
-# a value.
+# a value, but not -inf or -nan.
 
 exec nerve init brain
 cd proj
@@ -12,3 +12,6 @@ stderr '-all is not a flag nerve knows: put -- before a word that starts with -'
 
 exec nerve setting set cleanupPeriodDays -1
 grep 'cleanupPeriodDays = -1' $HOME/brain/brain.toml
+
+! exec nerve setting set cleanupPeriodDays -inf
+stderr '-inf is not a flag nerve knows: put -- before a word that starts with -'

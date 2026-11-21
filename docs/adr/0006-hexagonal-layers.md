@@ -1,6 +1,6 @@
 # One bounded context in hexagonal layers, held by depguard
 
-Status: accepted, 2026-11-20
+Status: accepted, 2026-11-20. The release upgrade adapter went with [ADR 0007](0007-drop-guessing-features.md), and the import of a project's settings with the amendment of [ADR 0005](0005-projects-opt-in.md).
 
 ## Context
 

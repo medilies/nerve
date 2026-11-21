@@ -70,9 +70,15 @@ func ParseFrontmatter(file, text string) (map[string]string, error) {
 	}
 	meta := map[string]string{}
 	key := ""
+	quoted := "" // a quoted value still open, its lines joined
 	for _, line := range lines[1 : 1+end] {
 		trimmed := strings.TrimSpace(line)
 		switch {
+		case quoted != "": // YAML folds the lines of a quoted value into one
+			quoted += " " + trimmed
+			if v, closed := scalarQuoted(quoted); closed {
+				meta[key], quoted = v, ""
+			}
 		case trimmed == "" || strings.HasPrefix(trimmed, "#"):
 		case key != "" && (line == "-" || strings.HasPrefix(line, "- ")): // a list item, which YAML lets start at column 0
 			meta[key] = strings.TrimSpace(meta[key] + " " + trimmed)
@@ -85,8 +91,10 @@ func ParseFrontmatter(file, text string) (map[string]string, error) {
 				return nil, fmt.Errorf("%s frontmatter gives %q twice", file, k)
 			}
 			key = k
-			v = scalar(strings.TrimSpace(v))
-			if strings.HasPrefix(v, ">") || strings.HasPrefix(v, "|") {
+			v = strings.TrimSpace(v)
+			if sv, closed := scalarQuoted(v); !closed {
+				quoted = v
+			} else if v = sv; strings.HasPrefix(v, ">") || strings.HasPrefix(v, "|") {
 				v = ""
 			}
 			meta[key] = v
@@ -94,7 +102,19 @@ func ParseFrontmatter(file, text string) (map[string]string, error) {
 			meta[key] = strings.TrimSpace(meta[key] + " " + trimmed)
 		}
 	}
+	if quoted != "" {
+		return nil, fmt.Errorf("%s frontmatter: the quoted value of %q is not closed", file, key)
+	}
 	return meta, nil
+}
+
+// scalarQuoted reads a value as scalar does, and says whether it is whole:
+// false for a quoted value whose closing quote is on a later line.
+func scalarQuoted(v string) (string, bool) {
+	if len(v) > 0 && (v[0] == '"' || v[0] == '\'') && quoteEnd(v) < 0 {
+		return v, false
+	}
+	return scalar(v), true
 }
 
 // cutKey splits a "key: value" line, where the key may be quoted.
@@ -111,7 +131,8 @@ func cutKey(line string) (key, value string, ok bool) {
 		return unquote(line[:end+1]), rest[1:], true
 	}
 	k, v, ok := strings.Cut(line, ":")
-	return strings.TrimSpace(k), v, ok
+	k = strings.TrimSpace(k)
+	return k, v, ok && k != ""
 }
 
 // quoteEnd is the index of the quote that closes the one v starts with, or
@@ -128,14 +149,11 @@ func quoteEnd(v string) int {
 	return -1
 }
 
-// scalar reads a YAML value on one line: a quoted one without its quotes,
-// and a plain one without the comment after it.
+// scalar reads a whole YAML value: a quoted one without its quotes, and a
+// plain one without the comment after it.
 func scalar(v string) string {
 	if len(v) > 0 && (v[0] == '"' || v[0] == '\'') {
-		if end := quoteEnd(v); end > 0 {
-			return unquote(v[:end+1])
-		}
-		return v
+		return unquote(v[:quoteEnd(v)+1])
 	}
 	if strings.HasPrefix(v, "#") {
 		return ""

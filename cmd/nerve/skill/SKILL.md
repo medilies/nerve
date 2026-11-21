@@ -36,10 +36,10 @@ Always add `--json`, then tell the user what happened in plain words. A command 
 | `nerve sync --here` | Carry the Brain to this project. `nerve sync` does every checkout on the machine and builds claude.ai zips. |
 | `nerve project add <name>` | List this checkout. Settings it already has stay, as personal settings. |
 | `nerve project ls` | The Brain's projects, and their checkouts on this machine. |
-| `nerve project rm <name>` | Clean its checkouts here, delete its overlay here, and drop it from the Brain. Ask first. |
+| `nerve project rm <name>` | Clean its checkouts here, and drop it from the Brain. Its overlay stays. Ask first. |
 | `nerve skill add\|rm <name>`, `agent …`, `hook …`, `plugin add\|rm <plugin>@<marketplace>` | Change what the project lists. `rm --all` takes it out of every project. |
 | `nerve skill ls`, `agent ls`, `hook ls`, `plugin ls` | What the project lists and where each comes from; for skills and agents, the team's own and links the user made (`yours`) too. |
-| `nerve setting set <key> <value>` | Value is JSON or text. `--common` for every project. A setting the Brain does not allow, or a sensitive value, goes to the overlay on its own; `allowed-settings` in `brain.toml` allows more keys, never one that may hold secrets. A key that holds a dot goes in double quotes: `enabledPlugins."x@y.z"`. |
+| `nerve setting set <key> <value>` | Value is JSON or text. `--common` for every project. A setting the Brain does not allow, or a sensitive value, goes to the project's overlay on its own; with `--common`, nerve refuses it. `allowed-settings` in `brain.toml` allows more keys, never one that may hold secrets. A key that holds a dot goes in double quotes: `enabledPlugins."x@y.z"`. |
 | `nerve setting add <key> <value>` | Add one item to a list, such as `permissions.allow`. `--common` and the overlay as for `set`. |
 | `nerve setting rm <key>[=<value>]` | Remove a key, or one item of a list, from the project and its overlay. `--common` from common; `--all` revokes it from common and every project. |
 | `nerve setting ls` | Each setting and the layers that give it. |
@@ -71,6 +71,7 @@ command = "{{brain}}/hooks/go-fmt.sh"   # {{brain}} is the Brain's path
 - **`upload`** and **`unload`**: tell the user which zip to upload to which claude.ai account, or which skill to delete there. Neither you nor nerve can do it.
 - **`pull-skipped`**: the Brain was not pulled. Say why, and offer to commit, pull, or check the remote.
 - **`cleaned`**: nerve took its links and settings out of a working tree, for the reason `detail` gives. Say so; nothing to do.
+- **`kept`**: nerve left a file it made, such as the local overlay of a removed project, which may hold a secret. Say where it is; delete it only when the user asks.
 - **`version`** with a `target`: this machine runs another nerve than the Brain pins. Tell the user to install the pinned release; never install it yourself.
 - **`pinned`** and **`already-pinned`**: `skill update` moved a source's pin, or found it there already. After `pinned`, the Brain has a change to commit: offer to, as in "Changing the Brain".
 

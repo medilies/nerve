@@ -19,8 +19,10 @@ the one around the working directory, a worktree included.
 - **Refuses a checkout** where `.claude`, `.claude/skills`,
   `.claude/agents` or `.claude/settings.local.json` is a link, since
   nerve would write outside it. `nerve project rm` refuses it too.
-- **Refuses a checkout** whose project lists a skill, agent, hook or
-  plugin the Brain does not offer, as `nerve check` reports it.
+- **Refuses a checkout** whose project lists a skill, agent or hook the
+  Brain does not offer, a skill it offers both as its own and from a
+  source, or a plugin ID that is not `<plugin>@<marketplace>`, as
+  `nerve check` reports it.
 - **Links** the project's skills into `.claude/skills/` and agents into
   `.claude/agents/`, with its own `nerve` skill, and keeps them out of
   git with a marked block in the repo's `info/exclude`. Own skills link
@@ -56,9 +58,8 @@ skipped, if it was.
 - When it links a skill, Claude Code rescans skills, so the skill is
   usable in that session.
 - It never fails the session: an error is part of the report.
-- It gives git five minutes in all, so Claude Code does not cancel it
-  first. A skill it could not fetch by then is reported, and comes at a
-  later sync.
+- It gives git five minutes in all. A skill it could not fetch by then
+  is reported, and comes at a later sync.
 - `nerve project autosync off`, or `--all` for the Brain's default,
   takes the hook out at the next sync.
 
@@ -70,6 +71,10 @@ adds to `permissions.allow`. nerve keeps it, reports it the first time
 it sees it, and never removes it, `--discard` and `project rm`
 included. To share it, move it into the Brain with `nerve setting set`
 or `nerve setting add`.
+
+A setting the checkout had before nerve first wrote its file, that the
+Brain sets the same, is the Brain's from then on, but `project rm`
+leaves it while it holds that value.
 
 ## Drift
 
@@ -128,7 +133,8 @@ and says which to upload, once each time one changes, and which skills
 to delete on the account. A skill it cannot build is reported, and
 never marked for deletion. A link in a skill is zipped as the file it
 points to in the skill; one to a folder, to nothing, or out of the
-skill is refused, so nothing outside the skill reaches a zip.
+skill is refused, so nothing outside the skill reaches a zip. Files and
+folders whose name starts with a dot, such as `.env`, stay out of it.
 
 Skills on claude.ai reach every Claude Code session signed into that
 account. `syncClaudeAiSkills: false`, in your user settings or

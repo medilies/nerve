@@ -28,6 +28,7 @@ const (
 	EvLinked       = "linked"         // Path now links to Target
 	EvRemoved      = "removed"        // a link or file at Path that nerve made
 	EvWrote        = "wrote"          // Path
+	EvKept         = "kept"           // Path, which nerve made, is left for the user; Detail says why
 	EvSetting      = "setting"        // Key at Path went from Local to Brain
 	EvDrift        = "drift"          // Key at Path changed outside the Brain, from Brain to Local, and was left as is; with Item, that item of the list
 	EvPersonal     = "personal"       // Key at Path holds Local, or with Item that item of the list, which the Brain does not set: kept
@@ -63,6 +64,8 @@ func (e Event) String() string {
 		return fmt.Sprintf("linked   %s -> %s", e.Path, e.Target)
 	case EvRemoved, EvWrote:
 		return fmt.Sprintf("%-8s %s", e.Kind, e.Path)
+	case EvKept:
+		return fmt.Sprintf("kept     %s: %s", e.Path, e.Detail)
 	case EvSetting:
 		switch {
 		case e.Local == "unset":

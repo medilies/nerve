@@ -116,12 +116,12 @@ func TestStripTakesOnlyWhatNerveWroteUnchanged(t *testing.T) {
 	current := obj(t, `{"model": "sonnet", "effortLevel": "high", "outputStyle": "terse"}`)
 	last := obj(t, `{"model": "opus", "effortLevel": "high"}`)
 
-	rest, changed := domain.Strip(current, last)
+	rest, changed := domain.Strip(current, last, nil)
 
 	if text(rest) != `{"model":"sonnet","outputStyle":"terse"}` || !changed {
 		t.Errorf("left %s (changed %v), want the user's own and the drifted key", text(rest), changed)
 	}
-	if _, changed := domain.Strip(obj(t, `{"a": 1}`), nil); changed {
+	if _, changed := domain.Strip(obj(t, `{"a": 1}`), nil, nil); changed {
 		t.Errorf("Strip took keys nerve never wrote")
 	}
 }
@@ -217,10 +217,11 @@ func checkReconcile(t *testing.T, aValues, bValues []string) {
 					t.Fatalf("%s: discard wrote %s, want %s", name, text(discard.Result), text(wantDiscard))
 				}
 
-				rest, _ := domain.Strip(written, rc.Next)
-				personal := domain.Leaves(rc.Personal)
+				rest, _ := domain.Strip(written, rc.Next, rc.Before)
+				personal, before := domain.Leaves(rc.Personal), domain.Leaves(rc.Before)
 				for k := range domain.Leaves(rest) {
-					if _, mine := personal[k]; emptyLeaf(rest, k) || mine {
+					_, had := before[k] // the file held it before nerve's first write
+					if _, mine := personal[k]; emptyLeaf(rest, k) || mine || had {
 						continue
 					}
 					if !slices.ContainsFunc(rc.Drift, func(c domain.Change) bool {
@@ -349,6 +350,72 @@ func TestRemovePathTakesAKeyOrAnItemAndEmptyObjects(t *testing.T) {
 	}
 	if !domain.RemovePath(s, []string{"model"}, nil, false) || len(s) != 0 {
 		t.Errorf("removing a key left %s", text(s))
+	}
+}
+
+func TestSetPathKeepsAnEmptyListAList(t *testing.T) {
+	if got, err := domain.SetPath(nil, []string{"a"}, []any{}); err != nil || text(got) != `{"a":[]}` {
+		t.Errorf("set %s (%v)", text(got), err)
+	}
+}
+
+func TestShowValueHidesAValueHoldingASecretKey(t *testing.T) {
+	for _, v := range []any{map[string]any{"dbPassword": "hunter2"}, []any{map[string]any{"env": map[string]any{"X": "y"}}}} {
+		if got := domain.ShowValue("cfg", v); got != domain.Hidden {
+			t.Errorf("%v shows as %s", v, got)
+		}
+	}
+}
+
+func TestReconcileHidesASecretInAValueTakenWhole(t *testing.T) {
+	was := obj(t, `{"cfg": "off"}`)
+
+	rc := domain.Reconcile(was, was, obj(t, `{"cfg": {"dbPassword": "hunter2"}}`), false)
+
+	if len(rc.Changes) != 1 || rc.Changes[0].After != domain.Hidden {
+		t.Errorf("changes are %+v", rc.Changes)
+	}
+}
+
+func TestPersonalKeysNameEachHiddenItemApart(t *testing.T) {
+	names, shown := domain.PersonalKeys(obj(t, `{"permissions": {"allow": ["Bash(x ghp_abcdefghijklmnopqrstuvwxyz0123)", "Bash(y sk-abcdefghijklmnopqrstuvwxyz)"]}, "me@example.com": 1, "you@example.com": 2}`))
+
+	if len(names) != 4 || len(shown) != 4 {
+		t.Errorf("names %q, want four apart", names)
+	}
+	for _, n := range names {
+		if strings.Contains(n, "ghp_") || strings.Contains(n, "sk-") || strings.Contains(n, "@") {
+			t.Errorf("name %q shows what it hides", n)
+		}
+	}
+}
+
+func TestReconcileRecordsWhatTheFileHadBeforeNerve(t *testing.T) {
+	current := obj(t, `{"model": "opus", "outputStyle": "terse", "permissions": {"allow": ["Read", "Edit"]}}`)
+	want := obj(t, `{"model": "opus", "effortLevel": "high", "permissions": {"allow": ["Read"]}}`)
+
+	if rc := domain.Reconcile(current, nil, want, false); text(rc.Before) != `{"model":"opus","permissions":{"allow":["Read"]}}` {
+		t.Errorf("before is %s, want what the file held as the Brain does", text(rc.Before))
+	}
+	if rc := domain.Reconcile(current, want, want, false); rc.Before != nil {
+		t.Errorf("before is %s once nerve wrote the file", text(rc.Before))
+	}
+}
+
+func TestStripLeavesWhatTheFileHadBeforeNerve(t *testing.T) {
+	last := obj(t, `{"model": "opus", "effortLevel": "high", "permissions": {"allow": ["Read", "Edit"]}}`)
+	before := obj(t, `{"model": "opus", "effortLevel": "low", "permissions": {"allow": ["Read"]}}`)
+
+	rest, _ := domain.Strip(last, last, before)
+
+	if text(rest) != `{"model":"opus","permissions":{"allow":["Read"]}}` {
+		t.Errorf("left %s, want only what the file held before, at the value it held", text(rest))
+	}
+}
+
+func TestMergeLeavesNoRepeatsInAList(t *testing.T) {
+	if got := domain.Merge(obj(t, `{"a": [1, 1]}`), obj(t, `{"a": [2, 2], "b": [3, 3]}`)); text(got) != `{"a":[1,2],"b":[3]}` {
+		t.Errorf("merged %s", text(got))
 	}
 }
 
@@ -521,7 +588,7 @@ func TestStripTakesNervesItemsFromAListTheUserAddedTo(t *testing.T) {
 	current := obj(t, `{"permissions": {"allow": ["Read", "Bash(make)"], "deny": ["Cron"]}}`)
 	last := obj(t, `{"permissions": {"allow": ["Read"], "deny": ["Cron"]}}`)
 
-	rest, changed := domain.Strip(current, last)
+	rest, changed := domain.Strip(current, last, nil)
 
 	if text(rest) != `{"permissions":{"allow":["Bash(make)"]}}` || !changed {
 		t.Errorf("left %s (changed %v), want only the user's item", text(rest), changed)

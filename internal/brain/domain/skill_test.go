@@ -54,6 +54,8 @@ func TestParseFrontmatterRefusesWhatIsNotFrontmatter(t *testing.T) {
 		"# no frontmatter\n":     "SKILL.md has no frontmatter",
 		"---\nname: x\n":         "SKILL.md frontmatter is not closed",
 		"---\nnot a pair\n---\n": `frontmatter line "not a pair" is not key: value`,
+		"---\n: value\n---\n":    `frontmatter line ": value" is not key: value`,
+		"---\nname: \"x\n---\n":  `SKILL.md frontmatter: the quoted value of "name" is not closed`,
 	} {
 		if _, err := domain.ParseFrontmatter("SKILL.md", text); err == nil || err.Error() != want {
 			t.Errorf("got %v, want %q", err, want)
@@ -112,6 +114,14 @@ func TestParseFrontmatterDecodesEscapesInQuotedValues(t *testing.T) {
 
 func TestParseFrontmatterTakesAnOpeningLineWithTrailingSpaces(t *testing.T) {
 	if meta, err := domain.ParseFrontmatter("SKILL.md", "--- \nname: x\n---\n"); err != nil || meta["name"] != "x" {
+		t.Errorf("got %q (%v)", meta, err)
+	}
+}
+
+func TestParseFrontmatterJoinsAQuotedValueOverLines(t *testing.T) {
+	meta, err := domain.ParseFrontmatter("SKILL.md", "---\nname: x\ndescription: \"Does things\n  and more\"\nlicense: 'it''s\n  ok'\n---\n")
+
+	if err != nil || meta["description"] != "Does things and more" || meta["license"] != "it's ok" {
 		t.Errorf("got %q (%v)", meta, err)
 	}
 }

@@ -90,9 +90,10 @@ everything under them:
 - those `allowed-settings` lists, such as `"statusLine"` or
   `'extraKnownMarketplaces."acme.tools"'`.
 
-A key that may hold secrets is never allowed, at any depth: `env`,
-`headers`, `apiKeyHelper` and the like, or a key named for a token,
-secret, password, API key or credential. Nor are `hooks` and
+A key that may hold secrets is never allowed, at any depth, in lists
+too: `env`, `headers`, `apiKeyHelper` and the like, or a key named for a
+token, secret, password, API, private, access or session key,
+credential, cookie or authorization. Nor are `hooks` and
 `enabledPlugins`, which nerve writes from `[hook.<name>]` and
 `plugins`. `allowed-settings` cannot list them.
 
@@ -106,7 +107,8 @@ overlay.
 The commands that write the Brain keep them out:
 
 - `setting set` and `setting add` put a setting that is not allowed,
-  or whose value is sensitive, in the local overlay instead.
+  or whose value is sensitive, in the project's local overlay instead.
+  With `--common`, they refuse it.
 - `plugin add` refuses such a plugin ID, and says how to enable it on
   this machine only.
 
@@ -136,14 +138,20 @@ project = "billing"
 ```
 
 - **Local overlays**, `overlays/<project>.json`, hold a project's
-  settings that are not allowed in a Brain, sensitive or identifying,
-  or that `brain.toml` cannot hold, such as `null`. nerve puts them there on its own when
-  you set such a value. They never leave the machine,
-  so set them again on each one.
+  settings that are not allowed in a Brain, or are sensitive or
+  identifying. nerve puts them there on its own when you set such a
+  value. You may also write in one what `brain.toml` cannot hold, such
+  as `null`. They never leave the machine, so set them again on each
+  one.
+  - Setting a key in the Brain drops the overlay's value for it, which
+    would win.
   - `nerve setting rm` removes a key from the overlay too.
-  - `nerve project rm` deletes the project's overlay on this machine.
+  - `nerve project rm` keeps the project's overlay, and says where it
+    is: delete it once you no longer need what it holds.
 - **State**, under `state/`, is what nerve last did to each working
   tree, never kept in the project.
+
+These files are readable by you only.
 
 ## Checking a Brain
 

@@ -63,27 +63,42 @@ func (SourceCache) Diff(repo, name, from, to string) (string, error) {
 		return "", fmt.Errorf("at %s: %w; drop it from %s first", to[:7], err, domain.ManifestFile)
 	}
 	// The source's own text only: no diff tool or text conversion of the
-	// user's, no control character that a terminal would act on, and no
-	// invisible one, such as a bidi override, that hides what the text says.
+	// user's, and shown as visible says.
 	out, err := git("", "diff", "--no-index", "--no-color", "--no-ext-diff", "--no-textconv", "--", oldDir, newDir)
 	if err != nil && exitCode(err) != 1 { // 1: they differ
 		return "", err
 	}
 	var b strings.Builder
 	for _, r := range out {
-		switch {
-		case b.Len() >= maxDiff:
+		if b.Len() >= maxDiff {
 			return b.String() + fmt.Sprintf("\n… the diff is cut at %d bytes: read the rest in %s\n", maxDiff, newDir), nil
-		case r == '\n' || r == '\t':
-			b.WriteRune(r)
-		case unicode.IsControl(r):
-		case unicode.Is(unicode.Cf, r):
-			fmt.Fprintf(&b, "<U+%04X>", r)
-		default:
-			b.WriteRune(r)
 		}
+		writeVisible(&b, r)
 	}
 	return b.String(), nil
+}
+
+// visible is s with no control character that a terminal would act on, and
+// each invisible one, such as a bidi override or a line separator, named:
+// what a source's text or a folder name holds is shown as it is.
+func visible(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		writeVisible(&b, r)
+	}
+	return b.String()
+}
+
+func writeVisible(b *strings.Builder, r rune) {
+	switch {
+	case r == '\n' || r == '\t':
+		b.WriteRune(r)
+	case unicode.IsControl(r):
+	case unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp):
+		fmt.Fprintf(b, "<U+%04X>", r)
+	default:
+		b.WriteRune(r)
+	}
 }
 
 // maxDiff bounds the diff skill update shows, in bytes.
@@ -116,6 +131,13 @@ func fetch(repo, sha string) (string, error) {
 		// may reach out of it into the user's files.
 		{"-c", "advice.detachedHead=false", "-c", "core.symlinks=false", "checkout", "-q", "FETCH_HEAD"},
 	} {
+		if args[0] == "-c" {
+			// The files as committed: no filter of the user's, such as
+			// git-lfs, runs on someone else's repo, and no line end changes.
+			if err := os.WriteFile(filepath.Join(tmp, ".git", "info", "attributes"), []byte("* -filter -text\n"), 0o644); err != nil {
+				return "", err
+			}
+		}
 		if _, err := git(tmp, args...); err != nil {
 			return "", fmt.Errorf("fetch %s@%s: %w", repo, sha[:7], err)
 		}
@@ -134,11 +156,12 @@ func fetch(repo, sha string) (string, error) {
 }
 
 // sweep removes the folders of fetches into dir that were killed: older
-// than any fetch can run.
+// than any fetch can run. dir is nerve's own, in its cache.
 func sweep(dir string) {
-	tmps, _ := filepath.Glob(filepath.Join(dir, "*.tmp-*"))
-	for _, tmp := range tmps {
-		if fi, err := os.Stat(tmp); err == nil && time.Since(fi.ModTime()) > time.Hour {
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		tmp := filepath.Join(dir, e.Name())
+		if fi, err := e.Info(); err == nil && e.IsDir() && strings.Contains(e.Name(), ".tmp-") && time.Since(fi.ModTime()) > time.Hour {
 			_ = os.RemoveAll(tmp)
 		}
 	}

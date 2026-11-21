@@ -64,9 +64,9 @@ type Machine interface {
 	State(dir string) (domain.TreeState, error)
 	SaveState(domain.TreeState) error
 	DropState(dir string) error
-	// States reads every state it can; a state it cannot read is refused by
-	// State to its own tree only.
-	States() ([]domain.TreeState, error)
+	// States reads every state it can, and names the state files it
+	// cannot read, which State refuses to their own trees.
+	States() (states []domain.TreeState, unreadable []string, err error)
 	// Built maps each claude.ai project to the hash of each skill zip last
 	// built.
 	Built() (map[string]map[string]string, error)
@@ -94,12 +94,15 @@ type Trees interface {
 	// CheckIgnored refuses a tree whose settings.local.json git tracks or
 	// does not ignore.
 	CheckIgnored(dir string) error
-	// SyncExclude keeps rels out of git through nerve's block in the
-	// repo's info/exclude, which every worktree of the repo shares: rels
-	// must cover them all. It refuses a block someone damaged.
-	SyncExclude(dir string, rels []string) error
+	// SyncExclude keeps out of git, through nerve's block in the repo's
+	// info/exclude, the paths rels returns, which must cover every worktree
+	// of the repo. It calls rels while no other run can write the block,
+	// and refuses a block someone damaged.
+	SyncExclude(dir string, rels func() ([]string, error)) error
 	ReadSettings(path string) (map[string]any, error)
 	WriteSettings(path string, settings map[string]any) error
+	// Frontmatter reads the frontmatter of the Markdown file at path.
+	Frontmatter(path string) (map[string]string, error)
 }
 
 // Self is nerve itself: its own skill, how autosync runs it, and its
@@ -113,8 +116,10 @@ type Self interface {
 
 // Zips are the skill zips built for claude.ai accounts.
 type Zips interface {
-	// Zip zips a skill folder. It refuses a link that leads to a folder,
-	// to nothing, or out of the skill, which a zip cannot hold.
+	// Zip zips a skill folder, leaving out what is named with a leading
+	// dot. It refuses a link that leads to a folder, to nothing, or out of
+	// the skill, and a file that is not a regular one, which a zip cannot
+	// hold.
 	Zip(domain.Skill) ([]byte, error)
 	Write(project, name string, zip []byte) (path string, err error)
 	Has(project, name string) bool

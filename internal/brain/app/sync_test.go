@@ -417,7 +417,7 @@ func TestAFullSyncReachesTheWorktreesSyncedBefore(t *testing.T) {
 func TestAStateThatCannotBeSavedFailsTheTree(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
-	e.machine.stateErr = errors.New("state: read-only")
+	e.machine.fail["SaveState"] = errors.New("state: read-only")
 
 	r, err := e.sync("/w/app", app.SyncOptions{Here: true})
 
@@ -432,7 +432,7 @@ func TestACleanThatCannotDropTheStateKeepsTheCheckoutListed(t *testing.T) {
 	e.listed("app", "/w/app")
 	e.must(e.sync("/w/app", app.SyncOptions{Here: true}))
 	delete(e.brain.m.Projects, "app")
-	e.machine.stateErr = errors.New("state: read-only")
+	e.machine.fail["DropState"] = errors.New("state: read-only")
 
 	r, err := e.sync("/w/app", app.SyncOptions{Here: true})
 
@@ -712,7 +712,7 @@ func TestAFullSyncWhoseMachineFileCannotBeSavedReportsNothingUnlisted(t *testing
 	e.listed("gone", "/w/gone")
 	e.must(e.sync("/w", app.SyncOptions{}))
 	delete(e.trees.dirs, "/w/gone")
-	e.machine.saveErr = errors.New("config.toml: read-only")
+	e.machine.fail["Save"] = errors.New("config.toml: read-only")
 
 	r, err := e.sync("/w", app.SyncOptions{})
 
@@ -870,7 +870,7 @@ func TestClaudeAIZipThatCannotBeRemovedIsReported(t *testing.T) {
 
 	r, _ := e.sync("/w", app.SyncOptions{})
 
-	contains(t, r, "problem  /cache/nerve/claude.ai/claude-ai-work/notes.zip: cannot remove it: notes.zip: permission denied")
+	contains(t, r, "problem  /cache/nerve/claude.ai/claude-ai-work/notes.zip: cannot remove it: notes.zip: permission denied: delete it by hand")
 }
 
 func TestAListedCheckoutGitCannotLocateNamesTheFix(t *testing.T) {
@@ -881,4 +881,77 @@ func TestAListedCheckoutGitCannotLocateNamesTheFix(t *testing.T) {
 	r, _ := e.sync("/w", app.SyncOptions{})
 
 	contains(t, r, "problem  /w/app: git cannot locate it, so nerve leaves it as it is: not in a git repo: fatal: not a git repository: /nowhere; make it a git repo again, or move the folder away for nerve to unlist it")
+}
+
+func TestAFullSyncReportsAStateItCannotRead(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.machine.unreadable = []string{"/cfg/nerve/state/0123456789abcdef.json"}
+
+	r, err := e.sync("/w", app.SyncOptions{})
+
+	if err == nil {
+		t.Errorf("a sync that skipped a tree passed:\n%s", r)
+	}
+	contains(t, r, "problem  /cfg/nerve/state/0123456789abcdef.json: not a state nerve can read: delete it, then sync again in its working tree", "synced   app")
+}
+
+func TestSyncRefusesAListedCheckoutBelowTheTopOfItsRepo(t *testing.T) {
+	e := newEnv(t)
+	e.checkout("/w/app")
+	e.trees.dirs["/w/app/sub"] = true
+	e.brain.m.Projects["app"] = &domain.Project{}
+	e.machine.machine.Checkouts = []domain.Checkout{{Path: "/w/app/sub", Project: "app"}}
+
+	r, err := e.sync("/w", app.SyncOptions{})
+
+	if err == nil || len(e.trees.links) > 0 {
+		t.Errorf("got %v, links %v", err, e.trees.links)
+	}
+	contains(t, r, "problem  /w/app/sub: it is inside the git repo at /w/app, not its top: list /w/app in the machine file instead")
+}
+
+func TestASettingsFileMadeAgainHoldsNothingOfTheUsersToKeep(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
+	e.trees.settings["/w/app/.claude/settings.local.json"] = map[string]any{"model": "opus"}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	delete(e.trees.settings, "/w/app/.claude/settings.local.json") // as git clean -x does
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+
+	e.must(&recorder{}, e.app.RemoveProject("app", &recorder{}))
+
+	if got := e.settings("/w/app"); got != nil {
+		t.Errorf("settings are %s, want the file nerve made again taken out", jsonText(got))
+	}
+}
+
+func TestACleanThatCannotRemoveALinkKeepsTheState(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	delete(e.brain.m.Projects, "app")
+	e.trees.removeErr["/w/app/.claude/skills/nerve"] = errors.New("permission denied")
+
+	r, err := e.sync("/w/app", app.SyncOptions{Here: true})
+
+	if _, kept := e.machine.states["/w/app"]; err == nil || !kept || len(e.machine.machine.Checkouts) != 1 {
+		t.Errorf("got %v, state kept %v, checkouts %v: want what is left to clean known", err, kept, e.machine.machine.Checkouts)
+	}
+	contains(t, r, "problem  /w/app: permission denied")
+}
+
+func TestACleanThatCannotReadTheSettingsKeepsTheState(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	delete(e.brain.m.Projects, "app")
+	e.trees.readErr["/w/app/.claude/settings.local.json"] = errors.New("settings.local.json: invalid character")
+
+	r, err := e.sync("/w/app", app.SyncOptions{Here: true})
+
+	if _, kept := e.machine.states["/w/app"]; err == nil || !kept {
+		t.Errorf("got %v, state kept %v", err, kept)
+	}
+	contains(t, r, "problem  /w/app: settings.local.json: invalid character")
 }

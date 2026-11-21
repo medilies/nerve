@@ -12,6 +12,6 @@ exec git branch -q -u origin/main
 
 exec nerve sync --here --hook
 
-! stdout 'pulled|no pull'
+stdout 'error: no machine file at .*: run nerve init'
 exec git rev-list --count HEAD
 stdout '^1$'

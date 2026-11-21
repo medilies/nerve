@@ -46,6 +46,7 @@ type TreeState struct {
 	Links    map[string]Link // link, relative to the tree -> what it carries and points to
 	Folders  []string        // of TreeFolders, those nerve made
 	Settings map[string]any  // settings.local.json as nerve last meant it
+	Before   map[string]any  // what settings.local.json held, as the Brain wants it, before nerve first wrote it
 	Personal []string        // its personal settings already reported, as PersonalKeys names them
 	Commit   string          // the Brain commit last synced
 }

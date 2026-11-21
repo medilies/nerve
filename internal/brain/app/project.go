@@ -95,10 +95,9 @@ func (a App) syncState(dir, head string) string {
 }
 
 // RemoveProject cleans the project's working trees on this machine, drops
-// it from the Brain, then unlists its checkouts and deletes its local overlay
-// here; other machines clean theirs at their next sync. The overlay goes
-// last: it may hold what exists nowhere else, and a run that fails before it
-// is run again.
+// it from the Brain, then unlists its checkouts here; other machines clean
+// theirs at their next sync. Its local overlay is kept, and said where: it
+// may hold what exists nowhere else, such as a secret.
 func (a App) RemoveProject(name string, r Reporter) error {
 	if !domain.NamePattern.MatchString(name) {
 		return fmt.Errorf("no project %q: a project's name is lowercase words joined by hyphens", name)
@@ -108,7 +107,7 @@ func (a App) RemoveProject(name string, r Reporter) error {
 		return err
 	}
 	_, inBrain := l.m.Projects[name]
-	states, err := a.Machine.States()
+	states, _, err := a.Machine.States()
 	if err != nil {
 		return err
 	}
@@ -119,11 +118,11 @@ func (a App) RemoveProject(name string, r Reporter) error {
 		}
 	}
 	listed := slices.ContainsFunc(l.machine.Checkouts, func(c domain.Checkout) bool { return c.Project == name })
-	overlay, _, err := a.Machine.Overlay(name)
+	overlay, overlayPath, err := a.Machine.Overlay(name)
 	if err != nil {
 		return err
 	}
-	if !inBrain && !listed && len(trees) == 0 && overlay == nil {
+	if !inBrain && !listed && len(trees) == 0 {
 		return fmt.Errorf("no project %q here or in the Brain", name)
 	}
 	for _, c := range l.machine.Checkouts {
@@ -154,19 +153,18 @@ func (a App) RemoveProject(name string, r Reporter) error {
 			return err
 		}
 	}
-	if path, err := a.Machine.DropOverlay(name); err != nil {
-		return err
-	} else if path != "" {
-		r.Add(Event{Kind: EvRemoved, Path: path})
+	if overlay != nil {
+		r.Add(Event{Kind: EvKept, Path: overlayPath, Detail: "the local overlay of project " + name + " may hold what is nowhere else: delete it once you no longer need it"})
 	}
 	return nil
 }
 
 // adopt takes as nerve's, in a tree it has no state for, the links that
-// already point where it would point them for project p, and the settings
-// it would write: what a checkout that moved still holds, so that cleaning
-// it takes them out. A third-party skill is left, since knowing its
-// folder may need a fetch.
+// already point where it would point them for project p and, when there
+// are some, the settings it would write: what a checkout that moved still
+// holds, so that cleaning it takes them out. A tree with none of nerve's
+// links was never synced, so its settings are the user's. A third-party
+// skill is left, since knowing its folder may need a fetch.
 func (a App) adopt(m domain.Manifest, p *domain.Project, overlay map[string]any, dir string) error {
 	st, err := a.Machine.State(dir)
 	if err != nil || len(st.Links) > 0 || st.Settings != nil || !a.Trees.Exists(dir) {
@@ -198,6 +196,9 @@ func (a App) adopt(m domain.Manifest, p *domain.Project, overlay map[string]any,
 		if a.ours(dir, l.Rel(), l) {
 			st.Links[l.Rel()] = l
 		}
+	}
+	if len(st.Links) == 0 {
+		return nil
 	}
 	st.Settings = domain.Want(m, p, cmd, overlay, a.Brain.Root())
 	return a.Machine.SaveState(st)

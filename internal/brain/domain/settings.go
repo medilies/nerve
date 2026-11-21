@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -63,7 +65,7 @@ func Generated(m Manifest, p *Project, autosyncCmd string) map[string]any {
 }
 
 // Merge lays src over dst: objects merge key by key, arrays are joined
-// without repeats, anything else in src wins.
+// without repeats, even those within one layer, anything else in src wins.
 func Merge(dst, src map[string]any) map[string]any {
 	out := map[string]any{}
 	for k, v := range dst {
@@ -77,16 +79,9 @@ func Merge(dst, src map[string]any) map[string]any {
 				continue
 			}
 		case []any:
-			if dv, ok := out[k].([]any); ok {
-				joined := slices.Clone(dv)
-				for _, item := range sv {
-					if !slices.ContainsFunc(joined, func(x any) bool { return reflect.DeepEqual(x, item) }) {
-						joined = append(joined, item)
-					}
-				}
-				out[k] = joined
-				continue
-			}
+			dv, _ := out[k].([]any)
+			out[k] = distinct(slices.Concat(dv, sv))
+			continue
 		}
 		out[k] = v
 	}
@@ -431,6 +426,7 @@ type Reconciliation struct {
 	Next     map[string]any // what nerve means it to hold: drift does not count
 	Drift    []Change       // from what the Brain wants to what the file has, left as is
 	Personal map[string]any // the file's settings and list items that neither the Brain nor nerve set, kept as they are
+	Before   map[string]any // on nerve's first write, what the file already held as the Brain wants it
 	Changes  []Change       // from what the file has to Result
 	Write    bool           // whether the file must be written
 }
@@ -442,7 +438,9 @@ type Reconciliation struct {
 // it is, unless discard is set. A list is reconciled item by item, so an
 // item added or removed there is personal or drift on its own, and the
 // Brain's other items still arrive. A file that is gone (current nil) holds
-// nothing to keep: it is written anew.
+// nothing to keep: it is written anew. On nerve's first write to a file
+// (last nil), Before records what it already held as want does, so that
+// cleaning it leaves the file's own.
 func Reconcile(current, last, want map[string]any, discard bool) Reconciliation {
 	if current == nil {
 		last = nil
@@ -450,10 +448,14 @@ func Reconcile(current, last, want map[string]any, discard bool) Reconciliation 
 	flat := leafLayers(current, last, want)
 	have, prev, goal := flat[0], flat[1], flat[2]
 	result, next, personal := map[string]any{}, map[string]any{}, map[string]any{}
+	var before map[string]any // nil unless this is nerve's first write
+	if last == nil && current != nil {
+		before = map[string]any{}
+	}
 	var rc Reconciliation
 	for _, k := range unionKeys(have, prev, goal) {
 		if lists(k, have, prev, goal) {
-			rc.Drift = append(rc.Drift, reconcileList(k, have, prev, goal, discard, result, next, personal)...)
+			rc.Drift = append(rc.Drift, reconcileList(k, have, prev, goal, discard, result, next, personal, before)...)
 			continue
 		}
 		_, inP := prev[k]
@@ -461,6 +463,9 @@ func Reconcile(current, last, want map[string]any, discard bool) Reconciliation 
 		if !inP && !inG {
 			result[k], personal[k] = have[k], have[k]
 			continue
+		}
+		if before != nil && Same(have, goal, k) {
+			before[k] = have[k]
 		}
 		if discard || Same(have, prev, k) || Same(have, goal, k) {
 			setOrDelete(result, k, goal)
@@ -484,14 +489,17 @@ func Reconcile(current, last, want map[string]any, discard bool) Reconciliation 
 	if len(personal) > 0 {
 		rc.Personal = Unflatten(personal)
 	}
+	if len(before) > 0 {
+		rc.Before = Unflatten(before)
+	}
 	return rc
 }
 
 // reconcileList reconciles the list at k item by item, as Reconcile does
-// keys, into result, next and personal. The result keeps the file's order, and adds
-// the Brain's new items after; next takes the Brain's order, so it does not
-// change with the file's.
-func reconcileList(k string, have, prev, goal map[string]any, discard bool, result, next, personal map[string]any) []Change {
+// keys, into result, next, personal and, unless nil, before. The result
+// keeps the file's order, and adds the Brain's new items after; next takes
+// the Brain's order, so it does not change with the file's.
+func reconcileList(k string, have, prev, goal map[string]any, discard bool, result, next, personal, before map[string]any) []Change {
 	h, _ := have[k].([]any)
 	p, _ := prev[k].([]any)
 	g, _ := goal[k].([]any)
@@ -504,13 +512,16 @@ func reconcileList(k string, have, prev, goal map[string]any, discard bool, resu
 			items = append(items, x)
 		}
 	}
-	kept, means, mine := []any{}, []any{}, []any{}
+	kept, means, mine, had := []any{}, []any{}, []any{}, []any{}
 	var drift []Change
 	for _, x := range items {
 		inH, inP, inG := hasItem(h, x), hasItem(p, x), hasItem(g, x)
 		if inH && !inP && !inG {
 			kept, mine = append(kept, x), append(mine, x)
 			continue
+		}
+		if before != nil && inH && inG {
+			had = append(had, x)
 		}
 		if discard || inH == inP || inH == inG {
 			if inG {
@@ -550,6 +561,9 @@ func reconcileList(k string, have, prev, goal map[string]any, discard bool, resu
 	if len(mine) > 0 && !onlyFile {
 		personal[k] = mine
 	}
+	if len(had) > 0 {
+		before[k] = had
+	}
 	if len(kept) > 0 || keep {
 		result[k] = kept
 	}
@@ -566,26 +580,43 @@ func PersonalKeys(personal map[string]any) (names []string, shown map[string]Cha
 	shown = map[string]Change{}
 	l := Leaves(personal)
 	for _, k := range SortedKeys(l) {
+		key := ShowKey(k)
+		name := key
+		if key != Dotted(k) {
+			name += " " + fingerprint(k)
+		}
 		items, isList := l[k].([]any)
 		if !isList || len(items) == 0 {
-			names = append(names, ShowKey(k))
-			shown[ShowKey(k)] = Change{Key: ShowKey(k), After: ShowValue(k, l[k])}
+			names = append(names, name)
+			shown[name] = Change{Key: key, After: ShowValue(k, l[k])}
 			continue
 		}
 		for _, x := range items {
-			name := ShowKey(k) + " " + ShowValue(k, x)
-			names = append(names, name)
-			shown[name] = Change{Key: ShowKey(k), Item: true, After: ShowValue(k, x)}
+			item := ShowValue(k, x)
+			iname := name + " " + item
+			if item == Hidden {
+				iname += " " + fingerprint(x)
+			}
+			names = append(names, iname)
+			shown[iname] = Change{Key: key, Item: true, After: item}
 		}
 	}
 	return names, shown
 }
 
+// fingerprint tells hidden values apart in a name, without showing them.
+func fingerprint(v any) string {
+	b, _ := json.Marshal(v)
+	sum := sha256.Sum256(b)
+	return "#" + hex.EncodeToString(sum[:4])
+}
+
 // Strip takes out of current the keys nerve wrote (last) that were not
-// changed since, and from each list the items nerve wrote. It returns what
-// is left, and whether anything was taken.
-func Strip(current, last map[string]any) (map[string]any, bool) {
-	have, prev := Leaves(current), Leaves(last)
+// changed since, and from each list the items nerve wrote, except what the
+// file held before nerve first wrote it (before), at the value it held. It
+// returns what is left, and whether anything was taken.
+func Strip(current, last, before map[string]any) (map[string]any, bool) {
+	have, prev, had := Leaves(current), Leaves(last), Leaves(before)
 	taken := false
 	for k, pv := range prev {
 		hv, ok := have[k]
@@ -594,9 +625,11 @@ func Strip(current, last map[string]any) (map[string]any, bool) {
 		}
 		hl, hIsList := hv.([]any)
 		pl, pIsList := pv.([]any)
+		bv, held := had[k]
+		bl, _ := bv.([]any)
 		switch {
 		case hIsList && pIsList && len(hl) > 0:
-			rest := slices.DeleteFunc(slices.Clone(hl), func(x any) bool { return hasItem(pl, x) })
+			rest := slices.DeleteFunc(slices.Clone(hl), func(x any) bool { return hasItem(pl, x) && !hasItem(bl, x) })
 			switch {
 			case len(rest) == len(hl):
 				continue
@@ -606,7 +639,7 @@ func Strip(current, last map[string]any) (map[string]any, bool) {
 				have[k] = rest
 			}
 			taken = true
-		case reflect.DeepEqual(hv, pv):
+		case reflect.DeepEqual(hv, pv) && (!held || !reflect.DeepEqual(hv, bv)):
 			delete(have, k)
 			taken = true
 		}
@@ -720,9 +753,10 @@ func SetPath(obj map[string]any, path []string, v any) (map[string]any, error) {
 	return obj, nil
 }
 
-// distinct is list without its repeats, in order.
+// distinct is list without its repeats, in order: an empty list stays
+// one.
 func distinct(list []any) []any {
-	var out []any
+	out := make([]any, 0, len(list))
 	for _, x := range list {
 		if !hasItem(out, x) {
 			out = append(out, x)

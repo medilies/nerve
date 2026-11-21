@@ -27,18 +27,27 @@ import (
 // it half written. A path that is a link keeps the link and replaces what it
 // points to, even a file that does not exist yet. An existing file keeps
 // its mode, and a new one gets 0644 less the umask, as os.WriteFile gives.
-func writeFile(path string, b []byte) error {
+func writeFile(path string, b []byte) error { return replace(path, b, false) }
+
+// writePrivate replaces path's content as writeFile does, for the user
+// only whatever the umask: the file 0600, and the folders it makes 0700.
+// This machine's files may hold secrets.
+func writePrivate(path string, b []byte) error { return replace(path, b, true) }
+
+func replace(path string, b []byte, private bool) error {
 	path, err := linkEnd(path)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	folders, perm := fs.FileMode(0o755), fs.FileMode(0o644)
+	if private {
+		folders, perm = 0o700, 0o600
+	}
+	if err := os.MkdirAll(filepath.Dir(path), folders); err != nil {
 		return err
 	}
-	sweepTemps(path)
-	perm := fs.FileMode(0o644)
 	fi, err := os.Stat(path)
-	if err == nil {
+	if err == nil && !private {
 		perm = fi.Mode().Perm()
 	}
 	f, err := newTemp(path, perm)
@@ -46,7 +55,7 @@ func writeFile(path string, b []byte) error {
 		return err
 	}
 	defer func() { _ = os.Remove(f.Name()) }() // a no-op once renamed
-	if fi != nil {                             // the file's exact mode, before it holds anything
+	if fi != nil || private {                  // the exact mode, before it holds anything
 		if err := f.Chmod(perm); err != nil {
 			_ = f.Close()
 			return err
@@ -74,17 +83,6 @@ func newTemp(path string, perm fs.FileMode) (*os.File, error) {
 		}
 	}
 	return nil, fmt.Errorf("%s: no free name for a temp file", path)
-}
-
-// sweepTemps removes the temp files newTemp made for path in a run that was
-// killed: older than any run.
-func sweepTemps(path string) {
-	tmps, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".*"))
-	for _, tmp := range tmps {
-		if fi, err := os.Lstat(tmp); err == nil && fi.Mode().IsRegular() && time.Since(fi.ModTime()) > time.Hour {
-			_ = os.Remove(tmp)
-		}
-	}
 }
 
 // linkEnd follows path while it is a link, to the file it ends at, which
@@ -144,11 +142,12 @@ func decodeJSON(b []byte, v any) error {
 	return d.Decode(v)
 }
 
-func writeObject(path string, obj map[string]any) error {
+// writeObject writes a JSON object, for the user only when private.
+func writeObject(path string, obj map[string]any, private bool) error {
 	if obj == nil {
 		obj = map[string]any{}
 	}
-	if err := writeJSON(path, obj); err != nil {
+	if err := writeJSON(path, obj, private); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	return nil
@@ -169,8 +168,9 @@ func readJSON(path string, v any) error {
 	return nil
 }
 
-// writeJSON writes v indented, with &, < and > as they are.
-func writeJSON(path string, v any) error {
+// writeJSON writes v indented, with &, < and > as they are, for the user
+// only when private.
+func writeJSON(path string, v any, private bool) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
@@ -178,7 +178,7 @@ func writeJSON(path string, v any) error {
 	if err := enc.Encode(v); err != nil {
 		return err
 	}
-	return writeFile(path, buf.Bytes())
+	return replace(path, buf.Bytes(), private)
 }
 
 func fileExists(path string) bool {

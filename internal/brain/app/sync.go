@@ -77,7 +77,8 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 	s := &syncer{App: a, m: l.m, r: r, self: self, cmd: cmd, discard: o.Discard}
 	checkouts := len(l.machine.Checkouts)
 	var trees []workingTree
-	var gone []Event // checkouts unlisted, reported once the machine file is saved
+	var gone []Event        // checkouts unlisted, reported once the machine file is saved
+	var unreadable []string // states of trees a full sync cannot know
 	if o.Here {
 		t, name, err := a.here(l.machine, o.Dir)
 		if err != nil {
@@ -85,8 +86,11 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 		}
 		_, listed := l.machine.CheckoutAt(t.Top)
 		trees = []workingTree{{dir: t.Top, project: name, listed: listed}}
-	} else if trees, gone, err = a.workingTrees(&l.machine); err != nil {
+	} else if trees, gone, unreadable, err = a.workingTrees(&l.machine); err != nil {
 		return err
+	}
+	for _, f := range unreadable {
+		r.Add(Event{Kind: EvProblem, Path: f, Detail: "not a state nerve can read: delete it, then sync again in its working tree"})
 	}
 	unlisted := len(l.machine.Checkouts) != checkouts
 	failed, drifted := 0, 0
@@ -143,6 +147,9 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 	if failed > 0 {
 		errs = append(errs, fmt.Errorf("%d of %d working trees did not sync", failed, len(trees)))
 	}
+	if len(unreadable) > 0 {
+		errs = append(errs, fmt.Errorf("%d states cannot be read, so their working trees did not sync", len(unreadable)))
+	}
 	if drifted > 0 && !o.Hook {
 		discard := "nerve sync --discard"
 		if o.Here {
@@ -154,10 +161,10 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 }
 
 // workingTrees lists what a full sync carries the Brain to: each checkout
-// machine lists, and each worktree of one that a sync reached before. It
-// unlists a checkout that is gone, returning its event, and forgets a
-// worktree that is.
-func (a App) workingTrees(machine *domain.Machine) ([]workingTree, []Event, error) {
+// machine lists, and each worktree of one that a sync reached before, and
+// names the states it cannot read. It unlists a checkout that is gone,
+// returning its event, and forgets a worktree that is.
+func (a App) workingTrees(machine *domain.Machine) ([]workingTree, []Event, []string, error) {
 	var trees []workingTree
 	var gone []Event
 	var kept []domain.Checkout
@@ -168,14 +175,14 @@ func (a App) workingTrees(machine *domain.Machine) ([]workingTree, []Event, erro
 			continue
 		}
 		if err := a.Machine.DropState(c.Path); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		gone = append(gone, Event{Kind: EvUnlisted, Project: c.Project, Path: c.Path})
 	}
 	machine.Checkouts = kept
-	states, err := a.Machine.States()
+	states, unreadable, err := a.Machine.States()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	for _, st := range states {
 		if _, ok := machine.CheckoutAt(st.Path); ok {
@@ -183,7 +190,7 @@ func (a App) workingTrees(machine *domain.Machine) ([]workingTree, []Event, erro
 		}
 		if !a.Trees.Exists(st.Path) {
 			if err := a.Machine.DropState(st.Path); err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			continue
 		}
@@ -195,7 +202,7 @@ func (a App) workingTrees(machine *domain.Machine) ([]workingTree, []Event, erro
 		}
 		trees = append(trees, workingTree{dir: st.Path, project: project})
 	}
-	return trees, gone, nil
+	return trees, gone, unreadable, nil
 }
 
 func problemEvent(p domain.Problem) Event {
@@ -211,6 +218,9 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 	tree, err := s.Trees.Locate(dir)
 	if err != nil {
 		return false, fmt.Errorf("git cannot locate it, so nerve leaves it as it is: %w; make it a git repo again, or move the folder away for nerve to unlist it", err)
+	}
+	if filepath.Clean(tree.Top) != filepath.Clean(dir) { // its links would sit below the exclude block's
+		return false, fmt.Errorf("it is inside the git repo at %s, not its top: list %s in the machine file instead", tree.Top, tree.Top)
 	}
 	st, err := s.Machine.State(dir)
 	if err != nil {
@@ -346,23 +356,25 @@ func (a App) refusals(m domain.Manifest, p *domain.Project) error {
 // tree's info/exclude: links, this tree's, and those nerve made in the
 // repo's other worktrees.
 func (a App) exclude(tree domain.Tree, links map[string]domain.Link) error {
-	rels := map[string]bool{}
-	for rel := range links {
-		rels[rel] = true
-	}
-	states, err := a.Machine.States()
-	if err != nil {
-		return err
-	}
-	for _, st := range states {
-		if filepath.Clean(st.Path) == filepath.Clean(tree.Top) || st.Repo != tree.Repo || !a.Trees.Exists(st.Path) {
-			continue
-		}
-		for rel := range st.Links {
+	return a.Trees.SyncExclude(tree.Top, func() ([]string, error) {
+		rels := map[string]bool{}
+		for rel := range links {
 			rels[rel] = true
 		}
-	}
-	return a.Trees.SyncExclude(tree.Top, domain.SortedKeys(rels))
+		states, _, err := a.Machine.States()
+		if err != nil {
+			return nil, err
+		}
+		for _, st := range states {
+			if filepath.Clean(st.Path) == filepath.Clean(tree.Top) || st.Repo != tree.Repo || !a.Trees.Exists(st.Path) {
+				continue
+			}
+			for rel := range st.Links {
+				rels[rel] = true
+			}
+		}
+		return domain.SortedKeys(rels), nil
+	})
 }
 
 // reconcile writes a settings file as the Brain wants it, except for drift
@@ -374,6 +386,9 @@ func (s *syncer) reconcile(path string, want map[string]any, st *domain.TreeStat
 		return false, err
 	}
 	rc := domain.Reconcile(current, st.Settings, want, s.discard)
+	if st.Settings == nil || current == nil { // nerve's first write to this file
+		st.Before = rc.Before
+	}
 	for _, c := range rc.Drift {
 		s.r.Add(driftEvent(path, c))
 	}
@@ -521,7 +536,7 @@ func (a App) clean(dir, why string, r Reporter) error {
 		if err != nil {
 			return err
 		}
-		rest, changed := domain.Strip(current, st.Settings)
+		rest, changed := domain.Strip(current, st.Settings, st.Before)
 		switch {
 		case current == nil || !changed:
 		case len(rest) == 0:
@@ -589,7 +604,7 @@ func (s *syncer) claudeAI() error {
 				continue
 			}
 			if path, err := s.Zips.Remove(name, n); err != nil {
-				s.r.Add(Event{Kind: EvProblem, Path: path, Detail: "cannot remove it: " + err.Error()})
+				s.r.Add(Event{Kind: EvProblem, Path: path, Detail: "cannot remove it: " + err.Error() + ": delete it by hand"})
 			}
 			s.r.Add(Event{Kind: EvUnload, Project: name, Item: "skill " + n})
 		}

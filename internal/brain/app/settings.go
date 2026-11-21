@@ -36,7 +36,7 @@ func settingKey(key string) ([]string, error) {
 // common. A sensitive value goes to the project's local overlay instead,
 // never into the Brain.
 func (a App) SetSetting(ref ProjectRef, key string, v any, common bool, r Reporter) error {
-	return a.changeSetting(ref, key, v, common, r, func(obj map[string]any, path []string) (map[string]any, error) {
+	return a.changeSetting(ref, key, v, common, false, r, func(obj map[string]any, path []string) (map[string]any, error) {
 		obj, err := domain.SetPath(obj, path, v)
 		if err != nil {
 			return nil, fmt.Errorf("%s %w", key, err)
@@ -49,7 +49,7 @@ func (a App) SetSetting(ref ProjectRef, key string, v any, common bool, r Report
 // or with common in common. A sensitive item goes to the project's local
 // overlay instead, never into the Brain.
 func (a App) AddSetting(ref ProjectRef, key string, item any, common bool, r Reporter) error {
-	return a.changeSetting(ref, key, item, common, r, func(obj map[string]any, path []string) (map[string]any, error) {
+	return a.changeSetting(ref, key, item, common, true, r, func(obj map[string]any, path []string) (map[string]any, error) {
 		obj, added, err := domain.AddPath(obj, path, item)
 		switch {
 		case err != nil:
@@ -65,8 +65,9 @@ func (a App) AddSetting(ref ProjectRef, key string, item any, common bool, r Rep
 var errAlready = errors.New("already there")
 
 // changeSetting changes the settings of a project, its overlay, or common,
-// as change does to one of them, and reports it.
-func (a App) changeSetting(ref ProjectRef, key string, v any, common bool, r Reporter, change func(map[string]any, []string) (map[string]any, error)) error {
+// as change does to one of them, and reports it; item says change adds to a
+// list.
+func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool, r Reporter, change func(map[string]any, []string) (map[string]any, error)) error {
 	if err := onePlace(ref.Project, common, false); err != nil {
 		return err
 	}
@@ -96,12 +97,14 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common bool, r Rep
 		return nil
 	}
 	if common {
-		switch why {
-		case "":
-		case domain.NotAllowed:
+		switch {
+		case why == "":
+		case why == domain.NotAllowed && domain.WrittenByNerve(k):
+			return fmt.Errorf("%s is %s: %s, or set it per project, where it goes to the local overlay", key, why, shareNerves)
+		case why == domain.NotAllowed:
 			return fmt.Errorf("%s is %s: list it in allowed-settings in %s, or set it per project, where it goes to the local overlay", key, why, domain.ManifestFile)
 		default:
-			return fmt.Errorf("%s %s, so it cannot go in common: set it per project, where it goes to the local overlay", key, why)
+			return fmt.Errorf("%s: %s, so it cannot go in common: set it per project, where it goes to the local overlay", key, why)
 		}
 		before := l.m.Common
 		after, err := change(copySettings(before), path)
@@ -130,7 +133,10 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common bool, r Rep
 		if err != nil {
 			return report(file, nil, nil, err)
 		}
-		if why == domain.NotAllowed {
+		switch {
+		case why == domain.NotAllowed && domain.WrittenByNerve(k):
+			why += ": " + shareNerves
+		case why == domain.NotAllowed:
 			why += ": list it in allowed-settings to share it"
 		}
 		r.Add(Event{Kind: EvOverlay, Project: project, Key: shown, Path: file, Detail: why})
@@ -142,7 +148,54 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common bool, r Rep
 		p.Settings = after
 		err = a.Brain.Save(l.m)
 	}
-	return report(domain.ManifestFile+" (project "+project+")", before, after, err)
+	saved := err == nil
+	if err := report(domain.ManifestFile+" (project "+project+")", before, after, err); err != nil || !saved {
+		return err
+	}
+	return a.dropOverlaid(project, path, item, r)
+}
+
+// shareNerves says how to share a setting nerve writes from a Brain's
+// plugins and hooks.
+const shareNerves = "share a plugin with nerve plugin add, a hook with [hook.<name>]"
+
+// dropOverlaid takes out of a project's local overlay the value that would
+// win over one just set in the Brain at path: a value at path or above it,
+// except a list that a list item joins.
+func (a App) dropOverlaid(project string, path []string, item bool, r Reporter) error {
+	overlay, _, err := a.Machine.Overlay(project)
+	if err != nil {
+		return err
+	}
+	at := overlay
+	for i, key := range path {
+		v, ok := at[key]
+		if !ok {
+			return nil
+		}
+		sub, isObj := v.(map[string]any)
+		_, isList := v.([]any)
+		last := i == len(path)-1
+		switch {
+		case !last && isObj:
+			at = sub
+			continue
+		case last && item && isList:
+			return nil
+		}
+		domain.RemovePath(overlay, path[:i+1], nil, false)
+		if len(overlay) == 0 {
+			_, err = a.Machine.DropOverlay(project)
+		} else {
+			_, err = a.Machine.SaveOverlay(project, overlay)
+		}
+		if err != nil {
+			return err
+		}
+		r.Add(Event{Kind: EvDropped, Project: project, Item: "setting " + domain.ShowKey(domain.LeafKey(path[:i+1])), Detail: "local overlay"})
+		return nil
+	}
+	return nil
 }
 
 // showAt shows the value at a path of keys in settings, an object included,

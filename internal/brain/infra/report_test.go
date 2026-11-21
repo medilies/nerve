@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/medilies/nerve/internal/brain/app"
@@ -89,5 +90,24 @@ func TestHookReportIsOneLineWhenNothingChanged(t *testing.T) {
 		if got := hookDoc(t, events, nil)["systemMessage"]; got != want {
 			t.Errorf("message is\n%s\nwant\n%s", got, want)
 		}
+	}
+}
+
+func TestTextReportShowsNoControlCharacter(t *testing.T) {
+	var out bytes.Buffer
+	r := NewReport(&out, AsText)
+
+	r.Add(app.Event{Kind: app.EvItem, Item: "skill evil\x1b[2Jx", Detail: "the team's"})
+
+	if out.String() != "skill evil[2Jx the team's\n" {
+		t.Errorf("printed %q", out.String())
+	}
+}
+
+func TestHookReportShowsNoControlCharacter(t *testing.T) {
+	msg := hookOutput([]app.Event{{Kind: app.EvRemoved, Path: "/w/evil\x1b[2J"}}, nil)["systemMessage"].(string)
+
+	if strings.ContainsRune(msg, '\x1b') {
+		t.Errorf("message is %q", msg)
 	}
 }

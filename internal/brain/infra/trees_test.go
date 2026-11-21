@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLocateFindsTheMainCheckoutOfAWorktree(t *testing.T) {
@@ -67,7 +68,7 @@ func TestCheckIgnoredNamesTheGlobalIgnoreFileGitReads(t *testing.T) {
 
 	err := LocalTrees{}.CheckIgnored(app)
 
-	if err == nil || !strings.Contains(err.Error(), "add **/.claude/settings.local.json to ~/my-ignore") {
+	if err == nil || !strings.HasSuffix(err.Error(), "add **/.claude/settings.local.json to ~/my-ignore, your global git ignore file") {
 		t.Errorf("got %v", err)
 	}
 }
@@ -79,7 +80,7 @@ func TestSyncExcludeKeepsOnlyItsOwnBlock(t *testing.T) {
 	e.write(exclude, "*.log")
 	w := LocalTrees{}
 
-	if err := w.SyncExclude(app, []string{".claude/skills/a", ".claude/agents/b.md"}); err != nil {
+	if err := w.SyncExclude(app, lines([]string{".claude/skills/a", ".claude/agents/b.md"})); err != nil {
 		t.Fatal(err)
 	}
 	if got := e.read(exclude); got != "*.log\n# nerve: begin\n/.claude/skills/a\n/.claude/agents/b.md\n# nerve: end\n" {
@@ -89,10 +90,10 @@ func TestSyncExcludeKeepsOnlyItsOwnBlock(t *testing.T) {
 	if out := e.git(app, "status", "--porcelain", "--untracked-files=all"); out != "" {
 		t.Errorf("git sees an excluded link: %s", out)
 	}
-	if err := w.SyncExclude(app, []string{".claude/skills/c"}); err != nil {
+	if err := w.SyncExclude(app, lines([]string{".claude/skills/c"})); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.SyncExclude(app, nil); err != nil {
+	if err := w.SyncExclude(app, lines(nil)); err != nil {
 		t.Fatal(err)
 	}
 	if got := e.read(exclude); got != "*.log\n" {
@@ -111,7 +112,7 @@ func TestSyncExcludeRefusesADamagedBlock(t *testing.T) {
 		"# nerve: begin\n# nerve: begin\n/.claude/skills/a\n# nerve: end\n", // two begins
 	} {
 		e.write(exclude, text)
-		if err := w.SyncExclude(app, []string{".claude/skills/b"}); err == nil || !strings.Contains(err.Error(), "fix it by hand") {
+		if err := w.SyncExclude(app, lines([]string{".claude/skills/b"})); err == nil || !strings.Contains(err.Error(), "fix it by hand") {
 			t.Errorf("%q: got %v", text, err)
 		}
 		if got := e.read(exclude); got != text {
@@ -126,7 +127,7 @@ func TestSyncExcludeKeepsLinesAfterItsBlock(t *testing.T) {
 	exclude := filepath.Join(app, ".git/info/exclude")
 	e.write(exclude, "*.log\n# nerve: begin\n/.claude/skills/a\n# nerve: end\nmine-1\n")
 
-	if err := (LocalTrees{}).SyncExclude(app, []string{".claude/skills/b"}); err != nil {
+	if err := (LocalTrees{}).SyncExclude(app, lines([]string{".claude/skills/b"})); err != nil {
 		t.Fatal(err)
 	}
 	if got := e.read(exclude); got != "*.log\nmine-1\n# nerve: begin\n/.claude/skills/b\n# nerve: end\n" {
@@ -142,7 +143,7 @@ func TestSyncExcludeFromAWorktreeWritesTheRepos(t *testing.T) {
 	tree := e.path("app-feature")
 	e.git(app, "worktree", "add", "-q", "-b", "feature", tree)
 
-	if err := (LocalTrees{}).SyncExclude(tree, []string{".claude/skills/a"}); err != nil {
+	if err := (LocalTrees{}).SyncExclude(tree, lines([]string{".claude/skills/a"})); err != nil {
 		t.Fatal(err)
 	}
 	e.write(filepath.Join(app, ".claude/skills/a/SKILL.md"), "x")
@@ -225,5 +226,59 @@ func TestSettingsKeepEveryDigitOfAWholeNumberBeyondInt64(t *testing.T) {
 
 	if got := e.read(path); !strings.Contains(got, `"uid": 18446744073709551615`) {
 		t.Errorf("written as %s", got)
+	}
+}
+
+// lines are the paths SyncExclude keeps out of git, as given.
+func lines(rels []string) func() ([]string, error) {
+	return func() ([]string, error) { return rels, nil }
+}
+
+func TestSyncExcludeWritesOneRunsBlockAtATime(t *testing.T) {
+	e := newTestEnv(t)
+	app := e.repo(e.path("app"))
+	inFirst, release, done := make(chan struct{}), make(chan struct{}), make(chan error)
+	go func() {
+		done <- LocalTrees{}.SyncExclude(app, func() ([]string, error) {
+			close(inFirst)
+			<-release
+			return []string{".claude/skills/a"}, nil
+		})
+	}()
+	<-inFirst
+	inSecond := make(chan struct{})
+	go func() {
+		done <- LocalTrees{}.SyncExclude(app, func() ([]string, error) {
+			close(inSecond)
+			return []string{".claude/skills/a", ".claude/skills/b"}, nil
+		})
+	}()
+
+	select {
+	case <-inSecond:
+		t.Fatal("a second run read what to exclude while the first was writing its block")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	for range 2 {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := e.read(filepath.Join(app, ".git/info/exclude")); !strings.Contains(got, "/.claude/skills/b\n") {
+		t.Errorf("the second run's block is lost:\n%s", got)
+	}
+}
+
+func TestFrontmatterReadsAMarkdownFile(t *testing.T) {
+	e := newTestEnv(t)
+	e.write(e.path("app/.claude/agents/team.md"), "---\nname: team\ndescription: Reviews.\n---\n")
+	e.write(e.path("app/.claude/agents/README.md"), "# Agents\n")
+
+	if meta, err := (LocalTrees{}).Frontmatter(e.path("app/.claude/agents/team.md")); err != nil || meta["name"] != "team" {
+		t.Errorf("got %v, %v", meta, err)
+	}
+	if _, err := (LocalTrees{}).Frontmatter(e.path("app/.claude/agents/README.md")); err == nil {
+		t.Errorf("a file with no frontmatter reads as one")
 	}
 }

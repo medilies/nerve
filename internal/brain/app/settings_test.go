@@ -289,7 +289,7 @@ func TestRemoveSettingReportsWhatItSavedBeforeAFailure(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
 	e.machine.overlays["app"] = map[string]any{"model": "haiku"}
-	e.machine.saveErr = errors.New("overlays: read-only")
+	e.machine.fail["DropOverlay"] = errors.New("overlays: read-only")
 	r := &recorder{}
 
 	err := e.app.RemoveSetting(target("/w/app"), "model", false, false, r)
@@ -328,5 +328,54 @@ func TestSetSettingKeepsNoRepeatInAListInTheBrain(t *testing.T) {
 
 	if got := jsonText(e.project("app").Settings); strings.Contains(got, `"a","a"`) {
 		t.Errorf("project settings are %s", got)
+	}
+}
+
+func TestSetSettingInTheBrainDropsTheOverlaysValueThatWouldWin(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.brain.m.AllowedSettings = []string{"statusLine"}
+	e.machine.overlays["app"] = map[string]any{"statusLine": map[string]any{"command": "x", "padding": int64(1)}}
+	r := &recorder{}
+
+	e.must(r, e.app.SetSetting(target("/w/app"), "statusLine.command", "y", false, r))
+
+	if got := jsonText(e.machine.overlays["app"]); got != `{"statusLine":{"padding":1}}` {
+		t.Errorf("overlay is %s, want only the key set in the Brain dropped", got)
+	}
+	contains(t, r, `set      statusLine.command = "y"`, "dropped  setting statusLine.command from the local overlay of project app")
+}
+
+func TestSetSettingInTheBrainDropsAnOverlayValueAboveTheKey(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.brain.m.AllowedSettings = []string{"statusLine"}
+	e.machine.overlays["app"] = map[string]any{"statusLine": "x"}
+
+	e.must(&recorder{}, e.app.SetSetting(target("/w/app"), "statusLine.command", "y", false, &recorder{}))
+
+	if _, ok := e.machine.overlays["app"]; ok {
+		t.Errorf("overlay is %s, want it gone with the value that would win", jsonText(e.machine.overlays["app"]))
+	}
+}
+
+func TestSetSettingNamesHowToShareAPluginOrAHook(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	r := &recorder{}
+
+	e.must(r, e.app.SetSetting(target("/w/app"), `enabledPlugins."x@y"`, true, false, r))
+
+	contains(t, r, `overlay  enabledPlugins.x@y set in /cfg/nerve/overlays/app.json: not an allowed setting: share a plugin with nerve plugin add, a hook with [hook.<name>]`)
+}
+
+func TestSetSettingInCommonNamesTheKeyAndWhy(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+
+	err := e.app.SetSetting(target("/w/app"), "apiKeyHelper", "x", true, &recorder{})
+
+	if want := "apiKeyHelper: apiKeyHelper may hold secrets, so it cannot go in common: set it per project, where it goes to the local overlay"; err == nil || err.Error() != want {
+		t.Errorf("got %v, want %q", err, want)
 	}
 }

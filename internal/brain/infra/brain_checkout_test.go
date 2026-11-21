@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/medilies/nerve/internal/brain/app"
 	"github.com/medilies/nerve/internal/brain/domain"
@@ -195,7 +196,36 @@ func TestPullSkipsABrainWhoseRemoteCannotBeReached(t *testing.T) {
 
 	err := NewBrainCheckout(e.path("brain")).Pull(&r)
 
-	if err != nil || r.String() != "no pull  "+e.path("brain")+": could not reach its remote" {
+	if err != nil || !strings.HasPrefix(r.String(), "no pull  "+e.path("brain")+": could not fetch: fatal: '"+e.path("brain.git")+"' does not appear to be a git repository") {
+		t.Errorf("got %v, events: %s", err, r)
+	}
+}
+
+func TestPullFetchesAnUpstreamItNeverFetched(t *testing.T) {
+	e := newTestEnv(t)
+	head := e.published()
+	e.git(e.path("brain"), "update-ref", "-d", "refs/remotes/origin/main") // as a clone of one branch, or a prune, leaves it
+	var r events
+
+	if err := NewBrainCheckout(e.path("brain")).Pull(&r); err != nil || e.git(e.path("brain"), "rev-parse", "HEAD") != head {
+		t.Errorf("got %v, events: %s", err, r)
+	}
+}
+
+func TestPullGivesUpOnARemoteThatDoesNotAnswer(t *testing.T) {
+	e := newTestEnv(t)
+	e.published()
+	t.Setenv("GIT_CONFIG_COUNT", "2")
+	t.Setenv("GIT_CONFIG_KEY_1", "protocol.ext.allow")
+	t.Setenv("GIT_CONFIG_VALUE_1", "always")
+	e.git(e.path("brain"), "remote", "set-url", "origin", "ext::sh -c sleep% 10")
+	defer func(d time.Duration) { pullTimeout = d }(pullTimeout)
+	pullTimeout = time.Second
+	var r events
+
+	err := NewBrainCheckout(e.path("brain")).Pull(&r)
+
+	if err != nil || r.String() != "no pull  "+e.path("brain")+": could not fetch: git fetch: no answer after 1s" {
 		t.Errorf("got %v, events: %s", err, r)
 	}
 }
@@ -245,6 +275,31 @@ func TestStateCountsANewFileNotYetCommitted(t *testing.T) {
 	}
 }
 
+func TestStateCountsTheCommitsNotPushed(t *testing.T) {
+	e := newTestEnv(t)
+	e.published()
+	e.write(e.path("brain/skills/x/SKILL.md"), skillMD("x", ""))
+	e.commit(e.path("brain"))
+
+	if got := NewBrainCheckout(e.path("brain")).State(); got != "1 commit not pushed" {
+		t.Errorf("state is %q", got)
+	}
+}
+
+func TestStateCountsTheCommitsOfABranchWithNoUpstream(t *testing.T) {
+	e := newTestEnv(t)
+	e.published()
+	e.git(e.path("brain"), "checkout", "-q", "-b", "feat")
+	for _, name := range []string{"x", "y"} {
+		e.write(e.path("brain/skills/"+name+"/SKILL.md"), skillMD(name, ""))
+		e.commit(e.path("brain"))
+	}
+
+	if got := NewBrainCheckout(e.path("brain")).State(); got != "2 commits not pushed" {
+		t.Errorf("state is %q", got)
+	}
+}
+
 func TestStateSaysWhenGitFails(t *testing.T) {
 	e := newTestEnv(t)
 	e.published()
@@ -271,6 +326,30 @@ func TestOwnSkillsReadEveryFolderAndLinkedFolder(t *testing.T) {
 	}
 	if want := map[string]string{"ok": "false ok", "notes": "true ", "linked": "false linked"}; err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("own skills are %v (%v), want %v", got, err, want)
+	}
+}
+
+func TestAgentsAreReadFromABrainWhosePathLooksLikeAPattern(t *testing.T) {
+	e := newTestEnv(t)
+	e.write(e.path("b[1]/brain/agents/reviewer.md"), skillMD("reviewer", ""))
+	e.write(e.path("b1/brain/agents/other.md"), skillMD("other", "")) // what the pattern b[1] matches
+
+	agents, err := NewBrainCheckout(e.path("b[1]/brain")).Agents()
+
+	if err != nil || len(agents) != 1 || agents[0].Name != "reviewer" {
+		t.Errorf("agents are %+v (%v)", agents, err)
+	}
+}
+
+func TestSaveRefusesWhatLoadWould(t *testing.T) {
+	e := newTestEnv(t)
+	e.write(e.path("brain/brain.toml"), "[project.app]\n")
+	m := domain.Manifest{Projects: map[string]*domain.Project{"app": {Agents: []string{"Reviewer"}}}}
+
+	err := NewBrainCheckout(e.path("brain")).Save(m)
+
+	if err == nil || !strings.Contains(err.Error(), `agent "Reviewer" must be lowercase words joined by hyphens`) || e.read(e.path("brain/brain.toml")) != "[project.app]\n" {
+		t.Errorf("got %v, brain.toml:\n%s", err, e.read(e.path("brain/brain.toml")))
 	}
 }
 

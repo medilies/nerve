@@ -15,6 +15,7 @@ func TestStatusShowsTheProjectItsLinksAndDriftWithoutChangingIt(t *testing.T) {
 	e.must(e.sync("/w/app", app.SyncOptions{}))
 	e.trees.settings["/w/app/.claude/settings.local.json"]["model"] = "sonnet"
 	e.trees.files["/w/app/.claude/agents/team.md"] = true
+	e.trees.frontmatter["/w/app/.claude/agents/team.md"] = map[string]string{"name": "team", "description": "Reviews."}
 	r := &recorder{}
 
 	e.must(r, e.app.Status(target("/w/app"), r))

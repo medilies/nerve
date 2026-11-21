@@ -263,6 +263,45 @@ func TestSensitiveFindsRootPathsKeysAndCredentials(t *testing.T) {
 	}
 }
 
+func TestSensitiveFindsSecretKeysInsideAValue(t *testing.T) {
+	for _, v := range []any{
+		map[string]any{"dbPassword": "hunter2"},
+		[]any{map[string]any{"apiKey": "abc123"}},
+		[]any{map[string]any{"cfg": map[string]any{"env": map[string]any{"X": "y"}}}},
+	} {
+		if why := domain.Sensitive("foo", v); why == "" {
+			t.Errorf("%v not flagged", v)
+		}
+	}
+}
+
+func TestRefusalsLookInsideAListOfObjects(t *testing.T) {
+	m := domain.Manifest{AllowedSettings: []string{"foo"}, Common: map[string]any{"foo": []any{map[string]any{"apiKey": "abc123"}}}}
+
+	if got := refusals(m); !strings.Contains(got, "apiKey may hold secrets") {
+		t.Errorf("not refused:\n%s", got)
+	}
+}
+
+func TestSensitiveFindsLowercaseBearerTokensAndMoreSecretKeys(t *testing.T) {
+	if why := domain.Sensitive("x", "Bash(curl -H 'authorization: bearer abcdefghijkl')"); why == "" {
+		t.Errorf("a lowercase bearer token is not flagged")
+	}
+	for _, key := range []string{"privateKey", "accessKey", "sessionKey", "cookie", "authorization"} {
+		if why := domain.Sensitive(key, "x"); why == "" {
+			t.Errorf("key %s is not flagged", key)
+		}
+	}
+}
+
+func TestWrittenByNerveNamesHooksAndPlugins(t *testing.T) {
+	for key, want := range map[string]bool{"hooks": true, domain.LeafKey([]string{"enabledPlugins", "x@y"}): true, "model": false, "hooksDir": false} {
+		if got := domain.WrittenByNerve(key); got != want {
+			t.Errorf("%s: got %v", domain.Dotted(key), got)
+		}
+	}
+}
+
 func TestListGivesEachItemKindsList(t *testing.T) {
 	p := &domain.Project{}
 	for _, kind := range domain.ItemKinds {

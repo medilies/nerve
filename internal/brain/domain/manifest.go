@@ -296,3 +296,10 @@ func (m Manifest) Refusals() []Problem {
 	}
 	return p
 }
+
+// WrittenByNerve says whether a leaf key is one nerve writes from a Brain's
+// hooks and plugins, which no allowed-settings can let the Brain set.
+func WrittenByNerve(key string) bool {
+	first, _, _ := strings.Cut(key, Sep)
+	return slices.Contains(nerveWrites, first)
+}

@@ -89,14 +89,21 @@ func (a App) skill(m domain.Manifest, name string) (domain.Skill, error) {
 
 // offers says why the Brain cannot give a project an item, or "".
 func (a App) offers(m domain.Manifest, kind, name string) string {
+	if (kind == "skill" || kind == "agent") && !domain.NamePattern.MatchString(name) {
+		return fmt.Sprintf("%s %q must be lowercase words joined by hyphens", kind, name) // it names a file or folder
+	}
 	switch kind {
 	case "skill":
 		if name == "nerve" {
 			return "nerve's own skill reaches every project already"
 		}
 		_, own, _ := a.Brain.OwnSkill(name)
-		if _, listed := m.SourceOf(name); !own && !listed {
+		src, listed := m.SourceOf(name)
+		switch {
+		case !own && !listed:
 			return fmt.Sprintf("the Brain has no skill %q: add skills/%s/, or a source that lists it", name, name)
+		case own && listed:
+			return fmt.Sprintf("skill %s comes from both skills/ and %s: drop one of them", name, src.Repo)
 		}
 	case "agent":
 		if _, ok := a.Brain.AgentFile(name); !ok {

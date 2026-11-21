@@ -1,0 +1,12 @@
+# init refuses a folder that is not a Brain, and a machine file already
+# there, which it never replaces.
+
+! exec nerve init nowhere
+stderr 'brain.toml: open .*/nowhere/brain.toml: no such file or directory'
+! exists $HOME/.config/nerve/config.toml
+
+exec nerve init brain
+cp $HOME/.config/nerve/config.toml $HOME/first
+! exec nerve init brain
+stderr 'config.toml exists: edit it instead'
+cmp $HOME/.config/nerve/config.toml $HOME/first

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/medilies/nerve/internal/brain/app"
 	"github.com/medilies/nerve/internal/brain/domain"
@@ -105,7 +106,7 @@ func (LocalTrees) CheckIgnored(dir string) error {
 	case exitCode(err) != 1: // 1: git does not ignore it
 		return err
 	}
-	return fmt.Errorf("git does not ignore %s: add **/%s to %s, your global git ignore file, or to the repo's .gitignore", rel, rel, globalIgnore(dir))
+	return fmt.Errorf("git does not ignore %s: add **/%s to %s, your global git ignore file", rel, rel, globalIgnore(dir))
 }
 
 // globalIgnore is the global git ignore file git reads in dir.
@@ -126,14 +127,25 @@ const (
 	excludeEnd   = "# nerve: end"
 )
 
-// SyncExclude keeps rels out of git through a marked block in the repo's
-// info/exclude, which only this clone reads, and all its worktrees share.
-func (LocalTrees) SyncExclude(dir string, rels []string) error {
+// SyncExclude keeps the paths wanted returns out of git, through a marked
+// block in the repo's info/exclude, which only this clone reads, and all
+// its worktrees share. Syncs of two worktrees at once take turns, so
+// neither writes a block that lacks the other's links.
+func (LocalTrees) SyncExclude(dir string, wanted func() ([]string, error)) error {
 	out, err := git(dir, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude")
 	if err != nil {
 		return err
 	}
 	path := trim(out)
+	unlock, err := lockFolder(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	rels, err := wanted()
+	if err != nil {
+		return err
+	}
 	old, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
@@ -179,12 +191,32 @@ func (LocalTrees) SyncExclude(dir string, rels []string) error {
 	return writeFile(path, []byte(text))
 }
 
+// lockFolder holds a lock on dir until unlock, waiting for another run
+// that holds it. It locks the folder, not a file in it: writeFile replaces
+// files, and a lock on a replaced one would hold nothing.
+func lockFolder(dir string) (unlock func(), err error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("lock %s: %w", dir, err)
+	}
+	return func() { _ = f.Close() }, nil // closing it unlocks it
+}
+
 func damagedExclude(path string) error {
 	return fmt.Errorf("%s: nerve's block must be one %q line, then its links, then one %q line: fix it by hand", path, excludeBegin, excludeEnd)
 }
 
 func (LocalTrees) ReadSettings(path string) (map[string]any, error) { return readObject(path) }
 
+func (LocalTrees) Frontmatter(path string) (map[string]string, error) { return readFrontmatter(path) }
+
 func (LocalTrees) WriteSettings(path string, settings map[string]any) error {
-	return writeObject(path, settings)
+	return writeObject(path, settings, false)
 }

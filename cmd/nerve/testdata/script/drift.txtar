@@ -19,6 +19,7 @@ stdout '^personal permissions.allow has "Bash\(make\)": kept, the Brain does not
 
 exec nerve setting add permissions.allow 'Bash(make)'
 ! exec nerve sync --here
+stdout '^drift    model is "sonnet" here, "opus" in the Brain: left as is$'
 ! stdout 'permissions.allow'
 
 exec nerve sync --here --discard

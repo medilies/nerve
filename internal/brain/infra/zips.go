@@ -38,7 +38,9 @@ func (z ZipCache) path(project, name string) string {
 // Zip zips a skill folder under its name, the same bytes for the same
 // files. The folder may be a link. A link to a file in the skill is zipped
 // as that file; any other link is refused, so nothing outside the skill
-// reaches the zip. A file that may be run is zipped as one.
+// reaches the zip, and so is a file that is not a regular one. Files and
+// folders named with a leading dot, such as .env or .git, stay out. A file
+// that may be run is zipped as one.
 func (ZipCache) Zip(s domain.Skill) ([]byte, error) {
 	root, err := filepath.EvalSymlinks(s.Dir)
 	if err != nil {
@@ -50,10 +52,12 @@ func (ZipCache) Zip(s domain.Skill) ([]byte, error) {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() {
-			if d.Name() == ".git" {
-				return filepath.SkipDir
-			}
+		switch {
+		case path != root && strings.HasPrefix(d.Name(), ".") && d.IsDir(): // .git, .venv: not the skill's
+			return filepath.SkipDir
+		case path != root && strings.HasPrefix(d.Name(), "."): // .env, .DS_Store
+			return nil
+		case d.IsDir():
 			return nil
 		}
 		rel, _ := filepath.Rel(root, path)
@@ -65,6 +69,9 @@ func (ZipCache) Zip(s domain.Skill) ([]byte, error) {
 		fi, err := os.Stat(path)
 		if err != nil {
 			return err
+		}
+		if !fi.Mode().IsRegular() { // a pipe, say, which reading would wait on
+			return fmt.Errorf("%s is not a regular file, which a zip cannot hold", filepath.ToSlash(rel))
 		}
 		h := &zip.FileHeader{Name: s.Name + "/" + filepath.ToSlash(rel), Method: zip.Deflate}
 		h.SetMode(0o644)

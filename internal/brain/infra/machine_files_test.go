@@ -2,6 +2,7 @@ package infra
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -65,8 +66,8 @@ func TestAStateFileNerveCannotReadStopsOnlyItsOwnTree(t *testing.T) {
 	}
 	e.write(files.statePath("/w/app"), "")
 
-	if all, err := files.States(); err != nil || len(all) != 1 || all[0].Path != "/w/other" {
-		t.Errorf("states are %+v (%v), want the other tree's", all, err)
+	if all, unreadable, err := files.States(); err != nil || len(all) != 1 || all[0].Path != "/w/other" || !reflect.DeepEqual(unreadable, []string{files.statePath("/w/app")}) {
+		t.Errorf("states are %+v, unreadable %v (%v), want the other tree's, and the file named", all, unreadable, err)
 	}
 	if _, err := files.State("/w/app"); err == nil || !strings.Contains(err.Error(), "is not a state nerve can read: delete it, then sync again") {
 		t.Errorf("got %v, want the fix named", err)
@@ -81,7 +82,20 @@ func TestStatesReadOnlyFilesNamedLikeAState(t *testing.T) {
 	}
 	e.write(e.path(".config/nerve/state/stray.json"), "{}")
 
-	if all, err := files.States(); err != nil || len(all) != 1 || all[0].Path != "/w/app" {
+	if all, unreadable, err := files.States(); err != nil || len(all) != 1 || all[0].Path != "/w/app" || len(unreadable) > 0 {
+		t.Errorf("states are %+v, unreadable %v (%v)", all, unreadable, err)
+	}
+}
+
+func TestStatesAreReadUnderAConfigFolderNamedLikeAPattern(t *testing.T) {
+	e := newTestEnv(t)
+	t.Setenv("XDG_CONFIG_HOME", e.path("c[1]"))
+	files, _ := NewMachineFiles()
+	if err := files.SaveState(domain.TreeState{Path: "/w/app", Project: "app"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if all, _, err := files.States(); err != nil || len(all) != 1 {
 		t.Errorf("states are %+v (%v)", all, err)
 	}
 }
@@ -132,20 +146,21 @@ func TestStateAndOverlaysStayOnTheMachine(t *testing.T) {
 	}
 	link := domain.Link{Kind: "skill", Name: "x", Target: "/brain/skills/x"}
 	st.Project, st.Repo, st.Commit, st.Links[".claude/skills/x"] = "app", "/w/app/.git", "abc", link
+	st.Before = map[string]any{"cleanupPeriodDays": int64(30)}
 	if err := files.SaveState(st); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := files.State("/w/app"); got.Project != "app" || got.Repo != "/w/app/.git" || got.Links[".claude/skills/x"] != link {
+	if got, _ := files.State("/w/app"); got.Project != "app" || got.Repo != "/w/app/.git" || got.Links[".claude/skills/x"] != link || !reflect.DeepEqual(got.Before, st.Before) {
 		t.Errorf("read back %+v", got)
 	}
-	if all, _ := files.States(); len(all) != 1 || all[0].Path != "/w/app" {
+	if all, _, _ := files.States(); len(all) != 1 || all[0].Path != "/w/app" {
 		t.Errorf("states are %+v", all)
 	}
 	if err := files.SaveBuilt(map[string]map[string]string{"acct": {"x": "h"}}); err != nil {
 		t.Fatal(err)
 	}
-	if all, _ := files.States(); len(all) != 1 {
-		t.Errorf("the claude.ai record counts as a tree: %+v", all)
+	if all, unreadable, _ := files.States(); len(all) != 1 || len(unreadable) > 0 {
+		t.Errorf("the claude.ai record counts as a tree: %+v, %v", all, unreadable)
 	}
 	if built, _ := files.Built(); built["acct"]["x"] != "h" {
 		t.Errorf("built is %v", built)

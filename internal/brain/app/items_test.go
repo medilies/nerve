@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -38,6 +39,11 @@ func TestAddItemRefusesWhatTheBrainDoesNotOffer(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
 	e.brain.m.Projects["claude-ai-work"] = &domain.Project{Surface: domain.ClaudeAI}
+	e.brain.agents["Reviewer"] = true // agents/Reviewer.md
+	e.ownSkill("foo/")                // skills/foo/, as a trailing slash finds it
+	e.ownSkill("grill")
+	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: strings.Repeat("a", 40), Skills: []string{"grill"}}}
+	e.brain.ownErr = map[string]error{"bad": errors.New("skill bad: SKILL.md has no frontmatter")}
 	for _, c := range []struct {
 		project, kind, name, want string
 	}{
@@ -48,6 +54,10 @@ func TestAddItemRefusesWhatTheBrainDoesNotOffer(t *testing.T) {
 		{"", "plugin", "gopls", `plugin "gopls" must be <plugin>@<marketplace>`},
 		{"", "plugin", "a@b@c", "must be <plugin>@<marketplace>"},
 		{"claude-ai-work", "plugin", "a@b", "is a claude.ai account, which takes skills only"},
+		{"", "agent", "Reviewer", `agent "Reviewer" must be lowercase words joined by hyphens`},
+		{"", "skill", "foo/", `skill "foo/" must be lowercase words joined by hyphens`},
+		{"", "skill", "grill", "skill grill comes from both skills/ and acme/up: drop one of them"},
+		{"", "skill", "bad", "skill bad: SKILL.md has no frontmatter"},
 	} {
 		err := e.app.AddItem(app.ProjectRef{Dir: "/w/app", Project: c.project}, c.kind, c.name, &recorder{})
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -176,7 +186,9 @@ func TestListItemsShowsOnlyMarkdownFilesAsTheTeamsAgents(t *testing.T) {
 	e.listed("app", "/w/app")
 	e.must(e.sync("/w/app", app.SyncOptions{}))
 	e.trees.files["/w/app/.claude/agents/team.md"] = true
+	e.trees.frontmatter["/w/app/.claude/agents/team.md"] = map[string]string{"name": "team", "description": "Reviews."}
 	e.trees.files["/w/app/.claude/agents/README.txt"] = true
+	e.trees.files["/w/app/.claude/agents/README.md"] = true // no frontmatter
 	r := &recorder{}
 
 	e.must(r, e.app.ListItems(target("/w/app"), "agent", r))
@@ -184,6 +196,7 @@ func TestListItemsShowsOnlyMarkdownFilesAsTheTeamsAgents(t *testing.T) {
 	if strings.Contains(r.String(), "README") {
 		t.Errorf("a file that is not an agent is listed as one:\n%s", r)
 	}
+	contains(t, r, "agent team the team's")
 }
 
 func TestListItemsShowsALinkSomeonePointedElsewhereAsTheirs(t *testing.T) {

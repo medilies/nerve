@@ -9,7 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
+	"regexp"
 
 	"github.com/BurntSushi/toml"
 
@@ -126,7 +126,7 @@ func (f MachineFiles) Save(m domain.Machine) error {
 	if err := enc.Encode(mf); err != nil {
 		return err
 	}
-	return writeFile(f.path(), buf.Bytes())
+	return writePrivate(f.path(), buf.Bytes())
 }
 
 func checkoutPaths(lines []checkoutLine) []string {
@@ -157,7 +157,7 @@ func (f MachineFiles) Overlay(project string) (map[string]any, string, error) {
 
 func (f MachineFiles) SaveOverlay(project string, settings map[string]any) (string, error) {
 	path := f.overlayPath(project)
-	return path, writeObject(path, settings)
+	return path, writeObject(path, settings, true)
 }
 
 func (f MachineFiles) DropOverlay(project string) (string, error) {
@@ -180,6 +180,7 @@ type treeState struct {
 	Links    map[string]linkState `json:"links,omitempty"`
 	Folders  []string             `json:"folders,omitempty"`
 	Settings map[string]any       `json:"settings,omitempty"`
+	Before   map[string]any       `json:"before,omitempty"`
 	Personal []string             `json:"personal,omitempty"`
 	Commit   string               `json:"commit,omitempty"`
 }
@@ -192,7 +193,8 @@ type linkState struct {
 
 func (st treeState) domain() domain.TreeState {
 	domain.Numbers(st.Settings)
-	d := domain.TreeState{Path: st.Path, Repo: st.Repo, Project: st.Project, Folders: st.Folders, Settings: st.Settings, Personal: st.Personal, Commit: st.Commit, Links: map[string]domain.Link{}}
+	domain.Numbers(st.Before)
+	d := domain.TreeState{Path: st.Path, Repo: st.Repo, Project: st.Project, Folders: st.Folders, Settings: st.Settings, Before: st.Before, Personal: st.Personal, Commit: st.Commit, Links: map[string]domain.Link{}}
 	for rel, l := range st.Links {
 		d.Links[rel] = domain.Link(l)
 	}
@@ -200,7 +202,7 @@ func (st treeState) domain() domain.TreeState {
 }
 
 func fromDomain(d domain.TreeState) treeState {
-	st := treeState{Path: d.Path, Repo: d.Repo, Project: d.Project, Folders: d.Folders, Settings: d.Settings, Personal: d.Personal, Commit: d.Commit}
+	st := treeState{Path: d.Path, Repo: d.Repo, Project: d.Project, Folders: d.Folders, Settings: d.Settings, Before: d.Before, Personal: d.Personal, Commit: d.Commit}
 	if len(d.Links) > 0 {
 		st.Links = map[string]linkState{}
 		for rel, l := range d.Links {
@@ -224,7 +226,7 @@ func (f MachineFiles) State(dir string) (domain.TreeState, error) {
 }
 
 func (f MachineFiles) SaveState(st domain.TreeState) error {
-	return writeJSON(f.statePath(st.Path), fromDomain(st))
+	return writeJSON(f.statePath(st.Path), fromDomain(st), true)
 }
 
 func (f MachineFiles) DropState(dir string) error {
@@ -236,18 +238,26 @@ func (f MachineFiles) DropState(dir string) error {
 
 // statePattern matches the names statePath gives, and no other file in the
 // state folder.
-var statePattern = strings.Repeat("[0-9a-f]", 16) + ".json"
+var statePattern = regexp.MustCompile(`^[0-9a-f]{16}\.json$`)
 
-// States reads every tree's state it can. Other files in the state folder
-// are left alone, and so is a state it cannot read: State refuses it to its
-// own tree only.
-func (f MachineFiles) States() ([]domain.TreeState, error) {
-	files, err := filepath.Glob(filepath.Join(f.dir, "state", statePattern))
+// States reads every tree's state it can, and names the files it cannot
+// read, which State refuses to their own trees. Other files in the state
+// folder are left alone.
+func (f MachineFiles) States() ([]domain.TreeState, []string, error) {
+	entries, err := os.ReadDir(filepath.Join(f.dir, "state"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, nil
+	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var states []domain.TreeState
-	for _, file := range files {
+	var unreadable []string
+	for _, e := range entries {
+		if !statePattern.MatchString(e.Name()) {
+			continue
+		}
+		file := filepath.Join(f.dir, "state", e.Name())
 		var st treeState
 		b, err := os.ReadFile(file)
 		if err == nil {
@@ -257,11 +267,12 @@ func (f MachineFiles) States() ([]domain.TreeState, error) {
 			err = errors.New("no path")
 		}
 		if err != nil {
+			unreadable = append(unreadable, file)
 			continue
 		}
 		states = append(states, st.domain())
 	}
-	return states, nil
+	return states, unreadable, nil
 }
 
 func (f MachineFiles) builtPath() string { return filepath.Join(f.dir, "state", "claude-ai.json") }
@@ -272,5 +283,5 @@ func (f MachineFiles) Built() (map[string]map[string]string, error) {
 }
 
 func (f MachineFiles) SaveBuilt(built map[string]map[string]string) error {
-	return writeJSON(f.builtPath(), built)
+	return writeJSON(f.builtPath(), built, true)
 }

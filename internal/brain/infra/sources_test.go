@@ -193,3 +193,65 @@ func TestFetchSweepsAFolderAKilledFetchLeft(t *testing.T) {
 		t.Errorf("the killed fetch's folder is still there")
 	}
 }
+
+func TestDiffShowsALineSeparatorAsSuch(t *testing.T) {
+	e := newTestEnv(t)
+	old := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	next := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "") + "a b c\n"})
+
+	d, err := SourceCache{}.Diff("acme/up", "grilling", old, next)
+
+	if err != nil || !strings.Contains(d, "a<U+2028>b<U+2029>c") {
+		t.Errorf("got %v: %q", err, d)
+	}
+}
+
+func TestFetchRunsNoFilterOfTheUsers(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{".gitattributes": "* filter=x\n", "skills/grilling/SKILL.md": skillMD("grilling", "")})
+	t.Setenv("GIT_CONFIG_COUNT", "2")
+	t.Setenv("GIT_CONFIG_KEY_1", "filter.x.smudge")
+	t.Setenv("GIT_CONFIG_VALUE_1", "touch "+e.path("smudged")+"; cat")
+
+	if _, err := (SourceCache{}).Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling"); err != nil {
+		t.Fatal(err)
+	}
+
+	if fileExists(e.path("smudged")) {
+		t.Errorf("fetching a source ran the user's filter on it")
+	}
+}
+
+func TestFetchKeepsTheSourcesLineEnds(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	t.Setenv("GIT_CONFIG_COUNT", "2")
+	t.Setenv("GIT_CONFIG_KEY_1", "core.autocrlf")
+	t.Setenv("GIT_CONFIG_VALUE_1", "true")
+
+	s, err := (SourceCache{}).Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling")
+
+	if err != nil || strings.Contains(e.read(filepath.Join(s.Dir, "SKILL.md")), "\r") {
+		t.Errorf("got %v, and the source's text changed on fetch", err)
+	}
+}
+
+func TestFetchSweepsUnderACacheFolderNamedLikeAPattern(t *testing.T) {
+	e := newTestEnv(t)
+	sha := e.upstream(map[string]string{"skills/grilling/SKILL.md": skillMD("grilling", "")})
+	t.Setenv("XDG_CACHE_HOME", e.path("c[1]"))
+	stale := e.path("c[1]/nerve/sources/acme/up/" + strings.Repeat("0", 40) + ".tmp-123")
+	e.write(filepath.Join(stale, "x"), "x")
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := (SourceCache{}).Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling"); err != nil {
+		t.Fatal(err)
+	}
+
+	if fileExists(stale) {
+		t.Errorf("the killed fetch's folder is still there")
+	}
+}

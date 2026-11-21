@@ -67,10 +67,14 @@ func (b *fakeBrain) Root() string                   { return "/brain" }
 func (b *fakeBrain) Load() (domain.Manifest, error) { return copyManifest(b.m), b.m.Validate() }
 func (b *fakeBrain) Pull(app.Reporter) error        { b.pulls++; return b.pullErr }
 
+// Save refuses what Load would, as the real Brain does.
 func (b *fakeBrain) Save(m domain.Manifest) error {
 	if b.failSaves > 0 {
 		b.failSaves--
 		return errors.New("brain.toml: read-only")
+	}
+	if err := m.Validate(); err != nil {
+		return err
 	}
 	b.m = copyManifest(m)
 	b.saves++
@@ -144,13 +148,13 @@ func (s *fakeSources) Diff(repo, name, from, to string) (string, error) {
 }
 
 type fakeMachine struct {
-	machine  domain.Machine
-	missing  bool
-	saveErr  error // of the machine file and overlays
-	stateErr error // of tree states and claude.ai builds
-	overlays map[string]map[string]any
-	states   map[string]domain.TreeState
-	built    map[string]map[string]string
+	machine    domain.Machine
+	missing    bool
+	fail       map[string]error // by method, such as "SaveOverlay"
+	overlays   map[string]map[string]any
+	states     map[string]domain.TreeState
+	unreadable []string // state files States cannot read
+	built      map[string]map[string]string
 }
 
 func (m *fakeMachine) Load() (domain.Machine, error) {
@@ -163,8 +167,8 @@ func (m *fakeMachine) Load() (domain.Machine, error) {
 }
 
 func (m *fakeMachine) Save(machine domain.Machine) error {
-	if m.saveErr != nil {
-		return m.saveErr
+	if err := m.fail["Save"]; err != nil {
+		return err
 	}
 	m.machine = machine
 	return nil
@@ -183,16 +187,16 @@ func (m *fakeMachine) Overlay(project string) (map[string]any, string, error) {
 }
 
 func (m *fakeMachine) SaveOverlay(project string, s map[string]any) (string, error) {
-	if m.saveErr != nil {
-		return "", m.saveErr
+	if err := m.fail["SaveOverlay"]; err != nil {
+		return "", err
 	}
 	m.overlays[project] = copySettings(s)
 	return "/cfg/nerve/overlays/" + project + ".json", nil
 }
 
 func (m *fakeMachine) DropOverlay(project string) (string, error) {
-	if m.saveErr != nil {
-		return "", m.saveErr
+	if err := m.fail["DropOverlay"]; err != nil {
+		return "", err
 	}
 	if _, ok := m.overlays[project]; !ok {
 		return "", nil
@@ -214,32 +218,32 @@ func copyState(st domain.TreeState) domain.TreeState {
 	for k, v := range st.Links {
 		links[k] = v
 	}
-	st.Links, st.Settings, st.Folders = links, copySettings(st.Settings), slices.Clone(st.Folders)
+	st.Links, st.Settings, st.Before, st.Folders = links, copySettings(st.Settings), copySettings(st.Before), slices.Clone(st.Folders)
 	return st
 }
 
 func (m *fakeMachine) SaveState(st domain.TreeState) error {
-	if m.stateErr != nil {
-		return m.stateErr
+	if err := m.fail["SaveState"]; err != nil {
+		return err
 	}
 	m.states[st.Path] = copyState(st)
 	return nil
 }
 
 func (m *fakeMachine) DropState(dir string) error {
-	if m.stateErr != nil {
-		return m.stateErr
+	if err := m.fail["DropState"]; err != nil {
+		return err
 	}
 	delete(m.states, dir)
 	return nil
 }
 
-func (m *fakeMachine) States() ([]domain.TreeState, error) {
+func (m *fakeMachine) States() ([]domain.TreeState, []string, error) {
 	var states []domain.TreeState
 	for _, dir := range domain.SortedKeys(m.states) {
 		states = append(states, copyState(m.states[dir]))
 	}
-	return states, nil
+	return states, slices.Clone(m.unreadable), nil
 }
 
 func (m *fakeMachine) Built() (map[string]map[string]string, error) {
@@ -251,8 +255,8 @@ func (m *fakeMachine) Built() (map[string]map[string]string, error) {
 }
 
 func (m *fakeMachine) SaveBuilt(b map[string]map[string]string) error {
-	if m.stateErr != nil {
-		return m.stateErr
+	if err := m.fail["SaveBuilt"]; err != nil {
+		return err
 	}
 	m.built = b
 	return nil
@@ -261,19 +265,22 @@ func (m *fakeMachine) SaveBuilt(b map[string]map[string]string) error {
 // fakeTrees is working trees in memory: folders, links, the team's real
 // files, settings files, what git ignores, and one exclude block per repo.
 type fakeTrees struct {
-	trees     []domain.Tree
-	dirs      map[string]bool // folders: checkouts, and what Link and WriteSettings make on the way
-	links     map[string]string
-	dangling  map[string]bool // link targets that do not exist
-	files     map[string]bool
-	settings  map[string]map[string]any
-	unignored map[string]bool // trees where git does not ignore settings.local.json
-	tracked   map[string]bool // trees where git tracks it
-	excludes  map[string][]string
-	damaged   map[string]bool  // repos whose exclude block someone broke
-	lost      map[string]bool  // trees git can no longer locate, as after git worktree prune
-	writeErr  error            // of WriteSettings
-	linkErr   map[string]error // of Link, at a path
+	trees       []domain.Tree
+	dirs        map[string]bool // folders: checkouts, and what Link and WriteSettings make on the way
+	links       map[string]string
+	dangling    map[string]bool // link targets that do not exist
+	files       map[string]bool
+	settings    map[string]map[string]any
+	unignored   map[string]bool // trees where git does not ignore settings.local.json
+	tracked     map[string]bool // trees where git tracks it
+	excludes    map[string][]string
+	damaged     map[string]bool              // repos whose exclude block someone broke
+	lost        map[string]bool              // trees git can no longer locate, as after git worktree prune
+	writeErr    error                        // of WriteSettings
+	linkErr     map[string]error             // of Link, at a path
+	removeErr   map[string]error             // of Remove, at a path
+	readErr     map[string]error             // of ReadSettings, at a path
+	frontmatter map[string]map[string]string // of the team's Markdown files
 }
 
 func (w *fakeTrees) Locate(dir string) (domain.Tree, error) {
@@ -329,6 +336,8 @@ func (w *fakeTrees) Link(p, target string) error {
 // does.
 func (w *fakeTrees) Remove(p string) error {
 	switch {
+	case w.removeErr[p] != nil:
+		return w.removeErr[p]
 	case !w.Present(p):
 		return fmt.Errorf("no %s", p)
 	case w.dirs[p] && len(w.Entries(p)) > 0:
@@ -382,13 +391,17 @@ func (w *fakeTrees) CheckIgnored(dir string) error {
 
 // SyncExclude keeps one block per repo, as info/exclude does, under the
 // tree that wrote it last.
-func (w *fakeTrees) SyncExclude(dir string, rels []string) error {
+func (w *fakeTrees) SyncExclude(dir string, lines func() ([]string, error)) error {
 	t, err := w.Locate(dir)
 	if err != nil {
 		return err
 	}
 	if w.damaged[t.Main] {
 		return errors.New("info/exclude: nerve's block is damaged: fix it by hand")
+	}
+	rels, err := lines()
+	if err != nil {
+		return err
 	}
 	for _, other := range w.trees {
 		if other.Repo == t.Repo {
@@ -425,7 +438,18 @@ func (w *fakeTrees) gitSees(top string) []string {
 }
 
 func (w *fakeTrees) ReadSettings(p string) (map[string]any, error) {
+	if err := w.readErr[p]; err != nil {
+		return nil, err
+	}
 	return copySettings(w.settings[p]), nil
+}
+
+func (w *fakeTrees) Frontmatter(p string) (map[string]string, error) {
+	meta, ok := w.frontmatter[p]
+	if !ok {
+		return nil, fmt.Errorf("%s has no frontmatter", path.Base(p))
+	}
+	return meta, nil
 }
 
 func (w *fakeTrees) WriteSettings(p string, s map[string]any) error {
@@ -513,10 +537,11 @@ func newEnv(t *testing.T) *env {
 		t:       t,
 		brain:   &fakeBrain{own: map[string]domain.Skill{}, agents: map[string]bool{}, head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		sources: &fakeSources{skills: map[string]domain.Skill{}, heads: map[string]string{}},
-		machine: &fakeMachine{machine: domain.Machine{Brain: "/brain"}, overlays: map[string]map[string]any{}, states: map[string]domain.TreeState{}, built: map[string]map[string]string{}},
+		machine: &fakeMachine{machine: domain.Machine{Brain: "/brain"}, fail: map[string]error{}, overlays: map[string]map[string]any{}, states: map[string]domain.TreeState{}, built: map[string]map[string]string{}},
 		trees: &fakeTrees{dirs: map[string]bool{}, links: map[string]string{}, dangling: map[string]bool{}, files: map[string]bool{},
 			settings: map[string]map[string]any{}, unignored: map[string]bool{}, tracked: map[string]bool{},
-			excludes: map[string][]string{}, damaged: map[string]bool{}, lost: map[string]bool{}},
+			excludes: map[string][]string{}, damaged: map[string]bool{}, lost: map[string]bool{},
+			removeErr: map[string]error{}, readErr: map[string]error{}, frontmatter: map[string]map[string]string{}},
 		self: &fakeSelf{},
 		zips: &fakeZips{written: map[string][]byte{}, refused: map[string]string{}},
 	}
