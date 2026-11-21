@@ -35,20 +35,26 @@ func writeFile(path string, b []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	f, err := newTemp(path)
+	sweepTemps(path)
+	perm := fs.FileMode(0o644)
+	fi, err := os.Stat(path)
+	if err == nil {
+		perm = fi.Mode().Perm()
+	}
+	f, err := newTemp(path, perm)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.Remove(f.Name()) }() // a no-op once renamed
-	if _, err := f.Write(b); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if fi, err := os.Stat(path); err == nil {
-		if err := f.Chmod(fi.Mode().Perm()); err != nil {
+	if fi != nil {                             // the file's exact mode, before it holds anything
+		if err := f.Chmod(perm); err != nil {
 			_ = f.Close()
 			return err
 		}
+	}
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		return err
 	}
 	if err := f.Close(); err != nil {
 		return err
@@ -57,16 +63,28 @@ func writeFile(path string, b []byte) error {
 }
 
 // newTemp creates a file of its own next to path, as os.CreateTemp does,
-// but with the mode os.WriteFile gives, since it replaces path.
-func newTemp(path string) (*os.File, error) {
+// but with perm less the umask, as os.WriteFile gives, since it replaces
+// path.
+func newTemp(path string, perm fs.FileMode) (*os.File, error) {
 	for range 100 {
 		name := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+"."+strconv.FormatUint(rand.Uint64(), 36))
-		f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
+		f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, perm)
 		if !errors.Is(err, fs.ErrExist) {
 			return f, err
 		}
 	}
 	return nil, fmt.Errorf("%s: no free name for a temp file", path)
+}
+
+// sweepTemps removes the temp files newTemp made for path in a run that was
+// killed: older than any run.
+func sweepTemps(path string) {
+	tmps, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".*"))
+	for _, tmp := range tmps {
+		if fi, err := os.Lstat(tmp); err == nil && fi.Mode().IsRegular() && time.Since(fi.ModTime()) > time.Hour {
+			_ = os.Remove(tmp)
+		}
+	}
 }
 
 // linkEnd follows path while it is a link, to the file it ends at, which

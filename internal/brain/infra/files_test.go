@@ -77,6 +77,43 @@ func TestWriteFileKeepsTheFilesMode(t *testing.T) {
 	}
 }
 
+func TestATempFileHasItsFilesModeBeforeItHoldsAnything(t *testing.T) {
+	e := newTestEnv(t)
+	path := e.path("app/overlay.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := newTemp(path, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	if fi, err := f.Stat(); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode is %v (%v)", fi.Mode(), err)
+	}
+}
+
+func TestWriteFileSweepsTheTempFilesOfAKilledRun(t *testing.T) {
+	e := newTestEnv(t)
+	path := e.path("app/.claude/settings.local.json")
+	stale := e.path("app/.claude/.settings.local.json.abc123")
+	e.write(stale, "{}")
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeFile(path, []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+
+	if fileExists(stale) {
+		t.Errorf("the killed run's temp file is still there")
+	}
+}
+
 func TestWriteFileFailsWithoutTouchingTheFile(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root writes in a read-only folder")
