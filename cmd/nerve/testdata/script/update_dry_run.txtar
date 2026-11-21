@@ -1,0 +1,46 @@
+# update --dry-run shows how a source's skills changed, and changes
+# nothing: no pin, push or sync. It reads the Brain as it is here, so work
+# not pushed does not stop it.
+
+mkdir github/acme/up.git/skills/grilling
+cp v1.md github/acme/up.git/skills/grilling/SKILL.md
+cd github/acme/up.git
+exec git init -q -b main
+exec git config uploadpack.allowAnySHA1InWant true
+exec git add -A
+exec git commit -q -m v1
+exec sh -c 'printf "{\"sources\": [{\"repo\": \"acme/up\", \"sha\": \"%s\", \"skills\": [\"grilling\"]}]}\n" "$(git rev-parse HEAD)" > $HOME/brain/brain.json'
+cp $WORK/v2.md skills/grilling/SKILL.md
+exec git commit -qam v2
+
+cd $WORK/brain
+exec git commit -qam 'add acme/up'
+exec git push -q
+cd $WORK
+exec nerve init brain
+cd proj
+exec nerve project add app
+exec nerve skill add grilling
+exec sh -c 'echo "{}" > $HOME/brain/unpushed.json'
+exec git -C $HOME/brain add unpushed.json
+exec git -C $HOME/brain commit -qm 'not pushed'
+exec nerve update --dry-run
+
+stdout '^changed  skill grilling: SKILL.md \+1 -0$'
+stdout 'dry run: no pin moved'
+! stdout '^pushed'
+! stdout '^pinned'
+! exists .claude/skills/grilling
+exec sh -c 'grep -q "\"sha\": \"$(git -C $HOME/github/acme/up.git rev-parse HEAD~1)\"" $HOME/brain/brain.json'
+
+-- v1.md --
+---
+name: grilling
+description: Grills.
+---
+-- v2.md --
+---
+name: grilling
+description: Grills.
+---
+Grill harder.

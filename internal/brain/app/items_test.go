@@ -115,7 +115,7 @@ func TestUpdateShowsEachSkillsChangesThenMovesThePin(t *testing.T) {
 	e.sources.files["acme/up@"+pinB+"/grilling"] = []app.FileChange{{Path: "SKILL.md", Added: 3, Removed: 1}, {Path: "logo.png", Binary: true}}
 	r := &recorder{}
 
-	e.must(r, e.app.Update("/w", "https://github.com/acme/up.git", false, r))
+	e.must(r, e.app.Update("/w", "https://github.com/acme/up.git", false, false, r))
 
 	if got := e.brain.m.Sources[0].SHA; got != pinB {
 		t.Errorf("pinned at %s", got)
@@ -136,12 +136,80 @@ func TestUpdateShowsEachSkillsChangesThenMovesThePin(t *testing.T) {
 	}
 
 	r = &recorder{}
-	e.must(r, e.app.Update("/w", "", false, r))
+	e.must(r, e.app.Update("/w", "", false, false, r))
 	contains(t, r, "acme/up is already pinned at "+pinB)
 
-	if err := e.app.Update("/w", "acme/other", false, &recorder{}); err == nil || err.Error() != "acme/other is not a source in brain.json" {
+	if err := e.app.Update("/w", "acme/other", false, false, &recorder{}); err == nil || err.Error() != "acme/other is not a source in brain.json" {
 		t.Errorf("got %v", err)
 	}
+}
+
+func TestUpdateDryRunShowsTheChangesAndMovesNothing(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
+	e.sources.tips["acme/up"] = pinB
+	e.sources.skills["acme/up@"+pinB+"/grilling"] = domain.Skill{}
+	e.sources.files["acme/up@"+pinB+"/grilling"] = []app.FileChange{{Path: "SKILL.md", Added: 1}}
+	r := &recorder{}
+
+	e.must(r, e.app.Update("/w/app", "", false, true, r))
+
+	contains(t, r, "changed  skill grilling: SKILL.md +1 -0", "dry run: no pin moved")
+	if e.brain.m.Sources[0].SHA != pinA || len(e.brain.manifestPushes) > 0 || strings.Contains(r.String(), "synced") {
+		t.Errorf("moved something: sources %v, pushed %q:\n%s", e.brain.m.Sources, e.brain.manifestPushes, r)
+	}
+}
+
+func TestUpdateDryRunReadsTheBrainAsItIsHere(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
+	e.sources.tips["acme/up"] = pinB
+	e.sources.skills["acme/up@"+pinB+"/grilling"] = domain.Skill{}
+	e.brain.refreshErr = errors.New("brain.json has changes not pushed")
+	r := &recorder{}
+
+	e.must(r, e.app.Update("/w", "", false, true, r))
+}
+
+func TestUpdateDryRunWithEveryPinAtItsTipOffersNothing(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinB, Skills: []string{"grilling"}}}
+	e.sources.tips["acme/up"] = pinB
+	r := &recorder{}
+
+	e.must(r, e.app.Update("/w", "", false, true, r))
+
+	if strings.Contains(r.String(), "dry run") {
+		t.Errorf("offers an update with nothing to move:\n%s", r)
+	}
+}
+
+func TestUpdateDryRunReportsASourceThatCannotMove(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
+	e.sources.tips["acme/up"] = pinB
+	r := &recorder{}
+
+	err := e.app.Update("/w", "", false, true, r)
+
+	if err == nil || e.brain.m.Sources[0].SHA != pinA || len(e.brain.manifestPushes) > 0 {
+		t.Errorf("got %v, sources %v, pushed %q", err, e.brain.m.Sources, e.brain.manifestPushes)
+	}
+	contains(t, r, `problem  brain.json: acme/up: at 84b741e: no skill "grilling"`)
+}
+
+func TestUpdateDryRunWithDiffShowsTheWholeDiff(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: pinA, Skills: []string{"grilling"}}}
+	e.sources.tips["acme/up"] = pinB
+	e.sources.skills["acme/up@"+pinB+"/grilling"] = domain.Skill{}
+	e.sources.files["acme/up@"+pinB+"/grilling"] = []app.FileChange{{Path: "SKILL.md", Added: 1}}
+	r := &recorder{}
+
+	e.must(r, e.app.Update("/w", "", true, true, r))
+
+	contains(t, r, "diff grilling 5863806..84b741e")
 }
 
 func TestUpdateWithDiffShowsTheWholeDiffOfEachChangedSkill(t *testing.T) {
@@ -152,7 +220,7 @@ func TestUpdateWithDiffShowsTheWholeDiffOfEachChangedSkill(t *testing.T) {
 	e.sources.files["acme/up@"+pinB+"/grilling"] = []app.FileChange{{Path: "SKILL.md", Added: 1}}
 	r := &recorder{}
 
-	e.must(r, e.app.Update("/w", "", true, r))
+	e.must(r, e.app.Update("/w", "", true, false, r))
 
 	contains(t, r, "changed  skill grilling: SKILL.md +1 -0", "diff grilling 5863806..84b741e")
 }
@@ -167,7 +235,7 @@ func TestUpdateLeavesASourceThatDropsASkillAndMovesTheOthers(t *testing.T) {
 	e.sources.skills["acme/other@"+pinB+"/tdd"] = domain.Skill{}
 	r := &recorder{}
 
-	err := e.app.Update("/w", "", false, r)
+	err := e.app.Update("/w", "", false, false, r)
 
 	if err == nil || e.brain.m.Sources[0].SHA != pinA || e.brain.m.Sources[1].SHA != pinB {
 		t.Errorf("got %v, sources %v", err, e.brain.m.Sources)
@@ -186,7 +254,7 @@ func TestUpdateMovesEveryEntryOfARepoTogether(t *testing.T) {
 	e.sources.skills["acme/up@"+pinB+"/grill-me"] = domain.Skill{}
 	r := &recorder{}
 
-	e.must(r, e.app.Update("/w", "acme/up", false, r))
+	e.must(r, e.app.Update("/w", "acme/up", false, false, r))
 
 	if e.brain.m.Sources[0].SHA != pinB || e.brain.m.Sources[1].SHA != pinB {
 		t.Errorf("sources %v", e.brain.m.Sources)
@@ -214,7 +282,7 @@ func TestUpdateFindsARepoHoweverItIsSpelled(t *testing.T) {
 	e.sources.skills["Acme/Up@"+pinB+"/grill-me"] = domain.Skill{}
 	r := &recorder{}
 
-	e.must(r, e.app.Update("/w", "ACME/UP", false, r))
+	e.must(r, e.app.Update("/w", "ACME/UP", false, false, r))
 
 	if e.brain.m.Sources[0].SHA != pinB || e.brain.m.Sources[1].SHA != pinB {
 		t.Errorf("sources %v:\n%s", e.brain.m.Sources, r)
@@ -230,7 +298,7 @@ func TestUpdateLeavesEveryEntryOfARepoWhenOneCannotMove(t *testing.T) {
 	e.sources.tips["acme/up"] = pinB
 	e.sources.skills["acme/up@"+pinB+"/grill-me"] = domain.Skill{}
 
-	err := e.app.Update("/w", "", false, &recorder{})
+	err := e.app.Update("/w", "", false, false, &recorder{})
 
 	if err == nil || e.brain.m.Sources[0].SHA != pinA || e.brain.m.Sources[1].SHA != pinA || len(e.brain.manifestPushes) > 0 {
 		t.Errorf("got %v, sources %v, pushed %q", err, e.brain.m.Sources, e.brain.manifestPushes)

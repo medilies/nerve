@@ -139,9 +139,14 @@ func (a App) agentFile(path string) bool {
 // of its skills changed, with the whole diff when full, and pushes the new
 // pins. Then it syncs the listed checkout around dir, if any, so the
 // project here gets them. A source that cannot move is reported, and the
-// others still do.
-func (a App) Update(dir, repo string, full bool, r Reporter) error {
-	l, err := a.fresh(r)
+// others still do. A dry run shows the same from the Brain as it is here,
+// and moves no pin.
+func (a App) Update(dir, repo string, full, dryRun bool, r Reporter) error {
+	load := func() (loaded, error) { return a.fresh(r) }
+	if dryRun {
+		load = a.load
+	}
+	l, err := load()
 	if err != nil {
 		return err
 	}
@@ -176,6 +181,8 @@ func (a App) Update(dir, repo string, full bool, r Reporter) error {
 			failed++
 		case sha == src.SHA:
 			r.Add(Event{Kind: EvAlreadyThere, Detail: src.Repo, Target: sha})
+		case dryRun:
+			moved = append(moved, src.Repo)
 		default:
 			for j := range m.Sources {
 				if sameRepo(m.Sources[j]) {
@@ -187,7 +194,10 @@ func (a App) Update(dir, repo string, full bool, r Reporter) error {
 		}
 	}
 	var errs []error
-	if len(moved) > 0 {
+	switch {
+	case dryRun && len(moved) > 0:
+		r.Add(Event{Kind: EvOK, Detail: "dry run: no pin moved; nerve update moves them"})
+	case len(moved) > 0:
 		if err := a.pushManifest(m, "pin "+strings.Join(moved, ", "), r); err != nil {
 			return err
 		}

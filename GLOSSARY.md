@@ -88,6 +88,10 @@ _Avoid_: pull, fetch
 Moving each source's pin to its tip, after showing how its skills changed, then pushing it and syncing the checkout here.
 _Avoid_: upgrade, bump
 
+**Dry run**:
+`update --dry-run`: showing how each source's skills changed, from `brain.json` as this machine holds it, without moving a pin, pushing or syncing.
+_Avoid_: preview
+
 **State**:
 What nerve last did to one checkout: its links, the settings it wrote, and what the file held before; kept in nerve's config folder, never in the project.
 _Avoid_: cache, lock

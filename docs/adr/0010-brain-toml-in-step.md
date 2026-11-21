@@ -1,6 +1,6 @@
 # brain.toml in step with its remote
 
-Status: accepted, 2026-11-21. Supersedes, in [ADR 0009](0009-explicit-verbs.md), "A change to the Brain's tracked files is lost at the next sync unless it is pushed" for `brain.toml`, push force-pushing unasked, the `--discard` flag, and `update` leaving the pin to push. `brain.toml` became `brain.json` with [ADR 0011](0011-json-files.md).
+Status: accepted, 2026-11-21; amended by [ADR 0013](0013-update-dry-run.md). Supersedes, in [ADR 0009](0009-explicit-verbs.md), "A change to the Brain's tracked files is lost at the next sync unless it is pushed" for `brain.toml`, push force-pushing unasked, the `--discard` flag, and `update` leaving the pin to push. `brain.toml` became `brain.json` with [ADR 0011](0011-json-files.md).
 
 ## Context
 

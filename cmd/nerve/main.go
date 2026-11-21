@@ -32,9 +32,11 @@ const usage = `usage: nerve <command>
   push [<message>] [-f]        commit everything in the Brain, with <message> or one naming what
                                changed, then push it to its remote;
                                -f, --force overwrites the remote's commits this Brain lacks
-  update [<repo>] [--diff]     show each source's pin and tip, and the files of each skill that
+  update [<repo>] [--diff] [--dry-run]
+                               show each source's pin and tip, and the files of each skill that
                                changed (--diff: the whole diff), then pin and push the tip, and
-                               sync the checkout around the working directory
+                               sync the checkout around the working directory;
+                               --dry-run shows the same, and moves no pin
   status                       the Brain, and how the project around the working directory
                                stands; outside a listed checkout, every project
   check                        validate the Brain (run by its CI)
@@ -122,6 +124,7 @@ type flags struct {
 	project                  string
 	all, common, here, force bool
 	diff                     bool     // update: the whole diff of each changed skill
+	dryRun                   bool     // update: show, and change nothing
 	hook                     bool     // the session report: print status as a hook's output
 	json                     bool     // print one JSON document
 	help                     bool     // print the usage
@@ -160,6 +163,8 @@ words:
 			f.hook = true
 		case a == "--diff":
 			f.diff = true
+		case a == "--dry-run":
+			f.dryRun = true
 		case a == "--project" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-"):
 			i++
 			f.project = args[i]
@@ -418,8 +423,8 @@ func run(args []string, r *infra.Report) error {
 	case cmd == "check" && len(rest) == 0:
 		brainHere, do = true, func(a app.App) error { return a.Check(r) }
 	case cmd == "update" && len(rest) <= 1:
-		allowed = []string{"--diff"}
-		brainHere, do = true, func(a app.App) error { return a.Update(wd, strings.Join(rest, ""), f.diff, r) }
+		allowed = []string{"--diff", "--dry-run"}
+		brainHere, do = true, func(a app.App) error { return a.Update(wd, strings.Join(rest, ""), f.diff, f.dryRun, r) }
 	case cmd == "push" && len(rest) <= 1:
 		allowed = []string{"--force"}
 		brainHere, do = true, func(a app.App) error { return a.Push(strings.Join(rest, ""), f.force, r) }

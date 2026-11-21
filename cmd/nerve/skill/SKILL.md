@@ -11,7 +11,7 @@ nerve acts only when told. `nerve sync` brings the remote here: it makes the Bra
 
 ## What the user asks
 
-The user may not know nerve's commands. Their words are not commands: "update my Brain" may mean moving pins, cleaning a list, or syncing. Read what they ask in context, such as what you just offered. When more than one reading fits, ask, naming each option in plain words, before you run anything. Never run a command that pushes at once, such as `update`, `setting`, `skill add`, `allow` or `project rm`, unless the user asked for that change.
+The user may not know nerve's commands. Their words are not commands: "update my Brain" may mean moving pins, cleaning a list, or syncing. Read what they ask in context, such as what you just offered. When more than one reading fits, ask, naming each option in plain words, before you run anything. Never run a command that pushes at once, such as `update` without `--dry-run`, `setting`, `skill add`, `allow` or `project rm`, unless the user asked for that change.
 
 ## /nerve on its own
 
@@ -49,7 +49,7 @@ Always add `--json`, then tell the user what happened in plain words. A command 
 | `nerve setting add <key> <value>` | Add one item to a list, such as `permissions.allow`. `--common` and the overlay as for `set`. |
 | `nerve setting rm <key>[=<value>]` | Remove a key, or one item of a list, from the project and its overlay. `--common` from common; `--all` revokes it from common and every project. |
 | `nerve allow add\|rm <key>...` | Add keys to `allowedSettings`, or take them out. `add` refuses a key nerve allows itself; `rm` refuses one the Brain's settings still hold. |
-| `nerve update [<repo>]` | Show each source's pin and tip with their dates, and the files each skill changed; `--diff` adds the whole diff. Then pin and push the tip, and sync this project. It pushes at once: ask first. |
+| `nerve update [<repo>]` | Show each source's pin and tip with their dates, and the files each skill changed; `--diff` adds the whole diff. Then pin and push the tip, and sync this project. It pushes at once: ask first. `--dry-run` shows the same, and moves no pin. |
 | `nerve check` | Validate the Brain before pushing. |
 
 An entry of `sources` or `hooks` has no command: add it to `brain.json` by hand, `nerve check`, then `nerve push`.
@@ -105,9 +105,9 @@ A source's `repo` is on GitHub; `path`, optional, is where its skills are when n
   - `tip` gives a source's `from`, `fromDate`, `target` and `targetDate`. Each skill's `key` names its source.
   - For a `changed` skill, summarize its `files` in a few words. For a `same` one, write "no change".
   - When a file may widen what the skill can do, such as a new script or tool, read it in the `changed` event's `path`, the skill's folder at the tip, and say so in the row.
-  - `--diff` adds the whole diff to the same run, and the pin still moves: add it only when the user asks to read the changes.
-  - The pin is pushed already: to go back, set the old `sha` in `brain.json`, then `nerve push`.
-  - nerve cannot show an update without moving the pin. When the user only wants to look, say so before running it.
+  - To read an update before it lands, run `nerve update --dry-run --json` first, show the table, and ask. On yes, run `nerve update --json`. When its table differs, the repo moved since, and the newer tip is pinned already: show the new table, and offer to set the old `sha` back.
+  - `--diff` adds the whole diff to the same run: add it only when the user asks to read the changes.
+  - After `update` without `--dry-run`, the pin is pushed already: to go back, set the old `sha` in `brain.json`, then `nerve push`.
 - **`cleaned`**: nerve took its links and settings out of a checkout, for the reason `detail` gives. Say so; nothing to do.
 - **`kept`**: nerve left a file it made, such as the local overlay of a removed project, which may hold a secret. Say where it is; delete it only when the user asks.
 - **`pinned`** and **`already-pinned`**: `update` moved and pushed a source's pin, or found it there already.

@@ -50,7 +50,7 @@ func brainCommands(e *env) []struct {
 			e.brain.m.AllowedSettings = []string{"statusLine"}
 			return e.app.RemoveAllowedSettings([]string{"statusLine"}, r)
 		}},
-		{"update", "nerve: pin acme/up at " + pinB[:7], func(r *recorder) error { return e.app.Update("/w/app", "", false, r) }},
+		{"update", "nerve: pin acme/up at " + pinB[:7], func(r *recorder) error { return e.app.Update("/w/app", "", false, false, r) }},
 		{"project rm", "nerve: remove project app", func(r *recorder) error { return e.app.RemoveProject("app", r) }},
 	}
 }
@@ -154,7 +154,7 @@ func TestAProjectAddSyncsTheCheckoutButNotTheBrainItJustPushed(t *testing.T) {
 func TestUpdateSyncsTheListedCheckoutAroundTheWorkingDirectory(t *testing.T) {
 	e := brainEnv(t)
 	r := &recorder{}
-	e.must(r, e.app.Update("/w/app", "", false, r))
+	e.must(r, e.app.Update("/w/app", "", false, false, r))
 	// The Brain is its remote's once the pin is pushed: a sync of the Brain
 	// would only drop the user's work in it.
 	if e.brain.syncs != 0 {
@@ -167,7 +167,7 @@ func TestUpdateOutsideAListedCheckoutOnlyMovesPins(t *testing.T) {
 	e := brainEnv(t)
 	e.checkout("/w/elsewhere")
 	r := &recorder{}
-	e.must(r, e.app.Update("/w/elsewhere", "", false, r))
+	e.must(r, e.app.Update("/w/elsewhere", "", false, false, r))
 	if e.brain.syncs != 0 || len(e.brain.manifestPushes) != 1 {
 		t.Errorf("syncs %d, manifestPushes %q", e.brain.syncs, e.brain.manifestPushes)
 	}
@@ -177,7 +177,7 @@ func TestUpdateReportsAPinOnlyOnceItIsPushed(t *testing.T) {
 	e := brainEnv(t)
 	e.brain.manifestPushErr = errors.New("git push: rejected")
 	r := &recorder{}
-	if err := e.app.Update("/w/app", "", false, r); err == nil {
+	if err := e.app.Update("/w/app", "", false, false, r); err == nil {
 		t.Fatal("no error")
 	}
 	if slices.ContainsFunc(r.events, func(e app.Event) bool { return e.Kind == app.EvPinned }) {
@@ -188,7 +188,7 @@ func TestUpdateReportsAPinOnlyOnceItIsPushed(t *testing.T) {
 func TestUpdateWithNoSourcesSaysSo(t *testing.T) {
 	e := newEnv(t)
 	r := &recorder{}
-	e.must(r, e.app.Update("/w", "", false, r))
+	e.must(r, e.app.Update("/w", "", false, false, r))
 	contains(t, r, "brain.json has no sources to update")
 }
 
@@ -219,7 +219,7 @@ func TestUpdateOutsideAListedCheckoutSaysNothingHereIsSynced(t *testing.T) {
 	e.checkout("/w/elsewhere")
 	r := &recorder{}
 
-	e.must(r, e.app.Update("/w/elsewhere", "", false, r))
+	e.must(r, e.app.Update("/w/elsewhere", "", false, false, r))
 
 	contains(t, r, "no listed checkout here: nerve sync carries the new pins to each one")
 }

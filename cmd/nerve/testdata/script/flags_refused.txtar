@@ -21,6 +21,8 @@ stderr '^--all does not go with this command$'
 stderr '^--here does not go with this command$'
 ! exec nerve sync --hook
 stderr '^--hook does not go with this command$'
+! exec nerve push --dry-run
+stderr '^--dry-run does not go with this command$'
 ! exec nerve status --project=
 stderr '^--project needs a project name$'
 ! exec nerve skill rm a --project --all

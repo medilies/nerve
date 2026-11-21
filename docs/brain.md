@@ -71,6 +71,8 @@ reasoning is in [ADR 0005](adr/0005-projects-opt-in.md),
     the whole diff too. Then it pins every entry of the repo at the
     tip, pushes it, and syncs the listed checkout around the working
     directory.
+  - `nerve update --dry-run` shows the same, from `brain.json` as this
+    machine holds it, and moves no pin.
 - **`hooks`** defines Claude Code hooks by name. `{{brain}}` in any
   value becomes the Brain's checkout path.
 - **`common.settings`** holds the only settings that reach more than

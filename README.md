@@ -32,7 +32,8 @@ nowhere else.
   it. A link that goes missing is made again.
 - **Pinned.** Third-party skills sit at a commit. `nerve update` shows
   which of their files changed as it moves the pin, then syncs the
-  project here. See [sources](docs/brain.md#brainjson).
+  project here. `--dry-run` shows the same, and moves no pin. See
+  [sources](docs/brain.md#brainjson).
 - **Only allowed settings in the Brain.** It holds the settings nerve
   allows, and those you allow. Any other setting goes to a local overlay
   that never leaves the machine. What you allow is yours to keep free of
