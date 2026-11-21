@@ -588,7 +588,9 @@ func (s *syncer) claudeAI() error {
 			if _, ok := next[name][n]; ok {
 				continue
 			}
-			s.Zips.Remove(name, n)
+			if path, err := s.Zips.Remove(name, n); err != nil {
+				s.r.Add(Event{Kind: EvProblem, Path: path, Detail: "cannot remove it: " + err.Error()})
+			}
 			s.r.Add(Event{Kind: EvUnload, Project: name, Item: "skill " + n})
 		}
 	}

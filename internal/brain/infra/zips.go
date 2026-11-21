@@ -3,6 +3,7 @@ package infra
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -113,4 +114,10 @@ func (z ZipCache) Write(project, name string, b []byte) (string, error) {
 
 func (z ZipCache) Has(project, name string) bool { return fileExists(z.path(project, name)) }
 
-func (z ZipCache) Remove(project, name string) { _ = os.Remove(z.path(project, name)) }
+func (z ZipCache) Remove(project, name string) (string, error) {
+	path := z.path(project, name)
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return path, err
+	}
+	return path, nil
+}

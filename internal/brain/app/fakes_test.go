@@ -456,8 +456,9 @@ func (s *fakeSelf) Version() string {
 // fakeZips zips a skill as its name and description, so a changed
 // description is a changed zip.
 type fakeZips struct {
-	written map[string][]byte // project/name
-	refused map[string]string // skill dir -> why Zip refuses it
+	written   map[string][]byte // project/name
+	refused   map[string]string // skill dir -> why Zip refuses it
+	removeErr error
 }
 
 func (z *fakeZips) Zip(s domain.Skill) ([]byte, error) {
@@ -473,7 +474,14 @@ func (z *fakeZips) Write(project, name string, b []byte) (string, error) {
 }
 
 func (z *fakeZips) Has(project, name string) bool { return z.written[project+"/"+name] != nil }
-func (z *fakeZips) Remove(project, name string)   { delete(z.written, project+"/"+name) }
+func (z *fakeZips) Remove(project, name string) (string, error) {
+	path := "/cache/nerve/claude.ai/" + project + "/" + name + ".zip"
+	if z.removeErr != nil {
+		return path, z.removeErr
+	}
+	delete(z.written, project+"/"+name)
+	return path, nil
+}
 
 // recorder keeps a use case's events.
 type recorder struct{ events []app.Event }

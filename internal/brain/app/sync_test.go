@@ -859,3 +859,16 @@ func TestASettingTheBrainDoesNotSetIsPersonalAndReportedOnce(t *testing.T) {
 		t.Errorf("want only the new approval reported:\n%s", got)
 	}
 }
+
+func TestClaudeAIZipThatCannotBeRemovedIsReported(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("notes")
+	e.brain.m.Projects["claude-ai-work"] = &domain.Project{Surface: domain.ClaudeAI, Skills: []string{"notes"}}
+	e.must(e.sync("/w", app.SyncOptions{}))
+	e.brain.m.Projects["claude-ai-work"].Skills = nil
+	e.zips.removeErr = errors.New("notes.zip: permission denied")
+
+	r, _ := e.sync("/w", app.SyncOptions{})
+
+	contains(t, r, "problem  /cache/nerve/claude.ai/claude-ai-work/notes.zip: cannot remove it: notes.zip: permission denied")
+}

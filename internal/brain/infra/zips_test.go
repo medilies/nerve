@@ -45,9 +45,11 @@ func TestZipHoldsTheSkillUnderItsNameTheSameEachTime(t *testing.T) {
 	if err != nil || path != e.path(".cache/nerve/claude.ai/acct/research.zip") || !z.Has("acct", "research") {
 		t.Errorf("written at %s (%v)", path, err)
 	}
-	z.Remove("acct", "research")
-	if z.Has("acct", "research") {
-		t.Errorf("a removed zip is still there")
+	if _, err := z.Remove("acct", "research"); err != nil || z.Has("acct", "research") {
+		t.Errorf("a removed zip is still there (%v)", err)
+	}
+	if _, err := z.Remove("acct", "research"); err != nil {
+		t.Errorf("removing a zip that is gone fails: %v", err)
 	}
 }
 

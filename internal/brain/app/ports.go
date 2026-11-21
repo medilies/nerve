@@ -118,7 +118,8 @@ type Zips interface {
 	Zip(domain.Skill) ([]byte, error)
 	Write(project, name string, zip []byte) (path string, err error)
 	Has(project, name string) bool
-	Remove(project, name string)
+	// Remove deletes a skill's zip, returning its path.
+	Remove(project, name string) (path string, err error)
 }
 
 // App carries a Brain through its ports.
