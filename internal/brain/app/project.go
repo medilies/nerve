@@ -132,6 +132,11 @@ func (a App) RemoveProject(name string, r Reporter) error {
 		}
 	}
 	for _, dir := range trees {
+		if p := l.m.Projects[name]; p != nil && p.Surface != domain.ClaudeAI {
+			if err := a.adopt(l.m, p, overlay, dir); err != nil {
+				return err
+			}
+		}
 		if err := a.clean(dir, "project "+name+" removed", r); err != nil {
 			return err
 		}
@@ -155,6 +160,47 @@ func (a App) RemoveProject(name string, r Reporter) error {
 		r.Add(Event{Kind: EvRemoved, Path: path})
 	}
 	return nil
+}
+
+// adopt takes as nerve's, in a tree it has no state for, the links that
+// already point where it would point them for project p, and the settings
+// it would write: what a checkout that moved still holds, so that cleaning
+// it takes them out. A third-party skill is left, since knowing its
+// folder may need a fetch.
+func (a App) adopt(m domain.Manifest, p *domain.Project, overlay map[string]any, dir string) error {
+	st, err := a.Machine.State(dir)
+	if err != nil || len(st.Links) > 0 || st.Settings != nil || !a.Trees.Exists(dir) {
+		return err
+	}
+	self, err := a.Self.Skill()
+	if err != nil {
+		return err
+	}
+	cmd, err := a.Self.Command()
+	if err != nil {
+		return err
+	}
+	links := []domain.Link{{Kind: "skill", Name: "nerve", Target: self.Dir}}
+	for _, n := range p.Skills {
+		if s, own, err := a.Brain.OwnSkill(n); own && err == nil {
+			links = append(links, domain.Link{Kind: "skill", Name: n, Target: s.Dir})
+		}
+	}
+	for _, n := range p.Agents {
+		if file, ok := a.Brain.AgentFile(n); ok {
+			links = append(links, domain.Link{Kind: "agent", Name: n, Target: file})
+		}
+	}
+	if st.Links == nil {
+		st.Links = map[string]domain.Link{}
+	}
+	for _, l := range links {
+		if a.ours(dir, l.Rel(), l) {
+			st.Links[l.Rel()] = l
+		}
+	}
+	st.Settings = domain.Want(m, p, cmd, overlay, a.Brain.Root())
+	return a.Machine.SaveState(st)
 }
 
 // SetAutosync turns autosync on or off for the target project, or with all

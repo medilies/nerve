@@ -257,3 +257,25 @@ func TestRemoveProjectRefusesANameThatIsAPath(t *testing.T) {
 		t.Errorf("got %v, and the file the name reaches was removed: %v", err, !kept)
 	}
 }
+
+func TestRemovingAProjectFromAMovedCheckoutNeverSyncedTakesOutWhatNerveMade(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go-stack")
+	e.listed("app", "/w/old").Skills = []string{"go-stack"}
+	e.must(e.sync("/w/old", app.SyncOptions{}))
+	links, settings := e.trees.links, e.settings("/w/old") // as moved, with .git, to /w/new
+	e.trees.links = map[string]string{}
+	for p, target := range links {
+		e.trees.links[strings.Replace(p, "/w/old", "/w/new", 1)] = target
+	}
+	settings["outputStyle"] = "terse" // the user's own
+	e.trees.settings["/w/new/.claude/settings.local.json"] = settings
+	e.checkout("/w/new")
+	e.machine.machine.Checkouts = []domain.Checkout{{Path: "/w/new", Project: "app"}}
+
+	e.must(&recorder{}, e.app.RemoveProject("app", &recorder{}))
+
+	if len(e.trees.links) > 0 || jsonText(e.settings("/w/new")) != `{"outputStyle":"terse"}` {
+		t.Errorf("links %v, settings %s: want only the user's own left", e.trees.links, jsonText(e.settings("/w/new")))
+	}
+}
