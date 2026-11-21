@@ -13,3 +13,8 @@ stdout '^usage: nerve <command>$'
 ! stdout .
 stderr '^--bogus is not a flag nerve knows'
 stderr '^usage: nerve <command>$'
+
+# Output that is not a terminal has no colors.
+env TERM=xterm-256color
+exec nerve help
+! stdout '\x1b'

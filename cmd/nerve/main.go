@@ -240,7 +240,7 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	case slices.Contains(flagArgs, "--json"): // even on a command line nerve refuses
 		mode = infra.AsJSON
 	}
-	r := infra.NewReport(stdout, mode)
+	r := infra.NewReport(stdout, mode).WithColor(colors(stdout))
 	err = run(args, r)
 	if err == errUsage { // the command line is the reason
 		shown := args
@@ -262,8 +262,12 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	}
 	switch {
 	case finished || err == nil:
+	case errors.Is(err, errUsage) && colors(stderr):
+		_, _ = fmt.Fprintf(stderr, "%s\n\n%s\n", infra.Visible(err.Error()), infra.PaintCommands(helpFor(words)))
 	case errors.Is(err, errUsage):
 		_, _ = fmt.Fprintf(stderr, "%s\n\n%s\n", infra.Visible(err.Error()), helpFor(words))
+	case colors(stderr):
+		_, _ = fmt.Fprintln(stderr, infra.PaintError(infra.Visible(err.Error())))
 	default:
 		_, _ = fmt.Fprintln(stderr, "error:", infra.Visible(err.Error()))
 	}
@@ -271,6 +275,13 @@ func cli(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// colors says whether to color what goes to w: a terminal, as infra.Colors
+// says.
+func colors(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && infra.Colors(f)
 }
 
 // wire builds nerve on the Brain at brainDir.

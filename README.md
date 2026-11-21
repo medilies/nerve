@@ -127,7 +127,8 @@ A command that acts on one project, such as `skill add` or
 `--project <name>` names another. `nerve push` sends what other
 commands do not, such as a new own skill, and `nerve sync` refuses to
 drop what was not pushed, unless `-f`. `--json` prints one JSON
-document of what happened. A settings key that holds a dot goes in
+document of what happened. On a terminal, the output is in color;
+`NO_COLOR=1` turns that off. A settings key that holds a dot goes in
 double quotes: `enabledPlugins."x@y.z"`. `nerve help` lists every
 command.
 

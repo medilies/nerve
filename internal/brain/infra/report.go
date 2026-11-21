@@ -22,6 +22,7 @@ type Report struct {
 	mode   int
 	events []app.Event
 	err    error // the first write that failed
+	color  bool  // color each line, as text
 }
 
 var _ app.Reporter = (*Report)(nil)
@@ -29,12 +30,22 @@ var _ app.Reporter = (*Report)(nil)
 // NewReport starts a report.
 func NewReport(w io.Writer, mode int) *Report { return &Report{w: w, mode: mode} }
 
+// WithColor says whether a text report colors its lines.
+func (r *Report) WithColor(on bool) *Report {
+	r.color = on
+	return r
+}
+
 func (r *Report) Add(e app.Event) {
 	if r.mode != AsText {
 		r.events = append(r.events, e)
 		return
 	}
-	_, err := fmt.Fprintln(r.w, Visible(e.String()))
+	line := Visible(e.String())
+	if r.color {
+		line = paintEvent(e, line)
+	}
+	_, err := fmt.Fprintln(r.w, line)
 	r.failed(err)
 }
 
