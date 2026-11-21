@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -108,6 +109,8 @@ func parseFlags(args []string) ([]string, flags, error) {
 			f.project = strings.TrimPrefix(strings.TrimPrefix(a, "--project"), "=")
 		case strings.HasPrefix(a, "--"):
 			return nil, f, errUsage
+		case len(a) > 1 && a[0] == '-' && !isNumber(a): // a typo such as -all
+			return nil, f, usageError(a + " is not a flag nerve knows: put -- before a word that starts with -")
 		default:
 			pos = append(pos, a)
 			continue
@@ -117,7 +120,16 @@ func parseFlags(args []string) ([]string, flags, error) {
 		}
 		f.given = append(f.given, name)
 	}
+	if f.hook && f.json {
+		return nil, f, usageError("--hook and --json each say how to print: pass one")
+	}
 	return pos, f, nil
+}
+
+// isNumber says whether a word is a number, such as -1, which is a value.
+func isNumber(s string) bool {
+	_, err := strconv.ParseFloat(s, 64)
+	return err == nil
 }
 
 // only refuses a flag the command does not take; any command takes --json.
@@ -145,20 +157,26 @@ const hookBudget = 5 * time.Minute
 
 func cli(args []string, stdout, stderr io.Writer) int {
 	mode := infra.AsText
-	pos, f, err := parseFlags(args)
 	flagArgs := args
 	if i := slices.Index(args, "--"); i >= 0 {
 		flagArgs = args[:i]
 	}
 	switch {
-	case err == nil && f.hook && len(pos) > 0 && pos[0] == "sync": // only autosync's sync
+	case len(args) > 0 && args[0] == "sync" && slices.Contains(flagArgs, "--hook"): // only autosync's sync
 		mode = infra.AsHook
 		infra.SetDeadline(time.Now().Add(hookBudget))
 	case slices.Contains(flagArgs, "--json"): // even on a command line nerve refuses
 		mode = infra.AsJSON
 	}
 	r := infra.NewReport(stdout, mode)
-	err = run(args, r)
+	err := run(args, r)
+	if mode == infra.AsHook && errors.Is(err, errUsage) { // one line, not the usage
+		why, _, _ := strings.Cut(err.Error(), "\n\n")
+		if err == errUsage {
+			why = "nerve does not know this command line: " + strings.Join(args, " ")
+		}
+		err = errors.New(why + "; run nerve help")
+	}
 	switch {
 	case r.Finish(err) || err == nil:
 	case errors.Is(err, errUsage):
@@ -195,7 +213,7 @@ func onMachine() (app.App, error) {
 	if err != nil {
 		return app.App{}, err
 	}
-	m, _ := machine.Load()
+	m, _ := machine.Load() // a missing or broken file is the use cases' to report
 	return wire(m.Brain, machine)
 }
 
@@ -208,26 +226,34 @@ func onBrainHere(wd string) (app.App, error) {
 		return app.App{}, err
 	}
 	m, merr := machine.Load()
-	if dir, ok := brainAround(wd); ok && (merr != nil || !inCheckout(m, wd)) {
+	dir, stray := brainAround(wd)
+	if dir != "" && (merr != nil || !inCheckout(m, wd)) {
 		return wire(dir, machine)
 	}
-	if merr != nil {
+	switch {
+	case merr != nil && stray != "":
+		return app.App{}, fmt.Errorf("%s in %s is not at the top of a git repo, so it is not a Brain, and %w", domain.ManifestFile, stray, merr)
+	case merr != nil:
 		return app.App{}, fmt.Errorf("no %s in this directory or above, and %w", domain.ManifestFile, merr)
 	}
 	return wire(m.Brain, machine)
 }
 
 // brainAround finds the Brain around dir: from dir up, the top of a git
-// repo holding a brain.toml. A brain.toml elsewhere is not a Brain.
-func brainAround(dir string) (string, bool) {
+// repo holding a brain.toml. A brain.toml elsewhere is not a Brain: stray
+// names the first such folder, when no Brain is found.
+func brainAround(dir string) (brain, stray string) {
 	for ; ; dir = filepath.Dir(dir) {
 		_, manifest := os.Stat(filepath.Join(dir, domain.ManifestFile))
 		_, repo := os.Lstat(filepath.Join(dir, ".git"))
-		if manifest == nil && repo == nil {
-			return dir, true
+		switch {
+		case manifest == nil && repo == nil:
+			return dir, ""
+		case manifest == nil && stray == "":
+			stray = dir
 		}
 		if filepath.Dir(dir) == dir {
-			return "", false
+			return "", stray
 		}
 	}
 }

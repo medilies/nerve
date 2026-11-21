@@ -1,0 +1,10 @@
+# check outside any Brain says why a brain.toml it found is not one.
+
+mkdir notes
+cd notes
+cp $WORK/stray.toml brain.toml
+
+! exec nerve check
+stderr 'brain.toml in .*/notes is not at the top of a git repo'
+
+-- stray.toml --

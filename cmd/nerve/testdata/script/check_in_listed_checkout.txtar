@@ -4,9 +4,9 @@
 exec nerve init brain
 cd proj
 exec nerve project add app
-cd config
 
 exec nerve check
+stdout 'no problems'
 
--- proj/config/brain.toml --
+-- proj/brain.toml --
 unrelated = 1
