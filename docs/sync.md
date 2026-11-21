@@ -69,13 +69,17 @@ and `rm`, `skill`, `agent`, `hook` and `plugin` `add` and `rm`,
 
 - It first takes the remote's new commits, so it changes `brain.toml` as
   the remote holds it.
-- It refuses a Brain whose `brain.toml` has changes, showing them, or
-  that has commits its remote lacks, and one whose remote it cannot
-  reach. It then changes nothing.
+- It refuses, and changes nothing, when:
+  - `brain.toml` has changes, which it shows, or the Brain has commits
+    its remote lacks;
+  - the remote's commits change files changed here, which it names;
+  - the remote cannot be reached, or does not have the branch yet:
+    `nerve push` makes it there.
 - `skill add` and `agent add` refuse an own skill or agent the remote
   does not hold yet: push it first.
 - It commits `brain.toml` alone, with a message saying what changed. If
-  the remote moved meanwhile, it changes nothing: run it again.
+  the push fails, it changes nothing; when the remote moved meanwhile, it
+  says so: run it again.
 
 `nerve push [message]` sends the rest, such as a new own skill: it
 commits everything in the Brain checkout, then pushes it to its
@@ -84,7 +88,8 @@ upstream.
 - A change needs a message, as in `nerve push "add go-stack"`.
 - It refuses a Brain with a problem `nerve check` reports, since every
   machine syncs what it pushes.
-- It refuses when the remote has commits this Brain lacks, naming them.
+- It takes the remote's commits first when this Brain has none of its
+  own. When it has some too, it refuses, naming the remote's:
   `nerve sync -f` takes them, dropping what was not pushed here;
   `nerve push -f` overwrites them.
 
@@ -92,8 +97,9 @@ upstream.
 
 Every listed project's `settings.local.json` holds a `SessionStart`
 hook that runs `nerve status --hook`. Each session in the project starts
-with a short report: how the checkout stands against the Brain, how many
-changes wait for `nerve sync`, drift, and problems.
+with a short report: what the Brain has not pushed, how the checkout
+stands against the Brain, how many changes wait for `nerve sync`, drift,
+and problems.
 
 - It changes nothing, and reads only this machine: commits on the
   remote count once a sync brings them.

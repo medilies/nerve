@@ -1,4 +1,4 @@
-# push commits everything in the Brain and overwrites its remote; it needs
+# push commits everything in the Brain and sends it to its remote; it needs
 # a message for changes, and says when the remote holds the Brain already.
 
 exec nerve init brain

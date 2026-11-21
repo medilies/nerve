@@ -1,6 +1,7 @@
 package infra
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -524,6 +525,8 @@ func TestPushRefusesWhenTheRemoteHasCommitsTheBrainLacks(t *testing.T) {
 	e := newTestEnv(t)
 	e.identity()
 	theirs := e.published() // the remote holds a commit this Brain lacks
+	e.write(e.path("brain/skills/y/SKILL.md"), "y")
+	e.commit(e.path("brain")) // and this Brain one the remote lacks
 	e.write(e.path("brain/skills/x/SKILL.md"), "x")
 
 	err := NewBrainCheckout(e.path("brain")).Push("add x", false, &events{})
@@ -534,7 +537,7 @@ func TestPushRefusesWhenTheRemoteHasCommitsTheBrainLacks(t *testing.T) {
 	if got := e.git(e.path("brain.git"), "rev-parse", "main"); got != theirs {
 		t.Errorf("remote moved to %s", got)
 	}
-	if e.git(e.path("brain"), "status", "--porcelain") != "?? skills/" {
+	if e.git(e.path("brain"), "status", "--porcelain") != "?? skills/x/" {
 		t.Errorf("the Brain's changes were committed")
 	}
 }
@@ -695,7 +698,7 @@ func TestPushManifestThatCannotPushLeavesBrainTomlAsTheRemoteHoldsIt(t *testing.
 	e.write(e.path("brain/skills/x/SKILL.md"), "mine") // the user's work, kept
 	e.git(e.path("brain"), "add", "skills/x/SKILL.md")
 
-	if err := b.PushManifest("nerve: add project app", &events{}); err == nil || !strings.Contains(err.Error(), "rejected") {
+	if err := b.PushManifest("nerve: add project app", &events{}); !errors.Is(err, app.ErrRemoteMoved) {
 		t.Errorf("got %v", err)
 	}
 
@@ -810,5 +813,46 @@ func TestPushManifestThatCannotPushKeepsWhatTheUserStaged(t *testing.T) {
 
 	if got := e.git(e.path("brain"), "status", "--porcelain"); got != "A  new" {
 		t.Errorf("status is %q, want the user's staging kept", got)
+	}
+}
+
+func TestPushTakesTheRemotesCommitsWhenTheBrainHasNoneOfItsOwn(t *testing.T) {
+	e := newTestEnv(t)
+	e.identity()
+	theirs := e.published() // the remote moved; this Brain only has changes
+	e.write(e.path("brain/skills/x/SKILL.md"), "x")
+	var r events
+
+	if err := NewBrainCheckout(e.path("brain")).Push("add x", false, &r); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := e.git(e.path("brain.git"), "log", "--format=%s", "-2", "main"); got != "add x\nc" || e.git(e.path("brain"), "rev-parse", "HEAD~1") != theirs {
+		t.Errorf("remote log %q: want the change on top of the remote's commit", got)
+	}
+	if !strings.HasPrefix(r.String(), "synced   the Brain to "+theirs[:7]) {
+		t.Errorf("events: %s", r)
+	}
+}
+
+func TestPushManifestSaysWhetherTheRemoteMoved(t *testing.T) {
+	e := newTestEnv(t)
+	e.identity()
+	e.published()
+	b := NewBrainCheckout(e.path("brain"))
+	e.must(b.Refresh(&events{}))
+	e.write(e.path("other/z"), "z") // the remote moves on meanwhile
+	e.commit(e.path("other"))
+	e.git(e.path("other"), "push", "-q")
+	e.write(e.path("brain/brain.toml"), "[project.app]\n")
+
+	if err := b.PushManifest("nerve: add project app", &events{}); !errors.Is(err, app.ErrRemoteMoved) {
+		t.Errorf("got %v, want the remote moved", err)
+	}
+
+	e.git(e.path("brain"), "remote", "set-url", "origin", e.path("nowhere.git"))
+	e.write(e.path("brain/brain.toml"), "[project.app]\n")
+	if err := b.PushManifest("nerve: add project app", &events{}); err == nil || errors.Is(err, app.ErrRemoteMoved) {
+		t.Errorf("got %v, want a failure that is not the remote moving", err)
 	}
 }

@@ -30,16 +30,18 @@ stderr '^error: brain.toml has changes not pushed: nerve push sends them, nerve 
 ! exec nerve --json setting set model opus
 stdout '"error": "brain.toml has changes not pushed'
 
-# Meanwhile the remote moves on: push refuses, -f overwrites.
+# Meanwhile the remote moves on, and the Brain has a commit of its own: push
+# refuses, -f overwrites.
 cd ../other
 exec git pull -q
 exec git commit -q --allow-empty -m 'other again'
 exec git push -q
 cd ../proj
+exec git -C ../brain commit -qam 'mine'
 ! exec nerve push 'add other'
 stderr 'the remote has 1 commit \([0-9a-f]{7} other again\) this Brain lacks: .*nerve push -f overwrites them'
 exec nerve push --force 'add other'
-stdout '^pushed   the Brain at [0-9a-f]{7}: add other$'
+stdout '^pushed   the Brain at [0-9a-f]{7}$'
 
 -- brain/agents/reviewer.md --
 ---

@@ -29,6 +29,11 @@ func (a App) AddItem(ref ProjectRef, kind, name string, r Reporter) error {
 			return err // one sync would only report
 		}
 	}
+	list := p.List(kind)
+	if slices.Contains(*list, name) {
+		r.Add(Event{Kind: EvItem, Project: project, Item: kind + " " + name, Detail: "already in project " + project})
+		return nil
+	}
 	// What brain.toml lists, the remote must hold, or other machines'
 	// syncs refuse the project.
 	rel := ""
@@ -39,11 +44,6 @@ func (a App) AddItem(ref ProjectRef, kind, name string, r Reporter) error {
 	}
 	if rel != "" && !a.Brain.OnRemote(rel) {
 		return fmt.Errorf("%s %s is not on the Brain's remote yet, as it is here: nerve push it, then add it", kind, name)
-	}
-	list := p.List(kind)
-	if slices.Contains(*list, name) {
-		r.Add(Event{Kind: EvItem, Project: project, Item: kind + " " + name, Detail: "already in project " + project})
-		return nil
 	}
 	*list = append(*list, name)
 	if err := a.pushManifest(l.m, fmt.Sprintf("add %s %s to project %s", kind, name, project), r); err != nil {

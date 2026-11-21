@@ -83,13 +83,15 @@ func (r *Report) Finish(err error) bool {
 }
 
 // hookOutput is the session report Claude Code shows the user, kept out of
-// Claude's context: how each checkout stands, its drift and problems. With
+// Claude's context: what the Brain has not pushed, how each checkout
+// stands, its drift and problems. With
 // nothing to say, it says nothing.
 func hookOutput(events []app.Event, err error) map[string]any {
 	var lines []string
 	for _, e := range events {
-		switch e.Kind {
-		case app.EvCheckout, app.EvDrift, app.EvProblem:
+		switch {
+		case e.Kind == app.EvCheckout, e.Kind == app.EvDrift, e.Kind == app.EvProblem,
+			e.Kind == app.EvBrain && e.Detail != "": // what the Brain has not pushed, which a sync refuses to drop
 			lines = append(lines, e.String())
 		}
 	}

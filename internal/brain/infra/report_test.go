@@ -110,3 +110,14 @@ func TestAReportThatCannotBePrintedSaysSo(t *testing.T) {
 		})
 	}
 }
+
+func TestHookReportSaysWhatTheBrainHasNotPushed(t *testing.T) {
+	doc := hookDoc(t, []app.Event{
+		{Kind: app.EvBrain, Path: "/brain", Detail: "1 commit not pushed"},
+		{Kind: app.EvCheckout, Path: "/w/app", Project: "app", Detail: "synced at abcdef0"},
+	}, nil)
+
+	if want := "nerve: brain    /brain (1 commit not pushed)\ncheckout /w/app (app): synced at abcdef0"; doc["systemMessage"] != want {
+		t.Errorf("doc is %v", doc)
+	}
+}

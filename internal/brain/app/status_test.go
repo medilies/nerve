@@ -271,3 +271,34 @@ func TestStatusReportsAListedItemTheTeamHas(t *testing.T) {
 
 	contains(t, r, "problem  /w/app/.claude/agents/reviewer.md: the team has it, so agent reviewer is not linked here: rename yours in the Brain to use it")
 }
+
+func TestStatusLeavesOutALinkThatIsGoneAndNoLongerListed(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go")
+	e.listed("app", "/w/app").Skills = []string{"go"}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	e.project("app").Skills = nil
+	delete(e.trees.links, "/w/app/.claude/skills/go")
+	r := &recorder{}
+
+	e.must(r, e.app.Status(target("/w/app"), r))
+
+	if strings.Contains(r.String(), "skill go") || strings.Contains(r.String(), "wait") {
+		t.Errorf("status shows a link that is gone and not wanted:\n%s", r)
+	}
+}
+
+func TestStatusShowsALinkWhoseTargetIsGoneOnlyAsAProblem(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go")
+	e.listed("app", "/w/app").Skills = []string{"go"}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	e.trees.dangling["/brain/skills/go"] = true
+	r := &recorder{}
+
+	e.must(r, e.app.Status(target("/w/app"), r))
+
+	if strings.Contains(r.String(), "skill go linked as") {
+		t.Errorf("status shows a broken link as linked:\n%s", r)
+	}
+}

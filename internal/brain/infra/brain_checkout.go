@@ -488,9 +488,21 @@ func (b BrainCheckout) Refresh(r app.Reporter) error {
 	} else if ours != "" {
 		return fmt.Errorf("the Brain has %s its remote lacks: %s", ours, what)
 	}
+	if err := b.fastForward(r); err != nil {
+		return fmt.Errorf("the Brain cannot take its remote's commits, which change files changed here: %w", err)
+	}
+	return nil
+}
+
+// fastForward takes the upstream's commits into a Brain that has none of
+// its own, keeping its changes: git refuses one that would overwrite them.
+func (b BrainCheckout) fastForward(r app.Reporter) error {
+	if ours, err := b.ours(); err != nil || ours != "" {
+		return fmt.Errorf("it has %s of its own", ours)
+	}
 	before := b.Head()
 	if _, err := git(b.root, "merge", "-q", "--ff-only", "@{upstream}"); err != nil {
-		return fmt.Errorf("the Brain cannot take its remote's commits, which change files changed here: %s", gitReason(err))
+		return errors.New(gitReason(err))
 	}
 	if after := b.Head(); after != before {
 		r.Add(app.Event{Kind: app.EvBrainSynced, Path: b.root, Target: after})
@@ -602,10 +614,21 @@ func (b BrainCheckout) PushManifest(message string, r app.Reporter) (err error) 
 		return fmt.Errorf("cannot commit %s: %s", domain.ManifestFile, gitReason(err))
 	}
 	if _, err := git(b.root, "push", "-q", remote, "HEAD:"+merge); err != nil {
-		return fmt.Errorf("cannot push %s, as the remote may have moved: %s", domain.ManifestFile, gitReason(err))
+		return b.pushFailed(err)
 	}
 	r.Add(app.Event{Kind: app.EvPushed, Path: b.root, Target: b.Head(), Detail: message})
 	return nil
+}
+
+// pushFailed says why a push failed: the remote moved since the Brain took
+// its commits, or git's own reason.
+func (b BrainCheckout) pushFailed(err error) error {
+	if b.fetch() == nil {
+		if theirs, terr := b.theirs(); terr == nil && theirs != "" {
+			return fmt.Errorf("%w: it has %s", app.ErrRemoteMoved, theirs)
+		}
+	}
+	return fmt.Errorf("cannot push: %s", gitReason(err))
 }
 
 // Push commits everything in the checkout with message, then pushes the
@@ -639,7 +662,9 @@ func (b BrainCheckout) Push(message string, force bool, r app.Reporter) error {
 				return err
 			}
 			if theirs != "" {
-				return fmt.Errorf("the remote has %s this Brain lacks: nerve sync takes them and drops what this Brain has not pushed, nerve push -f overwrites them", theirs)
+				if err := b.fastForward(r); err != nil {
+					return fmt.Errorf("the remote has %s this Brain lacks: nerve sync -f takes them and drops what this Brain has not pushed, nerve push -f overwrites them", theirs)
+				}
 			}
 		}
 	}

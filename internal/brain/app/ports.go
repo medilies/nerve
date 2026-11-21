@@ -89,6 +89,10 @@ type Machine interface {
 	States() (states []domain.TreeState, unreadable bool, err error)
 }
 
+// ErrRemoteMoved is a push the remote refused because it moved since the
+// Brain took its commits: running the command again takes them.
+var ErrRemoteMoved = errors.New("the remote moved meanwhile")
+
 // ErrUnreadable is a state nerve cannot read, which it replaces.
 var ErrUnreadable = errors.New("nerve cannot read its state")
 

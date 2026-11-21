@@ -55,7 +55,10 @@ func (a App) pushManifest(m domain.Manifest, message string, r Reporter) error {
 		return err
 	}
 	if err := a.Brain.PushManifest("nerve: "+message, r); err != nil {
-		return fmt.Errorf("%w: nothing changed: run the command again", err)
+		if errors.Is(err, ErrRemoteMoved) {
+			return fmt.Errorf("%w: nothing changed: run the command again, which takes its commits first", err)
+		}
+		return fmt.Errorf("%w: nothing changed", err)
 	}
 	return nil
 }

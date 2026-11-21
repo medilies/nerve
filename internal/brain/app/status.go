@@ -84,20 +84,21 @@ func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir s
 	for _, rel := range domain.SortedKeys(st.Links) {
 		l := st.Links[rel]
 		linked[l.Item()] = true
-		if !wanted[l.Item()] {
-			pending++
-		}
 		path := filepath.Join(dir, rel)
 		switch {
+		case !a.Trees.Present(path) && !wanted[l.Item()]: // gone, and nerve would take it out anyway
 		case !a.Trees.Present(path):
 			pending++
 			events = append(events, Event{Kind: EvItem, Project: name, Item: l.Item(), Detail: "gone from " + rel + ": nerve sync makes it again"})
-			continue
 		case a.ours(dir, rel, l) && !a.Trees.Exists(path):
 			pending++
 			events = append(events, Event{Kind: EvProblem, Path: path, Detail: fmt.Sprintf("it points at %s, which is gone: nerve sync makes it again, or says why not", l.Target)})
+		default:
+			if !wanted[l.Item()] {
+				pending++
+			}
+			events = append(events, Event{Kind: EvItem, Project: name, Item: l.Item(), Detail: "linked as " + rel})
 		}
-		events = append(events, Event{Kind: EvItem, Project: name, Item: l.Item(), Detail: "linked as " + rel})
 	}
 	// A listed item with nothing in its place waits for a sync, which links
 	// it or says why not. One the team has in its place is a problem, as

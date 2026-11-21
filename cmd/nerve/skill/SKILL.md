@@ -36,7 +36,7 @@ Always add `--json`, then tell the user what happened in plain words. A command 
 | --- | --- |
 | `nerve status` | Where things stand: what waits for a sync, links, the team's own, drift. |
 | `nerve sync --here` | Make the Brain its remote's, then carry it to this project. It refuses to drop Brain changes not pushed, naming them: offer `nerve push`, or `nerve sync --here -f` to drop them after the user agrees. `-f` also overwrites drift. `nerve sync` does every checkout on the machine. |
-| `nerve push [<message>]` | Commit everything in the Brain, such as a new own skill, then push it. A change needs a message. It refuses when the remote has commits this Brain lacks; `-f` overwrites them: ask first. |
+| `nerve push [<message>]` | Commit everything in the Brain, such as a new own skill, then push it. A change needs a message. It takes the remote's commits first when the Brain has none of its own; when it has some too, it refuses, and `-f` overwrites the remote's: ask first. |
 | `nerve project add <name>` | List this checkout, a worktree included. Settings it already has stay: as personal settings, or as drift where the Brain sets them otherwise. |
 | `nerve project ls` | The Brain's projects, and their checkouts on this machine. |
 | `nerve project rm <name>` | Clean its checkouts here, and drop it from the Brain. Its overlay stays. Ask first. |
@@ -44,7 +44,7 @@ Always add `--json`, then tell the user what happened in plain words. A command 
 | `nerve setting set <key> <value>` | Value is JSON or text. `--common` for every project. A setting the Brain does not allow goes to the project's overlay on its own; with `--common`, nerve refuses it. `allowed-settings` in `brain.toml` allows more keys. A key that holds a dot or `=` goes in double quotes: `enabledPlugins."x@y.z"`. |
 | `nerve setting add <key> <value>` | Add one item to a list, such as `permissions.allow`. `--common` and the overlay as for `set`. |
 | `nerve setting rm <key>[=<value>]` | Remove a key, or one item of a list, from the project and its overlay. `--common` from common; `--all` revokes it from common and every project. |
-| `nerve update [<repo>]` | Show how each source's skills changed upstream, pin and push the latest commit, then sync this project. Ask first. |
+| `nerve update [<repo>]` | Show how each source's skills changed at the source, pin and push the latest commit, then sync this project. Ask first. |
 | `nerve check` | Validate the Brain before pushing. |
 
 A `[[source]]` or a `[hook.<name>]` has no command: add it to `brain.toml` by hand, `nerve check`, then `nerve push`.
@@ -52,9 +52,11 @@ A `[[source]]` or a `[hook.<name>]` has no command: add it to `brain.toml` by ha
 A command that changes `brain.toml` refuses, and changes nothing, when:
 
 - `brain.toml` has changes not pushed (a `diff` event shows them), or the Brain has commits its remote lacks: offer `nerve push` to keep them, or `nerve sync -f` to drop them. When the error says the remote has commits too, `nerve push` refuses: offer `nerve sync -f`, or `nerve push -f` to overwrite the remote, after the user agrees to lose its commits.
+- the remote's commits change files changed here: name them, and offer to push or drop those changes first.
+- the remote does not have the Brain's branch yet: `nerve push` makes it there.
 - the remote cannot be reached, or the Brain has no upstream or a detached HEAD: say so; neither push nor sync helps until it is fixed.
-- an own skill or agent is not on the remote yet: `nerve push` it, then add it.
-- the remote moved while it pushed: run it again.
+- an own skill or agent is not on the remote yet, as it is here: `nerve push` it, then add it.
+- the push failed: when the error says the remote moved, run the command again; otherwise show git's reason, and do not retry.
 
 ```toml
 [[source]]                  # third-party skills

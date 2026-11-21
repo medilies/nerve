@@ -159,3 +159,26 @@ func TestAddItemToACheckoutWhoseProjectLeftTheBrainSaysWhatToDo(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 }
+
+func TestAddItemSaysAnItemIsListedBeforeAnythingElse(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app").Skills = []string{"mine"}
+	e.ownSkill("mine")
+	e.brain.notPushed = map[string]bool{"skills/mine": true} // edited here since
+	r := &recorder{}
+
+	e.must(r, e.app.AddItem(target("/w/app"), "skill", "mine", r))
+
+	contains(t, r, "skill mine already in project app")
+}
+
+func TestPushSaysHowManyProblemsAsPeopleDo(t *testing.T) {
+	e := newEnv(t)
+	e.brain.m.Common = map[string]any{"apiKeyHelper": "x"}
+
+	err := e.app.Push("x", false, &recorder{})
+
+	if err == nil || !strings.HasPrefix(err.Error(), "the Brain has 1 problem, so nothing is pushed") {
+		t.Errorf("got %v", err)
+	}
+}

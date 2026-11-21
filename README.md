@@ -94,7 +94,7 @@ nerve setting set model opus         # a setting for it; --common for every proj
 nerve setting add permissions.allow "Bash(make test)"   # one more item in a list
 nerve sync --here                    # make the Brain its remote's, then carry it to this checkout
 nerve status                         # where it stands: what waits for a sync, links, drift
-nerve skill rm grilling --all        # take a skill out of every project
+nerve skill rm go-stack --all        # take a skill out of every project
 nerve setting rm permissions.deny=Cron --all   # revoke one denied tool everywhere
 nerve update                         # show how third-party skills changed, move their pins, sync here
 nerve sync                           # every checkout on this machine
@@ -105,8 +105,10 @@ A command that acts on one project, such as `skill add` or
 `setting set`, acts on the one around the working directory;
 `--project <name>` names another. `nerve push` sends what other
 commands do not, such as a new own skill, and `nerve sync` refuses to
-drop what was not pushed, unless `-f`. `--json` prints one JSON document of what happened. A settings key that holds a dot goes in double quotes:
-`enabledPlugins."x@y.z"`. `nerve help` lists every command.
+drop what was not pushed, unless `-f`. `--json` prints one JSON
+document of what happened. A settings key that holds a dot goes in
+double quotes: `enabledPlugins."x@y.z"`. `nerve help` lists every
+command.
 
 ## Documentation
 

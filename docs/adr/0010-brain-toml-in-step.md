@@ -18,9 +18,9 @@ The eighth review found the costs of a local `brain.toml`:
   1. bring the remote's commits first, by a fast-forward;
   2. refuse a Brain with changes to `brain.toml` or commits its remote lacks, or whose remote they cannot reach, and change nothing;
   3. commit `brain.toml` alone with a message saying what changed, and push it;
-  4. if the push fails, as when the remote moved meanwhile, put `brain.toml` back as the remote holds it: nothing changed, and the command runs again.
+  4. if the push fails, put `brain.toml` back as the remote holds it: nothing changed. When the remote moved meanwhile, the command runs again.
 - **`skill add` and `agent add`** refuse an own skill or agent the remote does not hold yet, so the remote's `brain.toml` never names what the remote lacks.
-- **`nerve push`** stays for the rest of the Brain: own skills, agents and hook scripts. It no longer overwrites the remote unasked: it refuses when the remote has commits the Brain lacks, naming them, and `-f` overwrites them. It refuses a Brain with a problem `nerve check` reports, since every machine syncs what it pushes.
+- **`nerve push`** stays for the rest of the Brain: own skills, agents and hook scripts. It no longer overwrites the remote unasked: it takes the remote's commits first when the Brain has none of its own, and otherwise refuses, naming them; `-f` overwrites them. It refuses a Brain with a problem `nerve check` reports, since every machine syncs what it pushes.
 - **`update`** shows each diff, pins and pushes, then syncs the listed checkout around the working directory, carrying the Brain as it is: its other changes stay.
 - **`-f`, `--force`** replaces `--discard`: at `sync` it drops the Brain's work not pushed and overwrites drift, and at `push` it overwrites the remote's commits. A refused `brain.toml` command takes no `-f`: `nerve push` or `nerve sync` settles the Brain first.
 - **`sync` refuses to drop** the Brain's local commits, changes to tracked files, or untracked files in the way of the remote's, naming them; `-f` drops them. A sync that cannot run, or that would refuse the checkout `--here` names for a local reason, leaves the Brain as it is.

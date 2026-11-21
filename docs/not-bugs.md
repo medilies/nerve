@@ -22,6 +22,7 @@ Behaviour a review may take for a bug, kept on purpose. A review lists what it f
 - **While any state file cannot be read, no exclude block loses a line.** nerve cannot tell which repo the file was for. The next sync of its tree replaces it; a state left by a checkout taken out of the machine file by hand stays until the user deletes it.
 - **A gone worktree's lines stay in the exclude block** until a checkout of its repo syncs. Nothing else writes the block, and an extra line only hides a path from git.
 - **Folders a sync makes on the way to a link get no event of their own.** The `linked` line names the path.
+- **After a move, a checkout whose nerve skill link was deleted keeps its other links as the user's.** nerve's own link is its only sign of a past sync; without it, nerve cannot tell its links from the user's.
 
 ## Machine files and runs
 
@@ -45,12 +46,16 @@ Behaviour a review may take for a bug, kept on purpose. A review lists what it f
 
 ## Sources
 
+- **`push` checks every pin, so a source it cannot fetch, offline say, blocks it.** Every machine syncs what it pushes; the check names the source.
+
 - **nerve looks for a skill in fixed places**, not the whole repo: the root, `skills/<name>/`, `<name>/`, or where `path` says.
 - **A source's cache is trusted by its folder, and never evicted.** It is renamed into place whole, and named by its commit.
 - **A fetch checks out the whole repo, under git's two-minute bound.** A repo too big for it fails each time and caches nothing.
 - **`update` reads the whole diff before cutting it** at 256 KiB.
 
 ## Skills and frontmatter
+
+- **An own skill folder may be a link, even to a folder outside the Brain.** `check` reads it as it is; other machines get the link as git holds it.
 
 - **YAML-only escapes such as `\0` and `\e`** come out as written in a frontmatter value.
 - **nerve checks an agent's name and description, not their length.** It leaves an agent's limits to Claude Code.

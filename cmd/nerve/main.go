@@ -181,8 +181,11 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	}
 	r := infra.NewReport(stdout, mode)
 	err = run(args, r)
-	if mode == infra.AsJSON && errors.Is(err, errUsage) && err != errUsage { // the reason, not the usage
+	if mode == infra.AsJSON && errors.Is(err, errUsage) { // the reason, not the usage
 		why, _, _ := strings.Cut(err.Error(), "\n\n")
+		if err == errUsage {
+			why = "nerve does not know this command line: " + strings.Join(slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == "--json" }), " ")
+		}
 		err = errors.New(why + ": nerve help lists the commands")
 	}
 	if mode == infra.AsHook && errors.Is(err, errUsage) { // one line, not the usage
