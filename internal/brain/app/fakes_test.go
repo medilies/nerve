@@ -51,23 +51,60 @@ func copyManifest(m domain.Manifest) domain.Manifest {
 }
 
 type fakeBrain struct {
-	m         domain.Manifest
-	saves     int
-	failSaves int // how many saves fail from now on, as a read-only Brain does
-	pullErr   error
-	own       map[string]domain.Skill
-	ownErr    map[string]error // own skills that cannot be read, by name
-	agents    map[string]bool
-	head      string
-	pulls     int
-	pushErr   error
-	pushed    []string // messages of each push
+	m               domain.Manifest
+	saves           int
+	failSaves       int // how many saves fail from now on, as a read-only Brain does
+	syncErr         error
+	own             map[string]domain.Skill
+	ownErr          map[string]error // own skills that cannot be read, by name
+	agents          map[string]bool
+	head            string
+	syncs           int
+	pushErr         error
+	pushed          []string // messages of each push
+	refreshErr      error
+	manifestPushErr error
+	manifestPushes  []string         // messages of each PushManifest
+	calls           []string         // refresh, load, save, push-manifest, sync and push, in order
+	unpushed        *domain.Manifest // brain.toml before the last save, until it is pushed
+	notPushed       map[string]bool  // files and folders the remote lacks, by path in the Brain
 }
 
-func (b *fakeBrain) Root() string                   { return "/brain" }
-func (b *fakeBrain) Load() (domain.Manifest, error) { return copyManifest(b.m), b.m.Validate() }
-func (b *fakeBrain) Pull(app.Reporter) error        { b.pulls++; return b.pullErr }
-func (b *fakeBrain) Push(message string, _ app.Reporter) error {
+func (b *fakeBrain) OnRemote(rel string) bool { return !b.notPushed[rel] }
+
+func (b *fakeBrain) Root() string { return "/brain" }
+func (b *fakeBrain) Load() (domain.Manifest, error) {
+	b.calls = append(b.calls, "load")
+	return copyManifest(b.m), b.m.Validate()
+}
+func (b *fakeBrain) Sync(bool, app.Reporter) error {
+	b.calls = append(b.calls, "sync")
+	b.syncs++
+	return b.syncErr
+}
+
+func (b *fakeBrain) Refresh(app.Reporter) error {
+	b.calls = append(b.calls, "refresh")
+	return b.refreshErr
+}
+
+// PushManifest pushes what Save wrote, as the real Brain commits brain.toml.
+func (b *fakeBrain) PushManifest(message string, r app.Reporter) error {
+	b.calls = append(b.calls, "push-manifest")
+	if b.manifestPushErr != nil {
+		if b.unpushed != nil { // as the real Brain, back to what the remote holds
+			b.m = *b.unpushed
+		}
+		return b.manifestPushErr
+	}
+	b.unpushed = nil
+	b.manifestPushes = append(b.manifestPushes, message)
+	r.Add(app.Event{Kind: app.EvPushed, Path: "/brain", Target: b.head, Detail: message})
+	return nil
+}
+
+func (b *fakeBrain) Push(message string, _ bool, _ app.Reporter) error {
+	b.calls = append(b.calls, "push")
 	if b.pushErr != nil {
 		return b.pushErr
 	}
@@ -77,6 +114,7 @@ func (b *fakeBrain) Push(message string, _ app.Reporter) error {
 
 // Save refuses what Load would, as the real Brain does.
 func (b *fakeBrain) Save(m domain.Manifest) error {
+	b.calls = append(b.calls, "save")
 	if b.failSaves > 0 {
 		b.failSaves--
 		return errors.New("brain.toml: read-only")
@@ -84,6 +122,8 @@ func (b *fakeBrain) Save(m domain.Manifest) error {
 	if err := m.Validate(); err != nil {
 		return err
 	}
+	before := copyManifest(b.m)
+	b.unpushed = &before
 	b.m = copyManifest(m)
 	b.saves++
 	return nil
@@ -179,6 +219,9 @@ func (m *fakeMachine) Create(machine domain.Machine) (string, error) {
 }
 
 func (m *fakeMachine) Overlay(project string) (map[string]any, string, error) {
+	if err := m.fail["Overlay"]; err != nil {
+		return nil, "", err
+	}
 	return copySettings(m.overlays[project]), "/cfg/nerve/overlays/" + project + ".json", nil
 }
 
@@ -217,7 +260,7 @@ func copyState(st domain.TreeState) domain.TreeState {
 	for k, v := range st.Links {
 		links[k] = v
 	}
-	st.Links, st.Settings, st.Before, st.Folders = links, copySettings(st.Settings), copySettings(st.Before), slices.Clone(st.Folders)
+	st.Links, st.Settings, st.Before = links, copySettings(st.Settings), copySettings(st.Before)
 	return st
 }
 
@@ -238,14 +281,16 @@ func (m *fakeMachine) DropState(dir string) error {
 	return nil
 }
 
-func (m *fakeMachine) States() ([]domain.TreeState, error) {
+// States skips an unreadable state, as the real files do: its file names
+// no tree.
+func (m *fakeMachine) States() ([]domain.TreeState, bool, error) {
 	var states []domain.TreeState
 	for _, dir := range domain.SortedKeys(m.states) {
 		if !m.unreadable[dir] {
 			states = append(states, copyState(m.states[dir]))
 		}
 	}
-	return states, nil
+	return states, len(m.unreadable) > 0, nil
 }
 
 // fakeTrees is working trees in memory: folders, links, the team's real
@@ -339,14 +384,6 @@ func (w *fakeTrees) Remove(p string) error {
 	return nil
 }
 
-func (w *fakeTrees) RemoveEmptyFolder(p string) (bool, error) {
-	if !w.dirs[p] || len(w.Entries(p)) > 0 {
-		return false, nil
-	}
-	delete(w.dirs, p)
-	return true, nil
-}
-
 func (w *fakeTrees) Entries(dir string) []string {
 	var names []string
 	for _, set := range []map[string]bool{w.files, w.dirs, keySet(w.links), keySet(w.settings)} {
@@ -379,7 +416,7 @@ func (w *fakeTrees) CheckIgnored(dir string) error {
 }
 
 // SyncExclude keeps one block per repo, as info/exclude does.
-func (w *fakeTrees) SyncExclude(dir string, lines func() ([]string, error)) error {
+func (w *fakeTrees) SyncExclude(dir string, lines func([]string) ([]string, error)) error {
 	t, err := w.Locate(dir)
 	if err != nil {
 		return err
@@ -387,7 +424,7 @@ func (w *fakeTrees) SyncExclude(dir string, lines func() ([]string, error)) erro
 	if w.damaged[path.Dir(t.Repo)] {
 		return errors.New("info/exclude: nerve's block is damaged: fix it by hand")
 	}
-	rels, err := lines()
+	rels, err := lines(slices.Clone(w.excludes[t.Repo]))
 	if err != nil {
 		return err
 	}

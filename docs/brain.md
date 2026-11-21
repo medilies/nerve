@@ -1,7 +1,7 @@
 # The Brain
 
-A Brain is a git repo you own. nerve knows nothing about what is in it
-beyond its layout:
+A Brain is a git repo you own, pushed to a remote its branch tracks.
+nerve knows nothing about what is in it beyond its layout:
 
 ```text
 brain.toml          # allowed settings, third-party pins, hooks, common settings, projects
@@ -56,20 +56,22 @@ model = "opus"
   - `path` names another folder to look in instead, such as
     `path = "plugins/x/skills"`.
   - `nerve update [<repo>]` shows how each source's skills changed at
-    the tip of its default branch, then pins that commit.
+    the tip of its default branch, pins and pushes that commit, then
+    syncs the listed checkout around the working directory.
 - **`[hook.<name>]`** defines a Claude Code hook. `{{brain}}` in any
   value becomes the Brain's checkout path.
 - **`[common.settings]`** holds the only settings that reach more than
   one project: every listed project gets them. Skills, agents, hooks
   and plugins are never common.
-- **`[project.<name>]`** lists what one project gets. A name you choose,
-  never a path or a remote.
+- **`[project.<name>]`** lists what one project gets, each item once. A
+  name you choose, never a path or a remote.
 
 nerve rewrites `brain.toml` in this layout when a command changes it,
-`update` included, so comments in it are not kept.
+`update` included, so comments in it are not kept. It pushes the change
+at once, as [Push](sync.md#push) says.
 
 nerve refuses `inf`, `nan`, dates and whole numbers beyond 64 bits
-in settings, and anything but a list of text at `permissions.allow`,
+in settings (a float as large, such as `1e19`, stays a float), and anything but a list of text at `permissions.allow`,
 `permissions.ask`, `permissions.deny`, `enabledMcpjsonServers` and
 `disabledMcpjsonServers`.
 
@@ -108,8 +110,10 @@ Fetched skills go in its cache folder:
 `~/.cache/nerve` (or `$XDG_CACHE_HOME/nerve`) on Linux,
 `~/Library/Caches/nerve` on macOS.
 
-`config.toml`, written by `nerve init`, names the Brain's checkout and
-each listed checkout's project. `nerve project add` adds a checkout.
+`config.toml`, written by `nerve init`, names the Brain's checkout, a
+git repo, and each listed checkout's project. `nerve project add` adds a
+checkout. nerve rewrites the file when it changes it, so comments in it
+are not kept.
 
 ```toml
 brain = "~/dev/brain"

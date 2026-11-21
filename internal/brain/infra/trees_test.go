@@ -3,10 +3,30 @@ package infra
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/medilies/nerve/internal/brain/domain"
 )
+
+func TestSettingsReadBackANumberAsTheCLIReadsIt(t *testing.T) {
+	e := newTestEnv(t)
+	path := e.path("proj/.claude/settings.local.json")
+	w := LocalTrees{}
+	for _, in := range []string{"1e19", "-1e19", "1.0e19", "18446744073709551616.0", "1e21"} {
+		want := map[string]any{"n": domain.ParseValue(in)}
+		if err := w.WriteSettings(path, want); err != nil {
+			t.Fatal(err)
+		}
+
+		if got, err := w.ReadSettings(path); err != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("%s reads back as %#v (%v), want %#v", in, got, err, want)
+		}
+	}
+}
 
 func TestLocateFindsAWorktreeAndItsRepo(t *testing.T) {
 	e := newTestEnv(t)
@@ -299,8 +319,8 @@ func TestSettingsKeepEveryDigitOfAWholeNumberBeyondInt64(t *testing.T) {
 }
 
 // lines are the paths SyncExclude keeps out of git, as given.
-func lines(rels []string) func() ([]string, error) {
-	return func() ([]string, error) { return rels, nil }
+func lines(rels []string) func([]string) ([]string, error) {
+	return func([]string) ([]string, error) { return rels, nil }
 }
 
 func TestSyncExcludeWritesOneRunsBlockAtATime(t *testing.T) {
@@ -308,7 +328,7 @@ func TestSyncExcludeWritesOneRunsBlockAtATime(t *testing.T) {
 	app := e.repo(e.path("app"))
 	inFirst, release, done := make(chan struct{}), make(chan struct{}), make(chan error)
 	go func() {
-		done <- LocalTrees{}.SyncExclude(app, func() ([]string, error) {
+		done <- LocalTrees{}.SyncExclude(app, func([]string) ([]string, error) {
 			close(inFirst)
 			<-release
 			return []string{".claude/skills/a"}, nil
@@ -317,7 +337,7 @@ func TestSyncExcludeWritesOneRunsBlockAtATime(t *testing.T) {
 	<-inFirst
 	inSecond := make(chan struct{})
 	go func() {
-		done <- LocalTrees{}.SyncExclude(app, func() ([]string, error) {
+		done <- LocalTrees{}.SyncExclude(app, func([]string) ([]string, error) {
 			close(inSecond)
 			return []string{".claude/skills/a", ".claude/skills/b"}, nil
 		})
@@ -377,7 +397,7 @@ func TestSyncExcludeLeavesAnUnchangedBlockUnwritten(t *testing.T) {
 	e := newTestEnv(t)
 	app := e.repo(e.path("app"))
 	w := LocalTrees{}
-	rels := func() ([]string, error) { return []string{".claude/skills/nerve"}, nil }
+	rels := func([]string) ([]string, error) { return []string{".claude/skills/nerve"}, nil }
 	if err := w.SyncExclude(app, rels); err != nil {
 		t.Fatal(err)
 	}
@@ -393,5 +413,76 @@ func TestSyncExcludeLeavesAnUnchangedBlockUnwritten(t *testing.T) {
 
 	if after, err := os.Stat(exclude); err != nil || !os.SameFile(before, after) {
 		t.Errorf("an unchanged block was written again (%v)", err)
+	}
+}
+
+func TestLocateSaysAMissingFolderIsMissing(t *testing.T) {
+	e := newTestEnv(t)
+
+	_, err := LocalTrees{}.Locate(e.path("gone"))
+
+	if err == nil || !strings.Contains(err.Error(), "no such folder") {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestSettingsUnderAClaudeThatIsAFileAreMissing(t *testing.T) {
+	e := newTestEnv(t)
+	e.write(e.path("app/.claude"), "a file\n")
+
+	if s, err := (LocalTrees{}).ReadSettings(e.path("app/.claude/settings.local.json")); s != nil || err != nil {
+		t.Errorf("reads %v (%v), want missing", s, err)
+	}
+}
+
+func TestSettingsThatAreNotAJSONObjectSaySo(t *testing.T) {
+	e := newTestEnv(t)
+	path := e.path("app/.claude/settings.local.json")
+	for name, content := range map[string]string{"array": "[1]", "string": `"x"`, "number": "1"} {
+		t.Run(name, func(t *testing.T) {
+			e.write(path, content)
+
+			_, err := (LocalTrees{}).ReadSettings(path)
+
+			if err == nil || err.Error() != path+": must hold a JSON object: fix it by hand" {
+				t.Errorf("got %v", err)
+			}
+		})
+	}
+}
+
+func TestSyncExcludeGivesTheLinesItsBlockHolds(t *testing.T) {
+	e := newTestEnv(t)
+	app := e.repo(e.path("app"))
+	if err := (LocalTrees{}).SyncExclude(app, lines([]string{".claude/agents/a.md", ".claude/skills/b"})); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+
+	err := LocalTrees{}.SyncExclude(app, func(current []string) ([]string, error) { got = current; return current, nil })
+
+	if err != nil || !slices.Equal(got, []string{".claude/agents/a.md", ".claude/skills/b"}) {
+		t.Errorf("got %v (%v)", got, err)
+	}
+}
+
+func TestSyncExcludeWritesNothingWhenItsLinesStayTheSame(t *testing.T) {
+	e := newTestEnv(t)
+	for name, text := range map[string]string{
+		"crlf":       "*.log\r\n# nerve: begin\n/.claude/skills/a\n# nerve: end\n",
+		"no newline": "# nerve: begin\n/.claude/skills/a\n# nerve: end",
+		"after":      "# nerve: begin\n/.claude/skills/a\n# nerve: end\nmine\n",
+		"empty":      "*.log\n# nerve: begin\n# nerve: end\n",
+		"no slash":   "# nerve: begin\n.claude/skills/a\n# nerve: end\n",
+	} {
+		app := e.repo(e.path(strings.ReplaceAll(name, " ", "-")))
+		exclude := filepath.Join(app, ".git", "info", "exclude")
+		e.write(exclude, text)
+
+		err := LocalTrees{}.SyncExclude(app, func(current []string) ([]string, error) { return current, nil })
+
+		if err != nil || e.read(exclude) != text {
+			t.Errorf("%s: got %v, file %q", name, err, e.read(exclude))
+		}
 	}
 }

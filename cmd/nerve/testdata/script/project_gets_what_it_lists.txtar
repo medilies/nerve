@@ -15,6 +15,7 @@ link .claude/agents/reviewer.md $HOME/brain/agents/reviewer.md
 link .claude/skills/nerve $NERVE_CACHE/skill/nerve
 grep '"model": "opus"' .claude/settings.local.json
 grep '"SessionStart"' .claude/settings.local.json
+grep '"deny": \[\n +"Cron"\n +\]' .claude/settings.local.json
 exec git status --porcelain --untracked-files=all
 ! stdout .
 grep '^\[project.app\]\nskills = \["go-stack"\]\nagents = \["reviewer"\]$' $HOME/brain/brain.toml

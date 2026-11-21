@@ -93,6 +93,13 @@ func TestAgentProblem(t *testing.T) {
 	}
 }
 
+func TestAgentProblemRefusesANameThatBreaksThePattern(t *testing.T) {
+	err := domain.AgentProblem("Bad_Name", map[string]string{"name": "Bad_Name", "description": "Reviews."})
+	if err == nil || !strings.Contains(err.Error(), "lowercase words joined by hyphens") {
+		t.Errorf("got %v", err)
+	}
+}
+
 func TestParseFrontmatterDecodesEscapesInQuotedValues(t *testing.T) {
 	meta, err := domain.ParseFrontmatter("SKILL.md", "---\nname: \"a\\\"b\\\\c\"\ndescription: 'it''s'\n---\n")
 

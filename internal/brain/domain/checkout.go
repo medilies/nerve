@@ -42,7 +42,6 @@ type TreeState struct {
 	Repo     string // the git folder whose info/exclude the tree shares
 	Project  string
 	Links    map[string]Link // link, relative to the tree -> what it carries and points to
-	Folders  []string        // of TreeFolders, those nerve made
 	Settings map[string]any  // settings.local.json as nerve last meant it
 	Before   map[string]any  // what settings.local.json held, as the Brain wants it, before nerve first wrote it
 	Personal []string        // its personal settings already reported, as PersonalKeys names them
@@ -50,7 +49,7 @@ type TreeState struct {
 }
 
 // TreeFolders are the folders nerve may make in a working tree, relative to
-// it, deepest first.
+// it, deepest first. nerve never deletes them.
 var TreeFolders = []string{".claude/skills", ".claude/agents", ".claude"}
 
 // Link is one link a working tree should hold: a skill folder or an agent

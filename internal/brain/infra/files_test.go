@@ -235,3 +235,38 @@ func TestGitIgnoresTheRepoAGitHookPointsAt(t *testing.T) {
 		t.Errorf("git ran in %q (%v), want %s", trim(top), err, inner)
 	}
 }
+
+func TestGitStatusLeavesTheIndexUnwritten(t *testing.T) {
+	e := newTestEnv(t)
+	repo := e.repo(e.path("brain"))
+	e.write(filepath.Join(repo, "brain.toml"), "x = 1\n")
+	e.commit(repo)
+	index := filepath.Join(repo, ".git", "index")
+	old := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(index, old, old); err != nil {
+		t.Fatal(err)
+	}
+	touched := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(filepath.Join(repo, "brain.toml"), touched, touched); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := git(repo, "status", "--porcelain"); err != nil {
+		t.Fatal(err)
+	}
+
+	if fi, err := os.Stat(index); err != nil || !fi.ModTime().Equal(old) {
+		t.Errorf("git status wrote the index (%v)", err)
+	}
+}
+
+func TestShortenHomeShortensAFolderWhoseNameStartsWithTwoDots(t *testing.T) {
+	e := newTestEnv(t)
+
+	if got := shortenHome(e.path("..x/y")); got != "~/..x/y" {
+		t.Errorf("shortened to %s", got)
+	}
+	if got := shortenHome(filepath.Dir(e.home)); got == "~" || strings.HasPrefix(got, "~/") {
+		t.Errorf("the folder above home shortened to %s", got)
+	}
+}

@@ -1,0 +1,32 @@
+# Sync makes the Brain its remote's before it carries it. It refuses to drop
+# what was not pushed, naming it, unless -f. A sync that cannot run drops
+# nothing.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+exec git clone -q ../brain.git ../up
+cd ../up
+exec git commit -q --allow-empty -m ahead
+exec git push -q
+cd ../brain
+cp ../note.md skills.md
+exec git add skills.md
+
+cd $WORK
+! exec nerve sync --here
+stderr 'not in a git repo'
+exists brain/skills.md
+
+cd proj
+! exec nerve sync --here
+stderr 'would drop changes to 1 file \(skills.md\): nerve push sends them, nerve sync -f drops them'
+exists ../brain/skills.md
+exec nerve sync --here -f
+stdout '^synced   the Brain to [0-9a-f]{7}, dropping changes to 1 file \(skills.md\)$'
+exec git -C ../brain rev-list --count HEAD
+stdout '^3$'
+! exists ../brain/skills.md
+
+-- note.md --
+not pushed

@@ -1,5 +1,6 @@
 # update shows how a source's skills changed upstream, then moves the pin
-# to its tip; a second update finds it there.
+# to its tip, pushes it, and syncs the checkout here; a second update finds
+# it there.
 
 mkdir github/acme/up.git/skills/grilling
 cp v1.md github/acme/up.git/skills/grilling/SKILL.md
@@ -12,14 +13,24 @@ exec sh -c 'printf "[[source]]\nrepo = \"acme/up\"\nsha = \"%s\"\nskills = [\"gr
 cp $WORK/v2.md skills/grilling/SKILL.md
 exec git commit -qam v2
 
+cd $WORK/brain
+exec git commit -qam 'add acme/up'
+exec git push -q
 cd $WORK
 exec nerve init brain
-cd brain
+cd proj
+exec nerve project add app
+exec nerve skill add grilling
 exec nerve update
 
 stdout '\+Grill harder\.'
-stdout '^pinned   acme/up at [0-9a-f]{7}: review the diff above, then nerve push$'
-exec sh -c 'grep -q "sha = \"$(git -C $HOME/github/acme/up.git rev-parse HEAD)\"" brain.toml'
+stdout '^pushed   the Brain at [0-9a-f]{7}: nerve: pin acme/up at [0-9a-f]{7}$'
+stdout '^pinned   acme/up at [0-9a-f]{7}$'
+stdout '^linked   .*/proj/.claude/skills/grilling -> '
+stdout '^synced   app at [0-9a-f]{7} in .*/proj$'
+exec sh -c 'grep -q "sha = \"$(git -C $HOME/github/acme/up.git rev-parse HEAD)\"" $HOME/brain/brain.toml'
+exec sh -c 'test "$(git -C $HOME/brain rev-parse HEAD)" = "$(git -C $HOME/brain.git rev-parse main)"'
+cd $WORK/brain
 
 exec nerve update acme/up
 stdout '^acme/up is already pinned at '

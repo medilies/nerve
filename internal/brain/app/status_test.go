@@ -26,7 +26,7 @@ func TestStatusShowsTheProjectItsLinksAndDriftWithoutChangingIt(t *testing.T) {
 		"checkout /w/app (app): synced at aaaaaaa",
 		"skill nerve linked as .claude/skills/nerve",
 		"agent team the team's",
-		`drift    model is "sonnet" here, "opus" in the Brain`)
+		`drift    /w/app/.claude/settings.local.json: model is "sonnet" here, "opus" in the Brain`)
 	if e.settings("/w/app")["model"] != "sonnet" {
 		t.Errorf("status changed the settings")
 	}
@@ -226,7 +226,7 @@ func TestStatusSaysDriftFromTheOverlayIsTheOverlays(t *testing.T) {
 
 	e.must(r, e.app.Status(target("/w/app"), r))
 
-	contains(t, r, `drift    model is "sonnet" here, "opus" in the local overlay`)
+	contains(t, r, `drift    /w/app/.claude/settings.local.json: model is "sonnet" here, "opus" in the local overlay`)
 }
 
 func TestStatusCountsWhatWaitsForASync(t *testing.T) {
@@ -240,4 +240,34 @@ func TestStatusCountsWhatWaitsForASync(t *testing.T) {
 	e.must(r, e.app.Status(target("/w/app"), r))
 
 	contains(t, r, "checkout /w/app (app): synced at aaaaaaa; 2 changes wait for nerve sync")
+}
+
+func TestStatusWithAnUnreadableStateCallsNoLinkYours(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go-stack")
+	e.listed("app", "/w/app").Skills = []string{"go-stack"}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	e.machine.unreadable["/w/app"] = true
+	r := &recorder{}
+
+	e.must(r, e.app.Status(target("/w/app"), r))
+
+	if strings.Contains(r.String(), "yours") || strings.Contains(r.String(), "never synced") {
+		t.Errorf("status guessed whose links are there:\n%s", r)
+	}
+	contains(t, r, "checkout /w/app (app): state unknown until nerve sync")
+}
+
+func TestStatusReportsAListedItemTheTeamHas(t *testing.T) {
+	e := newEnv(t)
+	e.brain.agents["reviewer"] = true
+	e.listed("app", "/w/app").Agents = []string{"reviewer"}
+	e.trees.files["/w/app/.claude/agents/reviewer.md"] = true
+	e.trees.frontmatter["/w/app/.claude/agents/reviewer.md"] = map[string]string{"name": "reviewer", "description": "The team's."}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	r := &recorder{}
+
+	e.must(r, e.app.Status(target("/w/app"), r))
+
+	contains(t, r, "problem  /w/app/.claude/agents/reviewer.md: the team has it, so agent reviewer is not linked here: rename yours in the Brain to use it")
 }

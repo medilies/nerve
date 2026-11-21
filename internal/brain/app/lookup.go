@@ -36,6 +36,30 @@ func (a App) load() (loaded, error) {
 	return loaded{machine: machine, m: m}, nil
 }
 
+// fresh brings the remote's brain.toml to the Brain, then loads it with
+// this machine: what a command that may change brain.toml starts from.
+func (a App) fresh(r Reporter) (loaded, error) {
+	if _, err := a.Machine.Load(); err != nil {
+		return loaded{}, err
+	}
+	if err := a.Brain.Refresh(r); err != nil {
+		return loaded{}, err
+	}
+	return a.load()
+}
+
+// pushManifest writes m as brain.toml, then commits it alone with message and
+// pushes it, so the Brain and its remote never hold two brain.toml.
+func (a App) pushManifest(m domain.Manifest, message string, r Reporter) error {
+	if err := a.Brain.Save(m); err != nil {
+		return err
+	}
+	if err := a.Brain.PushManifest("nerve: "+message, r); err != nil {
+		return fmt.Errorf("%w: nothing changed: run the command again", err)
+	}
+	return nil
+}
+
 // here returns the working tree around dir and the project its checkout is
 // listed under.
 func (a App) here(machine domain.Machine, dir string) (domain.Tree, string, error) {
@@ -83,6 +107,9 @@ func (a App) project(l loaded, ref ProjectRef) (string, *domain.Project, error) 
 		}
 	}
 	p, err := l.m.Project(name)
+	if err != nil && ref.Project == "" { // the checkout here is listed as a project that left the Brain
+		err = fmt.Errorf("%w: nerve sync cleans this checkout, and nerve project add lists it again", err)
+	}
 	return name, p, err
 }
 

@@ -22,13 +22,16 @@ import (
 const usage = `usage: nerve <command>
 
   init <brain>                 write this machine's file, naming the Brain's checkout
-  sync [--here] [--discard]    make the Brain its remote's, dropping local commits and changes,
-                               then carry it to each checkout this machine lists
-                               (--here: only the one around the working directory);
-                               --discard drops drift: settings the Brain sets, changed here
-  push [<message>]             commit everything in the Brain, then force-push it to its remote
-  update [<repo>]              show how each source's skills changed, then pin its latest commit
-  status                       the Brain, and how the project around the working directory stands
+  sync [--here] [-f]           make the Brain its remote's, then carry it to each checkout this
+                               machine lists (--here: only the one around the working directory);
+                               -f, --force drops the Brain's commits and changes not pushed, and
+                               overwrites drift: settings the Brain sets, changed here
+  push [<message>] [-f]        commit everything in the Brain, then push it to its remote;
+                               -f, --force overwrites the remote's commits this Brain lacks
+  update [<repo>]              show how each source's skills changed, pin and push its latest
+                               commit, then sync the checkout around the working directory
+  status                       the Brain, and how the project around the working directory
+                               stands; outside a listed checkout, every project
   check                        validate the Brain (run by its CI)
 
   project add <name>           list this checkout as project <name>
@@ -51,7 +54,7 @@ status, and the skill, agent, hook, plugin and setting commands act on the proje
 working directory; --project <name> names another.
 A key that holds a dot is written in double quotes: enabledPlugins."x@y.z".
 -- ends the flags, so a value after it may start with --.
-Commands that change the Brain edit brain.toml; push commits them.
+Commands that change brain.toml first bring the remote's, then commit and push the change.
 --json, with any command, prints one JSON document of its events and error instead of text.
 `
 
@@ -66,12 +69,12 @@ var errUsage = errors.New(strings.TrimSpace(usage))
 
 // flags are the options a command may take.
 type flags struct {
-	project                    string
-	all, common, here, discard bool
-	hook                       bool     // the session report: print status as a hook's output
-	json                       bool     // print one JSON document
-	help                       bool     // print the usage
-	given                      []string // each flag given, as written
+	project                  string
+	all, common, here, force bool
+	hook                     bool     // the session report: print status as a hook's output
+	json                     bool     // print one JSON document
+	help                     bool     // print the usage
+	given                    []string // each flag given, as written
 }
 
 // parseFlags splits args into words and flags. -- ends the flags.
@@ -97,8 +100,8 @@ words:
 			f.common = true
 		case a == "--here":
 			f.here = true
-		case a == "--discard":
-			f.discard = true
+		case a == "-f" || a == "--force":
+			f.force = true
 		case a == "--hook":
 			f.hook = true
 		case a == "--project" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-"):
@@ -107,14 +110,16 @@ words:
 		case name == "--project": // with no name, or --project=<name>
 			f.project = strings.TrimPrefix(strings.TrimPrefix(a, "--project"), "=")
 		case strings.HasPrefix(a, "--"):
-			return nil, f, errUsage
+			return nil, f, usageError(name + " is not a flag nerve knows: put -- before a word that starts with -")
 		case len(a) > 1 && a[0] == '-' && !isNumber(a): // a typo such as -all
 			return nil, f, usageError(a + " is not a flag nerve knows: put -- before a word that starts with -")
 		default:
 			pos = append(pos, a)
 			continue
 		}
-		noProject = noProject || f.project == "" && name == "--project"
+		if name == "--project" {
+			noProject = f.project == ""
+		}
 		f.given = append(f.given, name)
 	}
 	if noProject && !f.help {
@@ -136,7 +141,11 @@ func isNumber(s string) bool {
 // only refuses a flag the command does not take; any command takes --json.
 func (f flags) only(allowed ...string) error {
 	for _, g := range f.given {
-		if g != "--json" && !slices.Contains(allowed, g) {
+		long := g
+		if g == "-f" {
+			long = "--force"
+		}
+		if g != "--json" && !slices.Contains(allowed, long) {
 			return usageError(g + " does not go with this command")
 		}
 	}
@@ -157,18 +166,25 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	if i := slices.Index(args, "--"); i >= 0 {
 		flagArgs = args[:i]
 	}
-	word := "" // the command, wherever its flags are
-	if i := slices.IndexFunc(flagArgs, func(a string) bool { return !strings.HasPrefix(a, "-") }); i >= 0 {
-		word = flagArgs[i]
+	words, _, err := parseFlags(flagArgs) // the command, wherever its flags are
+	if err != nil {                       // a command line nerve refuses: its first word
+		words = nil
+		if i := slices.IndexFunc(flagArgs, func(a string) bool { return !strings.HasPrefix(a, "-") }); i >= 0 {
+			words = flagArgs[i:]
+		}
 	}
 	switch {
-	case word == "status" && slices.Contains(flagArgs, "--hook"): // the session report
+	case len(words) > 0 && words[0] == "status" && slices.Contains(flagArgs, "--hook"): // the session report
 		mode = infra.AsHook
 	case slices.Contains(flagArgs, "--json"): // even on a command line nerve refuses
 		mode = infra.AsJSON
 	}
 	r := infra.NewReport(stdout, mode)
-	err := run(args, r)
+	err = run(args, r)
+	if mode == infra.AsJSON && errors.Is(err, errUsage) && err != errUsage { // the reason, not the usage
+		why, _, _ := strings.Cut(err.Error(), "\n\n")
+		err = errors.New(why + ": nerve help lists the commands")
+	}
 	if mode == infra.AsHook && errors.Is(err, errUsage) { // one line, not the usage
 		why, _, _ := strings.Cut(err.Error(), "\n\n")
 		if err == errUsage {
@@ -176,8 +192,13 @@ func cli(args []string, stdout, stderr io.Writer) int {
 		}
 		err = errors.New(why + "; run nerve help")
 	}
+	finished := r.Finish(err)
+	if werr := r.Err(); werr != nil { // nothing reached the user: say so where it can
+		_, _ = fmt.Fprintln(stderr, "error:", infra.Visible(werr.Error()))
+		return 1
+	}
 	switch {
-	case r.Finish(err) || err == nil:
+	case finished || err == nil:
 	case errors.Is(err, errUsage):
 		_, _ = fmt.Fprintln(stderr, infra.Visible(err.Error()))
 	default:
@@ -307,15 +328,18 @@ func run(args []string, r *infra.Report) error {
 	case cmd == "check" && len(rest) == 0:
 		brainHere, do = true, func(a app.App) error { return a.Check(r) }
 	case cmd == "update" && len(rest) <= 1:
-		brainHere, do = true, func(a app.App) error { return a.Update(strings.Join(rest, ""), r) }
+		brainHere, do = true, func(a app.App) error { return a.Update(wd, strings.Join(rest, ""), r) }
 	case cmd == "push" && len(rest) <= 1:
-		brainHere, do = true, func(a app.App) error { return a.Push(strings.Join(rest, ""), r) }
+		allowed = []string{"--force"}
+		brainHere, do = true, func(a app.App) error { return a.Push(strings.Join(rest, ""), f.force, r) }
+	case cmd == "push":
+		return usageError("push takes one message: quote it, as in nerve push \"add go-stack\"")
 	case cmd == "status" && len(rest) == 0:
 		allowed, do = []string{"--project", "--hook"}, func(a app.App) error { return a.Status(ref, r) }
 	case cmd == "sync" && len(rest) == 0:
-		allowed = []string{"--here", "--discard"}
+		allowed = []string{"--here", "--force"}
 		do = func(a app.App) error {
-			return a.Sync(app.SyncOptions{Dir: wd, Here: f.here, Discard: f.discard}, r)
+			return a.Sync(app.SyncOptions{Dir: wd, Here: f.here, Force: f.force}, r)
 		}
 	case cmd == "project" && len(rest) == 2 && rest[0] == "add":
 		do = func(a app.App) error { return a.AddProject(wd, rest[1], r) }
@@ -337,6 +361,9 @@ func run(args []string, r *infra.Report) error {
 		allowed = []string{"--project", "--common", "--all"}
 		do = func(a app.App) error { return a.RemoveSetting(ref, rest[1], f.common, f.all, r) }
 	default:
+		if slices.Contains(f.given, "-f") { // a value -f, read as a flag
+			return usageError("nerve does not know this command line: a value that starts with - goes after --, as in nerve setting set key -- -f")
+		}
 		return errUsage
 	}
 	if err := f.only(allowed...); err != nil {

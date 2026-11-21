@@ -1,6 +1,7 @@
-# A setting the Brain sets, changed outside it, is drift: a sync by hand
-# fails on it until it is moved into the Brain or discarded. One the Brain
-# does not set, such as an approval, is personal: kept, and reported once.
+# A setting the Brain sets, changed outside it, is drift: a sync fails on it
+# until it is moved into the Brain or overwritten with -f. One the Brain does
+# not set, such as an approval, is personal: kept, and reported once, even
+# by -f.
 
 exec nerve init brain
 cd proj
@@ -13,15 +14,25 @@ replace .claude/settings.local.json '"model": "opus"' '"model": "sonnet"'
 replace .claude/settings.local.json '"Read"' '"Read", "Bash(make)"'
 
 ! exec nerve sync --here
-stderr 'nerve sync --here --discard'
-stdout '^drift    model is "sonnet" here, "opus" in the Brain: left as is$'
-stdout '^personal permissions.allow has "Bash\(make\)": kept, the Brain does not set it$'
+stderr 'nerve sync --here -f'
+stdout '^drift    .*/proj/.claude/settings.local.json: model is "sonnet" here, "opus" in the Brain: left as is$'
+stdout '^personal .*/proj/.claude/settings.local.json: permissions.allow has "Bash\(make\)": kept, the Brain does not set it$'
 
 exec nerve setting add permissions.allow 'Bash(make)'
 ! exec nerve sync --here
-stdout '^drift    model is "sonnet" here, "opus" in the Brain: left as is$'
+stdout '^drift    .*/proj/.claude/settings.local.json: model is "sonnet" here, "opus" in the Brain: left as is$'
 ! stdout 'permissions.allow'
 
-exec nerve sync --here --discard
+exec nerve sync --here -f
 grep '"model": "opus"' .claude/settings.local.json
 grep '"Bash\(make\)"' .claude/settings.local.json
+
+# A full sync -f overwrites drift in every checkout, and keeps what is
+# personal.
+replace .claude/settings.local.json '"model": "opus"' '"model": "haiku"'
+replace .claude/settings.local.json '"Read"' '"Read", "Bash(mine)"'
+! exec nerve sync
+stderr 'nerve sync -f$'
+exec nerve sync -f
+grep '"model": "opus"' .claude/settings.local.json
+grep '"Bash\(mine\)"' .claude/settings.local.json

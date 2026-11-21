@@ -12,12 +12,13 @@ stdout '^overlay  statusLine.command set in .*overlays/app.json: not an allowed 
 
 exec nerve setting rm statusLine.command
 cp $HOME/allowed.toml $HOME/brain/brain.toml
+exec nerve push 'allow statusLine'
 exec nerve setting set statusLine.command '~/bin/line'
-stdout '^set      statusLine.command = "~/bin/line"$'
+stdout '^set      brain.toml \(project app\): statusLine.command = "~/bin/line"$'
 grep '^allowed-settings = \["statusLine", "mcpServers"\]$' $HOME/brain/brain.toml
 
 exec nerve setting set mcpServers.db.headers.X-Api-Key k
-stdout '^set      mcpServers.db.headers.X-Api-Key = "k"$'
+stdout '^set      brain.toml \(project app\): mcpServers.db.headers.X-Api-Key = "k"$'
 
 cp $HOME/other.toml $HOME/brain/brain.toml
 ! exec nerve check

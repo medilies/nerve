@@ -7,19 +7,25 @@ one command:
   checkout this machine lists. `nerve sync --here` does the one around
   the working directory.
 - `nerve push` brings this machine to the remote.
+- A command that changes `brain.toml`, such as `nerve skill add`, keeps
+  it in step: see [Push](#push).
 - At each session start, the [session report](#the-session-report) says
   what waits for a sync. It changes nothing.
 
 ## What sync does
 
 - **Makes the Brain its remote's.** It fetches, then resets the Brain's
-  branch and tracked files to its upstream, and says which local commits
-  and changes it dropped. Untracked files stay, but for one where the
-  remote has a file. Push first what you want to keep.
-  - It skips this, and says why, when the Brain has no upstream or a
-    detached HEAD, or its remote cannot be reached or no longer has the
-    branch. It then carries the Brain as it is.
+  branch and tracked files to its upstream. Untracked files stay.
+  - It refuses when that would drop local commits, changes to tracked
+    files, or untracked files where the remote has one, naming a few of
+    each. Push them first, or drop them with `nerve sync -f`.
+  - It skips this, and says why, when the Brain is not a git repo, or has
+    no upstream or a detached HEAD, or its remote cannot be reached or no
+    longer has the branch. It then carries the Brain as it is.
   - It never asks for a password: a remote that needs one is skipped.
+  - A sync that cannot run, such as `--here` outside a listed checkout,
+    or that would refuse the checkout `--here` names, leaves the Brain
+    as it is.
 - **Refuses a checkout** where git tracks `.claude/settings.local.json`,
   or does not ignore it: add `**/.claude/settings.local.json` to your
   global git ignore file. nerve never edits `.gitignore`.
@@ -44,10 +50,12 @@ one command:
   project's, then its plugins (`enabledPlugins`), hooks and the session
   report's hook, then the local overlay. Objects merge key by key,
   arrays are joined without repeats, and anything else in a later layer
-  wins. Personal settings stay, as [below](#personal-settings). A file
-  nerve makes is readable by you only, since the overlay may hold
-  secrets.
-- **Unlists a checkout that is gone**, on a full sync.
+  wins. Personal settings stay, as [below](#personal-settings). nerve
+  writes the file in its own form: keys sorted, and numbers as JSON
+  writes them. A file nerve makes is readable by you only, since the
+  overlay may hold secrets.
+- **Unlists a checkout** that is gone, on a full sync, or whose project
+  left the Brain.
 - **Reports what it did.**
 
 A worktree is a checkout like any other: it gets nerve once
@@ -55,14 +63,30 @@ A worktree is a checkout like any other: it gets nerve once
 
 ## Push
 
-`nerve push [message]` commits everything in the Brain checkout, then
-force-pushes it to its upstream.
+A command that changes `brain.toml` pushes it at once: `project add`
+and `rm`, `skill`, `agent`, `hook` and `plugin` `add` and `rm`,
+`setting set`, `add` and `rm`, and `update`.
+
+- It first takes the remote's new commits, so it changes `brain.toml` as
+  the remote holds it.
+- It refuses a Brain whose `brain.toml` has changes, showing them, or
+  that has commits its remote lacks, and one whose remote it cannot
+  reach. It then changes nothing.
+- `skill add` and `agent add` refuse an own skill or agent the remote
+  does not hold yet: push it first.
+- It commits `brain.toml` alone, with a message saying what changed. If
+  the remote moved meanwhile, it changes nothing: run it again.
+
+`nerve push [message]` sends the rest, such as a new own skill: it
+commits everything in the Brain checkout, then pushes it to its
+upstream.
 
 - A change needs a message, as in `nerve push "add go-stack"`.
-- It refuses a Brain that holds a setting no list allows, as `sync`
-  does.
-- The remote's commits this machine lacks are overwritten: sync first
-  on a machine that may be behind.
+- It refuses a Brain with a problem `nerve check` reports, since every
+  machine syncs what it pushes.
+- It refuses when the remote has commits this Brain lacks, naming them.
+  `nerve sync -f` takes them, dropping what was not pushed here;
+  `nerve push -f` overwrites them.
 
 ## The session report
 
@@ -81,8 +105,9 @@ changes wait for `nerve sync`, drift, and problems.
 A setting the Brain does not set, and nerve never wrote, is personal:
 one the checkout had before nerve, say, or an approval Claude Code
 adds to `permissions.allow`. nerve keeps it, reports it the first time
-it sees it, and never removes it, `--discard` and `project rm`
-included. To share it, move it into the Brain with `nerve setting set`
+it sees it, and never removes it while the Brain does not set it, `-f`
+and `project rm` included. Once the Brain sets the key, it is the
+Brain's, as below. To share it, move it into the Brain with `nerve setting set`
 or `nerve setting add`.
 
 A setting the checkout had before nerve first wrote its file, that the
@@ -97,7 +122,8 @@ the state again.
 A setting nerve wrote or the Brain sets, changed in the checkout
 since nerve last wrote it, by `/model` or `/config` say, that the Brain
 disagrees with, is drift. nerve leaves it as it is, writes the rest,
-and reports it at every sync and session start. A sync fails on drift.
+and reports it at every sync and session start. A sync fails on drift,
+naming each value here and in the Brain.
 
 A list is taken item by item: an item of the Brain's removed in the
 checkout is drift of that one item, and the Brain's other changes to
@@ -111,8 +137,8 @@ To resolve drift:
 
 - Move a value into the Brain with `nerve setting set <key> <value>`,
   or one item of a list with `nerve setting add <key> <item>`.
-- Drop all the checkout's drift with `nerve sync --here --discard`.
-  Personal settings stay.
+- Overwrite all the checkout's drift with `nerve sync --here -f`, or
+  every checkout's with `nerve sync -f`. Personal settings stay.
 
 ## What leaves the Brain leaves the project
 
@@ -128,9 +154,9 @@ To resolve drift:
   checkout that moved, becomes nerve's again.
 - A project dropped from the Brain, by `nerve project rm` here or on
   another machine, is cleaned out of its checkouts: nerve's links, its
-  exclude block, the settings and list items it wrote that were not
-  changed since, and the folders it made that are left empty.
-  `settings.local.json` stays, if only as `{}`: nerve never deletes it.
+  exclude block, and the settings and list items it wrote that were not
+  changed since. Folders stay, even empty, and so does
+  `settings.local.json`, if only as `{}`: nerve never deletes either.
 
 ## The team's own
 

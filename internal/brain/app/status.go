@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"github.com/medilies/nerve/internal/brain/domain"
 )
@@ -62,8 +63,11 @@ func (a App) Status(ref ProjectRef, r Reporter) error {
 func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir string, r Reporter) error {
 	st, err := a.Machine.State(dir)
 	if errors.Is(err, ErrUnreadable) {
+		// Whose links and settings are there is unknown until a sync
+		// starts the state again.
+		r.Add(Event{Kind: EvCheckout, Path: dir, Project: name, Detail: "state unknown until nerve sync"})
 		r.Add(Event{Kind: EvProblem, Path: dir, Detail: err.Error() + ": nerve sync replaces it"})
-		st, err = domain.TreeState{Path: dir, Links: map[string]domain.Link{}}, nil
+		return nil
 	}
 	if err != nil {
 		return err
@@ -83,15 +87,34 @@ func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir s
 		if !wanted[l.Item()] {
 			pending++
 		}
+		path := filepath.Join(dir, rel)
+		switch {
+		case !a.Trees.Present(path):
+			pending++
+			events = append(events, Event{Kind: EvItem, Project: name, Item: l.Item(), Detail: "gone from " + rel + ": nerve sync makes it again"})
+			continue
+		case a.ours(dir, rel, l) && !a.Trees.Exists(path):
+			pending++
+			events = append(events, Event{Kind: EvProblem, Path: path, Detail: fmt.Sprintf("it points at %s, which is gone: nerve sync makes it again, or says why not", l.Target)})
+		}
 		events = append(events, Event{Kind: EvItem, Project: name, Item: l.Item(), Detail: "linked as " + rel})
 	}
 	// A listed item with nothing in its place waits for a sync, which links
-	// it or says why not.
+	// it or says why not. One the team has in its place is a problem, as
+	// sync reports it.
 	for _, kind := range []string{"skill", "agent"} {
-		for _, n := range *p.List(kind) {
+		for _, n := range append(slices.Clone(*p.List(kind)), "nerve") {
 			l := domain.Link{Kind: kind, Name: n}
-			if !linked[l.Item()] && !a.Trees.Present(filepath.Join(dir, l.Rel())) {
+			if n == "nerve" && kind == "agent" || linked[l.Item()] {
+				continue
+			}
+			path := filepath.Join(dir, l.Rel())
+			_, isLink := a.Trees.LinkTarget(path)
+			switch {
+			case !a.Trees.Present(path):
 				pending++
+			case !isLink:
+				events = append(events, teamHas(path, l))
 			}
 		}
 	}

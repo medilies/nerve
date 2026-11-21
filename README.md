@@ -19,17 +19,19 @@ nowhere else.
   `.claude/settings.local.json` and in links git never sees. Teammates
   see none of it, and the team's own `.claude/` stays theirs.
 - **One source of truth.** `brain.toml` says what each project gets.
-  A project only reflects it, and every change is a commit you review.
-- **Explicit.** nerve changes a project only when you sync. Each
-  session starts with a report of what waits for a sync, and of drift.
+  A command that changes it takes the remote's first, then pushes the
+  change as one commit, so every machine reads the same file.
+- **Explicit.** nerve changes a project only when you sync, update or
+  remove it. Each session starts with a report of what waits for a
+  sync, and of drift.
 - **Revoke everywhere.** Take a skill or a denied tool out of every
   project with one command; each checkout drops it at its next sync.
 - **Nothing lost.** A setting the Brain does not set, one the checkout
   had before nerve or an approval, is kept. One the Brain sets that
-  Claude Code changed is reported as drift, never overwritten. A link
-  that goes missing is made again.
-- **Pinned and reviewed.** Third-party skills sit at a commit.
-  `nerve update` shows how they changed before you push the new pin.
+  Claude Code changed is drift: a sync fails on it, and `-f` overwrites
+  it. A link that goes missing is made again.
+- **Pinned.** Third-party skills sit at a commit. `nerve update` shows
+  how they changed as it moves the pin, then syncs the project here.
 - **Only allowed settings in the Brain.** It holds the settings nerve
   allows, and those you allow. Any other setting goes to a local overlay
   that never leaves the machine. What you allow is yours to keep free of
@@ -75,7 +77,8 @@ go install github.com/medilies/nerve/cmd/nerve@latest   # puts nerve in ~/go/bin
 ### Then, on each machine
 
 nerve needs git 2.31 or later. Your Brain is a git repo with a
-`brain.toml` at its root, empty to begin with. Name its checkout once:
+`brain.toml` at its root, empty to begin with, pushed to a remote that
+its branch tracks (`git push -u`). Name its checkout once:
 
 ```sh
 nerve init ~/dev/brain
@@ -85,25 +88,24 @@ nerve init ~/dev/brain
 
 ```sh
 nerve project add billing            # list this checkout as project billing
+nerve push "add go-stack"            # commit the Brain's own files, such as a new skill, and push them
 nerve skill add go-stack             # give it a skill; agent, hook and plugin work the same
 nerve setting set model opus         # a setting for it; --common for every project
 nerve setting add permissions.allow "Bash(make test)"   # one more item in a list
-nerve push "go stack for billing"    # commit the Brain, and push it to its remote
 nerve sync --here                    # make the Brain its remote's, then carry it to this checkout
 nerve status                         # where it stands: what waits for a sync, links, drift
 nerve skill rm grilling --all        # take a skill out of every project
 nerve setting rm permissions.deny=Cron --all   # revoke one denied tool everywhere
-nerve update                         # read how third-party skills changed, then move their pins
+nerve update                         # show how third-party skills changed, move their pins, sync here
 nerve sync                           # every checkout on this machine
 nerve check                          # validate the Brain, as its CI does
 ```
 
 A command that acts on one project, such as `skill add` or
 `setting set`, acts on the one around the working directory;
-`--project <name>` names another. Commands that change the Brain edit
-`brain.toml`; `nerve push` commits and pushes them, and `nerve sync`
-drops what was not pushed. `--json` prints one JSON document of
-what happened. A settings key that holds a dot goes in double quotes:
+`--project <name>` names another. `nerve push` sends what other
+commands do not, such as a new own skill, and `nerve sync` refuses to
+drop what was not pushed, unless `-f`. `--json` prints one JSON document of what happened. A settings key that holds a dot goes in double quotes:
 `enabledPlugins."x@y.z"`. `nerve help` lists every command.
 
 ## Documentation

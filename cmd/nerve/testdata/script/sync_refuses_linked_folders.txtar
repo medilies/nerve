@@ -1,5 +1,5 @@
 # Sync refuses a tree where a folder or file nerve writes is a link, since
-# it would write outside the tree.
+# it would write outside the tree; with --here, before the Brain changes.
 
 exec nerve init brain
 cd proj
@@ -8,6 +8,9 @@ mkdir $HOME/outside .claude
 symlink .claude/skills -> $HOME/outside
 
 ! exec nerve sync --here
+stderr '^error: .*/proj: .claude/skills is a link, so nerve would write outside the tree: make it a plain folder$'
+! stdout .
+! exec nerve sync
 stdout '^problem  .*/proj: .claude/skills is a link, so nerve would write outside the tree: make it a plain folder$'
 exec ls $HOME/outside
 ! stdout .

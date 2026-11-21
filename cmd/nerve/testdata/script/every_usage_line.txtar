@@ -1,9 +1,5 @@
 # Every usage line runs, and the usage keeps a line for each command run.
 
-exec git init -q --bare -b main brain.git
-exec git -C brain remote add origin ../brain.git
-exec git -C brain config branch.main.remote origin
-exec git -C brain config branch.main.merge refs/heads/main
 exec nerve init brain
 cd proj
 
@@ -20,16 +16,18 @@ stdout '^added    hook fmt to project app$'
 exec nerve plugin add gopls@claude-plugins-official
 stdout '^added    plugin gopls@claude-plugins-official'
 exec nerve setting set model opus
-stdout '^set      model = "opus"$'
+stdout '^set      brain.toml \(project app\): model = "opus"$'
 exec nerve setting add permissions.deny Cron
-stdout '^set      permissions.deny = \["Cron"\]$'
+stdout '^set      brain.toml \(project app\): permissions.deny = \["Cron"\]$'
 exec nerve setting set outputStyle terse --common
-stdout '^set      outputStyle = "terse"$'
-exec nerve push 'add app'
-stdout '^pushed   the Brain at '
+stdout '^set      brain.toml \(common\): outputStyle = "terse"$'
+mkdir ../brain/skills/tdd
+cp ../tdd.md ../brain/skills/tdd/SKILL.md
+exec nerve push 'add tdd'
+stdout '^pushed   the Brain at [0-9a-f]{7}: add tdd$'
 exec nerve sync --here
 stdout '^synced   app'
-exec nerve sync --here --discard
+exec nerve sync --here -f
 stdout 'app is up to date'
 exec nerve sync
 stdout 'app is up to date'
@@ -58,7 +56,7 @@ stdout 'project  app: dropped from brain.toml'
 
 exec nerve help
 stdout '^  init <brain> '
-stdout '^  sync \[--here\] \[--discard\] '
+stdout '^  sync \[--here\] \[-f\] '
 stdout '^  push \[<message>\] '
 stdout '^  update \[<repo>\] '
 stdout '^  status '
@@ -88,4 +86,9 @@ description: Does go-stack.
 ---
 name: reviewer
 description: Reviews.
+---
+-- tdd.md --
+---
+name: tdd
+description: Tests first.
 ---

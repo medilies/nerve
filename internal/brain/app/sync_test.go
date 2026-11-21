@@ -49,13 +49,13 @@ func TestSyncLinksTheProjectsSkillsAgentsAndNerve(t *testing.T) {
 	if st := e.machine.states["/w/app"]; st.Project != "app" || st.Commit != e.brain.head || len(st.Links) != 4 {
 		t.Errorf("state is %+v", st)
 	}
-	if e.brain.pulls != 1 {
-		t.Errorf("pulled %d times, want once", e.brain.pulls)
+	if e.brain.syncs != 1 {
+		t.Errorf("synced the Brain %d times, want once", e.brain.syncs)
 	}
 	if seen := e.trees.gitSees("/w/app"); seen != nil {
 		t.Errorf("git sees %v", seen)
 	}
-	contains(t, r, "synced   app at aaaaaaa")
+	contains(t, r, "synced   app at aaaaaaa in /w/app")
 }
 
 func TestSyncWritesTheProjectsSettings(t *testing.T) {
@@ -72,7 +72,7 @@ func TestSyncWritesTheProjectsSettings(t *testing.T) {
 	if got != want {
 		t.Errorf("settings are\n%s\nwant\n%s", got, want)
 	}
-	contains(t, r, `set      model = "opus"`)
+	contains(t, r, `set      /w/app/.claude/settings.local.json: model = "opus"`)
 }
 
 func TestSyncRefusesATreeWhoseSettingsGitSeesOrShares(t *testing.T) {
@@ -104,16 +104,16 @@ func TestSyncKeepsDriftAndFails(t *testing.T) {
 
 	r, err := e.sync("/w/app", app.SyncOptions{})
 
-	if err == nil || !strings.Contains(err.Error(), "settings drifted in 1 of 1 checkouts") {
+	if err == nil || !strings.Contains(err.Error(), "settings drifted in /w/app:") {
 		t.Errorf("got %v, want drift to fail a sync by hand", err)
 	}
-	contains(t, r, `drift    model is "sonnet" here, "opus" in the Brain: left as is`)
+	contains(t, r, `drift    /w/app/.claude/settings.local.json: model is "sonnet" here, "opus" in the Brain: left as is`)
 	if e.settings("/w/app")["model"] != "sonnet" {
 		t.Errorf("drift was overwritten")
 	}
-	e.must(e.sync("/w/app", app.SyncOptions{Discard: true}))
+	e.must(e.sync("/w/app", app.SyncOptions{Force: true}))
 	if e.settings("/w/app")["model"] != "opus" {
-		t.Errorf("--discard kept the drift")
+		t.Errorf("-f kept the drift")
 	}
 }
 
@@ -130,8 +130,8 @@ func TestSyncSaysDriftFromTheOverlayIsTheOverlays(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "keep each change with nerve setting set or add") {
 		t.Errorf("got %v", err)
 	}
-	contains(t, r, `drift    env.FOO is "baz" here, "bar" in the local overlay: left as is`,
-		`drift    permissions.allow lacks "Bash(deploy)" here, which the local overlay has: left as is`)
+	contains(t, r, `drift    /w/app/.claude/settings.local.json: env.FOO is "baz" here, "bar" in the local overlay: left as is`,
+		`drift    /w/app/.claude/settings.local.json: permissions.allow lacks "Bash(deploy)" here, which the local overlay has: left as is`)
 }
 
 func TestSyncRemovesWhatLeftTheProject(t *testing.T) {
@@ -151,7 +151,7 @@ func TestSyncRemovesWhatLeftTheProject(t *testing.T) {
 	if _, ok := e.settings("/w/app")["model"]; ok {
 		t.Errorf("the dropped setting is still there")
 	}
-	contains(t, r, "removed  /w/app/.claude/skills/go-stack", `unset    model (was "opus")`)
+	contains(t, r, "removed  /w/app/.claude/skills/go-stack", `unset    /w/app/.claude/settings.local.json: model (was "opus")`)
 }
 
 func TestSyncSaysUpToDateWhenNothingChanged(t *testing.T) {
@@ -161,7 +161,7 @@ func TestSyncSaysUpToDateWhenNothingChanged(t *testing.T) {
 
 	r := e.must(e.sync("/w/app", app.SyncOptions{}))
 
-	if r.String() != "app is up to date at aaaaaaa" {
+	if r.String() != "app is up to date at aaaaaaa in /w/app" {
 		t.Errorf("events are:\n%s", r)
 	}
 }
@@ -382,14 +382,14 @@ func TestACleanThatCannotDropTheStateKeepsTheCheckoutListed(t *testing.T) {
 	contains(t, r, "problem  /w/app: state: read-only")
 }
 
-func TestSyncFailsWhenThePullFails(t *testing.T) {
+func TestSyncFailsWhenTheBrainCannotSync(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app")
-	e.brain.pullErr = errors.New("pull /brain: diverged")
+	e.brain.syncErr = errors.New("sync /brain: diverged")
 
 	_, err := e.sync("/w/app", app.SyncOptions{})
 
-	if err == nil || err.Error() != "pull /brain: diverged" || len(e.trees.links) > 0 {
+	if err == nil || err.Error() != "sync /brain: diverged" || len(e.trees.links) > 0 {
 		t.Errorf("got %v, links %v", err, e.trees.links)
 	}
 }
@@ -504,7 +504,7 @@ func TestSyncTakesAnApprovalAsOnePersonalItem(t *testing.T) {
 	if got := jsonText(e.settings("/w/app")["permissions"]); got != `{"allow":["Read","Bash(make)","Edit"]}` {
 		t.Errorf("permissions are %s, want the approval kept and Edit added", got)
 	}
-	contains(t, r, `personal permissions.allow has "Bash(make)": kept, the Brain does not set it`)
+	contains(t, r, `personal /w/app/.claude/settings.local.json: permissions.allow has "Bash(make)": kept, the Brain does not set it`)
 }
 
 func TestADamagedExcludeBlockRefusesTheTreeBeforeAnyLink(t *testing.T) {
@@ -693,7 +693,7 @@ func TestASyncThatChangesNothingIsUpToDateDespiteAStandingProblem(t *testing.T) 
 
 	r := e.must(e.sync("/w/app", app.SyncOptions{}))
 
-	contains(t, r, "app is up to date at aaaaaaa")
+	contains(t, r, "app is up to date at aaaaaaa in /w/app")
 }
 
 func TestALinkThatAlreadyPointsWhereNerveWouldIsAdoptedQuietly(t *testing.T) {
@@ -722,13 +722,13 @@ func TestASettingTheBrainDoesNotSetIsPersonalAndReportedOnce(t *testing.T) {
 		t.Fatalf("got %v, settings %v: want the sync to pass and keep them", err, e.settings("/w/app"))
 	}
 	contains(t, r,
-		`personal env.TOKEN = "x": kept, the Brain does not set it`,
-		`personal outputStyle = "terse": kept, the Brain does not set it`)
+		`personal /w/app/.claude/settings.local.json: env.TOKEN = "x": kept, the Brain does not set it`,
+		`personal /w/app/.claude/settings.local.json: outputStyle = "terse": kept, the Brain does not set it`)
 	e.trees.settings["/w/app/.claude/settings.local.json"]["permissions"].(map[string]any)["allow"] = []any{"Read", "Bash(make)"} // an approval
 
 	r = e.must(e.sync("/w/app", app.SyncOptions{}))
 
-	if got := r.String(); strings.Contains(got, "outputStyle") || !strings.Contains(got, `personal permissions.allow has "Bash(make)": kept, the Brain does not set it`) {
+	if got := r.String(); strings.Contains(got, "outputStyle") || !strings.Contains(got, `personal /w/app/.claude/settings.local.json: permissions.allow has "Bash(make)": kept, the Brain does not set it`) {
 		t.Errorf("want only the new approval reported:\n%s", got)
 	}
 }
@@ -821,18 +821,24 @@ func TestACleanThatCannotReadTheSettingsKeepsTheState(t *testing.T) {
 	contains(t, r, "problem  /w/app: settings.local.json: invalid character")
 }
 
-func TestPushPassesTheMessageOnceTheBrainHoldsNothingRefused(t *testing.T) {
+func TestPushPassesTheMessageOnceTheBrainHoldsNothingCheckReports(t *testing.T) {
 	e := newEnv(t)
 	e.brain.m.Common = map[string]any{"apiKeyHelper": "x"}
 	r := &recorder{}
 
-	if err := e.app.Push("add go-stack", r); err == nil || len(e.brain.pushed) > 0 {
+	if err := e.app.Push("add go-stack", false, r); err == nil || len(e.brain.pushed) > 0 {
 		t.Errorf("pushed a Brain sync refuses: %v", err)
 	}
 	contains(t, r, "problem  brain.toml: common.settings.apiKeyHelper: not an allowed setting")
 
 	e.brain.m.Common = nil
-	e.must(&recorder{}, e.app.Push("add go-stack", &recorder{}))
+	e.brain.m.Projects["app"] = &domain.Project{Skills: []string{"gone"}} // its folder deleted
+	if err := e.app.Push("drop gone", false, &recorder{}); err == nil || len(e.brain.pushed) > 0 {
+		t.Errorf("pushed a Brain whose project lists a skill it lacks: %v", err)
+	}
+
+	delete(e.brain.m.Projects, "app")
+	e.must(&recorder{}, e.app.Push("add go-stack", false, &recorder{}))
 	if !slices.Equal(e.brain.pushed, []string{"add go-stack"}) {
 		t.Errorf("pushed %q", e.brain.pushed)
 	}
@@ -879,7 +885,176 @@ func TestASecondSyncWritesNothingInTheProject(t *testing.T) {
 	if e.trees.writes > 0 {
 		t.Errorf("a second sync wrote %d times in the project:\n%s", e.trees.writes, r)
 	}
-	if r.String() != "app is up to date at aaaaaaa" {
+	if r.String() != "app is up to date at aaaaaaa in /w/app" {
 		t.Errorf("a second sync says:\n%s", r)
+	}
+}
+
+func TestSyncCleansAMovedCheckoutOfAProjectThatLeftTheBrain(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go-stack")
+	e.listed("app", "/w/app").Skills = []string{"go-stack"}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	// The checkout moves: its links and settings come along, its state
+	// does not.
+	e.checkout("/w/moved")
+	for p, target := range e.trees.links {
+		if rel, ok := strings.CutPrefix(p, "/w/app/"); ok {
+			e.trees.links["/w/moved/"+rel] = target
+			e.trees.dirs["/w/moved/.claude/skills"] = true
+		}
+	}
+	e.trees.settings["/w/moved/.claude/settings.local.json"] = copySettings(e.settings("/w/app"))
+	e.trees.excludes["/w/moved/.git"] = slices.Clone(e.trees.excludes["/w/app/.git"])
+	e.machine.machine.Checkouts = []domain.Checkout{{Path: "/w/moved", Project: "app"}}
+	delete(e.brain.m.Projects, "app")
+
+	r := e.must(e.sync("/w", app.SyncOptions{}))
+
+	if seen := e.trees.gitSees("/w/moved"); len(seen) > 0 {
+		t.Errorf("git sees %v", seen)
+	}
+	for p := range e.trees.links {
+		if strings.HasPrefix(p, "/w/moved/") {
+			t.Errorf("nerve's link %s stays", p)
+		}
+	}
+	if s := e.settings("/w/moved"); s["hooks"] != nil {
+		t.Errorf("the session report's hook stays: %v", s)
+	}
+	contains(t, r, "cleaned  /w/moved: project app left the Brain")
+}
+
+func TestAnUnreadableStateOfAWorktreeKeepsItsLinksOutOfGit(t *testing.T) {
+	e := newEnv(t)
+	e.brain.agents["rev"] = true
+	e.listed("p", "/w/main")
+	e.worktree("/w/wt", "/w/main")
+	e.machine.machine.Checkouts = append(e.machine.machine.Checkouts, domain.Checkout{Path: "/w/wt", Project: "q"})
+	e.brain.m.Projects["q"] = &domain.Project{Agents: []string{"rev"}}
+	e.must(e.sync("/w", app.SyncOptions{}))
+	e.machine.unreadable["/w/wt"] = true
+
+	e.must(e.sync("/w/main", app.SyncOptions{Here: true}))
+
+	if seen := e.trees.gitSees("/w/wt"); len(seen) > 0 {
+		t.Errorf("git sees %v in the worktree", seen)
+	}
+}
+
+func TestSyncDropsTheStateOfAGoneCheckoutOnlyOnceItIsUnlisted(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	delete(e.trees.dirs, "/w/app")
+	e.machine.fail["Save"] = errors.New("config.toml: read-only")
+
+	if _, err := e.sync("/w", app.SyncOptions{}); err == nil {
+		t.Fatal("no error")
+	}
+
+	if _, ok := e.machine.states["/w/app"]; !ok {
+		t.Errorf("the state of a checkout still listed is gone")
+	}
+}
+
+func TestADriftErrorNamesTheCheckoutsThatDrifted(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
+	e.listedWorktree("/w/app2", "/w/app")
+	e.must(e.sync("/w", app.SyncOptions{}))
+	e.trees.settings["/w/app2/.claude/settings.local.json"]["model"] = "haiku"
+
+	r, err := e.sync("/w", app.SyncOptions{})
+
+	if err == nil || !strings.Contains(err.Error(), "settings drifted in /w/app2: keep each change with nerve setting set or add, or drop it with nerve sync -f") {
+		t.Errorf("got %v", err)
+	}
+	contains(t, r, `drift    /w/app2/.claude/settings.local.json: model is "haiku" here, "opus" in the Brain: left as is`, "app is up to date at aaaaaaa in /w/app")
+}
+
+func TestSyncOfAMovedCheckoutTakesOutTheLinksItsNewProjectDoesNotList(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("mine")
+	e.listed("app", "/w/app").Skills = []string{"mine"}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	// Moved, then listed as another project: its state stays with the old path.
+	e.checkout("/w/moved")
+	for p, target := range e.trees.links {
+		if rel, ok := strings.CutPrefix(p, "/w/app/"); ok {
+			e.trees.links["/w/moved/"+rel] = target
+		}
+	}
+	e.trees.dirs["/w/moved/.claude/skills"] = true
+	e.brain.m.Projects["app2"] = &domain.Project{}
+	e.machine.machine.Checkouts = []domain.Checkout{{Path: "/w/moved", Project: "app2"}}
+
+	r := e.must(e.sync("/w/moved", app.SyncOptions{Here: true}))
+
+	if _, ok := e.trees.links["/w/moved/.claude/skills/mine"]; ok {
+		t.Errorf("a skill app2 does not list stays linked:\n%s", r)
+	}
+}
+
+func TestStatusReportsALinkWhoseTargetIsGone(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("mine")
+	e.listed("app", "/w/app").Skills = []string{"mine"}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	e.trees.dangling["/brain/skills/mine"] = true
+	r := &recorder{}
+
+	e.must(r, e.app.Status(target("/w/app"), r))
+
+	contains(t, r, "problem  /w/app/.claude/skills/mine: it points at /brain/skills/mine, which is gone")
+}
+
+func TestAddItemRefusesAnOwnItemItsRemoteLacks(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.ownSkill("fresh")
+	e.brain.agents["rev"] = true
+	e.brain.notPushed = map[string]bool{"skills/fresh": true, "agents/rev.md": true}
+
+	for _, item := range [][2]string{{"skill", "fresh"}, {"agent", "rev"}} {
+		err := e.app.AddItem(target("/w/app"), item[0], item[1], &recorder{})
+		if err == nil || !strings.Contains(err.Error(), "is not on the Brain's remote yet, as it is here: nerve push it, then add it") {
+			t.Errorf("%s: got %v", item[1], err)
+		}
+	}
+	if len(e.brain.manifestPushes) > 0 {
+		t.Errorf("pushed %q", e.brain.manifestPushes)
+	}
+}
+
+func TestSyncHereOfACheckoutItWouldRefuseLeavesTheBrainAsItIs(t *testing.T) {
+	for name, refuse := range map[string]func(e *env){
+		"unignored": func(e *env) { e.trees.unignored["/w/app"] = true },
+		"damaged":   func(e *env) { e.trees.damaged["/w/app"] = true },
+		"linked":    func(e *env) { e.trees.links["/w/app/.claude"] = "/elsewhere" },
+	} {
+		e := newEnv(t)
+		e.listed("app", "/w/app")
+		refuse(e)
+
+		if _, err := e.sync("/w/app", app.SyncOptions{Here: true}); err == nil || e.brain.syncs != 0 {
+			t.Errorf("%s: got %v, Brain synced %d times", name, err, e.brain.syncs)
+		}
+	}
+}
+
+func TestStatusCountsALinkThatIsGoneAsWaiting(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go")
+	e.listed("app", "/w/app").Skills = []string{"go"}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	delete(e.trees.links, "/w/app/.claude/skills/go")
+	r := &recorder{}
+
+	e.must(r, e.app.Status(target("/w/app"), r))
+
+	contains(t, r, "1 change waits for nerve sync", "skill go gone from .claude/skills/go: nerve sync makes it again")
+	if strings.Contains(r.String(), "skill go linked as") {
+		t.Errorf("status shows a link that is gone:\n%s", r)
 	}
 }

@@ -35,8 +35,8 @@ func TestScripts(t *testing.T) {
 	})
 }
 
-// setupWorld makes $WORK a HOME holding a Brain at brain, and a project
-// checkout at proj, listed nowhere yet. A script's own files are written first, so it can give the
+// setupWorld makes $WORK a HOME holding a Brain at brain, pushed to its
+// remote at brain.git, and a project checkout at proj, listed nowhere yet. A script's own files are written first, so it can give the
 // Brain a brain.toml, skills and agents. Git reads no config of the user's,
 // and https://github.com/ is routed to local repos under $WORK/github.
 func setupWorld(env *testscript.Env) error {
@@ -85,6 +85,11 @@ func setupWorld(env *testscript.Env) error {
 		args []string
 	}{
 		{"brain", []string{"init", "-q", "-b", "main"}},
+		{"brain", []string{"add", "-A"}},
+		{"brain", []string{"commit", "-q", "--allow-empty", "-m", "a"}},
+		{"", []string{"init", "-q", "--bare", "-b", "main", "brain.git"}},
+		{"brain", []string{"remote", "add", "origin", filepath.Join(home, "brain.git")}},
+		{"brain", []string{"push", "-q", "-u", "origin", "main"}},
 		{"proj", []string{"init", "-q", "-b", "main"}},
 		{"proj", []string{"add", "-A"}},
 		{"proj", []string{"commit", "-q", "-m", "a"}},

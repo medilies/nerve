@@ -26,6 +26,10 @@ stderr '^--project needs a project name$'
 ! exec nerve skill rm a --project --all
 stderr '^--project needs a project name$'
 
+# A --project with no name, given again with one, takes the name.
+! exec nerve status --project --project nope
+stderr 'lists no project "nope"'
+
 cmp $HOME/brain/brain.toml $HOME/empty
 
 -- empty --

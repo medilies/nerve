@@ -25,7 +25,7 @@ Tests sit next to the code they test:
 - `domain`: the rules, on plain values.
 - `app`: the use cases, on the in-memory ports in `fakes_test.go`.
 - `infra`: the adapters, on a temp HOME with real files, git and a local HTTP server.
-- `cmd/nerve`: the CLI end to end, as [testscript](https://pkg.go.dev/github.com/rogpeppe/go-internal/testscript) scripts in `testdata/script/`, one per behaviour. Each runs the real `nerve` and git on a temp HOME holding a Brain at `brain` and a project checkout at `proj`. `script_test.go` sets it up, sets `$NERVE_CONFIG` and `$NERVE_CACHE` to nerve's own folders, and adds the commands `link`, `perm` and `replace`.
+- `cmd/nerve`: the CLI end to end, as [testscript](https://pkg.go.dev/github.com/rogpeppe/go-internal/testscript) scripts in `testdata/script/`, one per behaviour. Each runs the real `nerve` and git on a temp HOME holding a Brain at `brain`, pushed to its remote at `brain.git`, and a project checkout at `proj`. `script_test.go` sets it up, sets `$NERVE_CONFIG` and `$NERVE_CACHE` to nerve's own folders, and adds the commands `link`, `perm` and `replace`.
 
 A test of a bug not fixed yet asserts the right behaviour, and is skipped:
 

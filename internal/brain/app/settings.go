@@ -92,12 +92,18 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 		}
 		return obj, nil
 	}
-	l, err := a.load()
+	l, err := a.fresh(r)
 	if err != nil {
 		return err
 	}
 	k := domain.LeafKey(path)
 	shown := domain.Dotted(k)
+	message := func(where string) string {
+		if item {
+			return fmt.Sprintf("add an item to %s in %s", shown, where)
+		}
+		return fmt.Sprintf("set %s in %s", shown, where)
+	}
 	why := l.m.SettingRefusal(k, v)
 	report := func(where string, before, after map[string]any, err error) error {
 		if errors.Is(err, errAlready) {
@@ -118,11 +124,21 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 		default:
 			return fmt.Errorf("%s is %s: list it in allowed-settings in %s, or set it per project, where it goes to the local overlay", key, why, domain.ManifestFile)
 		}
+		// Every overlay the change drops a value from reads, before any
+		// change is pushed.
+		for _, project := range domain.SortedKeys(l.m.Projects) {
+			if _, _, err := a.Machine.Overlay(project); err != nil {
+				return err
+			}
+		}
 		before := l.m.Common
 		after, err := change(copySettings(before), path)
+		if err == nil && showAt(before, path) == showAt(after, path) {
+			err = errAlready
+		}
 		if err == nil {
 			l.m.Common = after
-			err = a.Brain.Save(l.m)
+			err = a.pushManifest(l.m, message("common"), r)
 		}
 		saved := err == nil
 		if err := report(domain.ManifestFile+" (common)", before, after, err); err != nil || !saved {
@@ -159,11 +175,17 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 		r.Add(Event{Kind: EvOverlay, Project: project, Key: shown, Path: file, Detail: why})
 		return nil
 	}
+	if _, _, err := a.Machine.Overlay(project); err != nil { // read before any change is pushed
+		return err
+	}
 	before := p.Settings
 	after, err := change(copySettings(before), path)
+	if err == nil && showAt(before, path) == showAt(after, path) {
+		err = errAlready
+	}
 	if err == nil {
 		p.Settings = after
-		err = a.Brain.Save(l.m)
+		err = a.pushManifest(l.m, message("project "+project), r)
 	}
 	saved := err == nil
 	if err := report(domain.ManifestFile+" (project "+project+")", before, after, err); err != nil || !saved {
@@ -253,7 +275,7 @@ func (a App) RemoveSetting(ref ProjectRef, arg string, common, all bool, r Repor
 		item = domain.ParseValue(raw)
 		shown += "=" + raw
 	}
-	l, err := a.load()
+	l, err := a.fresh(r)
 	if err != nil {
 		return err
 	}
@@ -322,7 +344,14 @@ func (a App) RemoveSetting(ref ProjectRef, arg string, common, all bool, r Repor
 		return fmt.Errorf("no %s holds %s", where, shown)
 	}
 	if len(inBrain) > 0 {
-		if err := a.Brain.Save(l.m); err != nil {
+		where := "common"
+		switch {
+		case all:
+			where = "common and every project"
+		case !common:
+			where = "project " + layers[0].project
+		}
+		if err := a.pushManifest(l.m, fmt.Sprintf("remove %s from %s", shown, where), r); err != nil {
 			return err
 		}
 		for _, e := range inBrain {

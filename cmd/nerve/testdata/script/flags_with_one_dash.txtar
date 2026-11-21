@@ -15,3 +15,11 @@ grep 'cleanupPeriodDays = -1' $HOME/brain/brain.toml
 
 ! exec nerve setting set cleanupPeriodDays -inf
 stderr '-inf is not a flag nerve knows: put -- before a word that starts with -'
+
+# -f is a flag: a value -f goes after --.
+! exec nerve setting set outputStyle -f
+stderr 'a value that starts with - goes after --'
+exec nerve setting set outputStyle -- -f
+grep 'outputStyle = "-f"' $HOME/brain/brain.toml
+! exec nerve skill add go-stack -f
+stderr '^-f does not go with this command$'

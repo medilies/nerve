@@ -72,6 +72,12 @@ func (f MachineFiles) Load() (domain.Machine, error) {
 		if err != nil {
 			return m, fmt.Errorf("%s: checkout %w", path, err)
 		}
+		switch {
+		case c.Project == "":
+			return m, fmt.Errorf("%s: checkout %s has no project: add project = \"<name>\" under it", path, c.Path)
+		case !domain.NamePattern.MatchString(c.Project):
+			return m, fmt.Errorf("%s: checkout %s: project %q must be lowercase words joined by hyphens", path, c.Path, c.Project)
+		}
 		if _, ok := m.CheckoutAt(dir); ok {
 			return m, fmt.Errorf("%s: checkout %s is listed twice", path, dir)
 		}
@@ -175,7 +181,6 @@ type treeState struct {
 	Repo     string               `json:"repo,omitempty"`
 	Project  string               `json:"project,omitempty"`
 	Links    map[string]linkState `json:"links,omitempty"`
-	Folders  []string             `json:"folders,omitempty"`
 	Settings map[string]any       `json:"settings,omitempty"`
 	Before   map[string]any       `json:"before,omitempty"`
 	Personal []string             `json:"personal,omitempty"`
@@ -191,7 +196,7 @@ type linkState struct {
 func (st treeState) domain() domain.TreeState {
 	domain.Numbers(st.Settings)
 	domain.Numbers(st.Before)
-	d := domain.TreeState{Path: st.Path, Repo: st.Repo, Project: st.Project, Folders: st.Folders, Settings: st.Settings, Before: st.Before, Personal: st.Personal, Commit: st.Commit, Links: map[string]domain.Link{}}
+	d := domain.TreeState{Path: st.Path, Repo: st.Repo, Project: st.Project, Settings: st.Settings, Before: st.Before, Personal: st.Personal, Commit: st.Commit, Links: map[string]domain.Link{}}
 	for rel, l := range st.Links {
 		d.Links[rel] = domain.Link(l)
 	}
@@ -199,7 +204,7 @@ func (st treeState) domain() domain.TreeState {
 }
 
 func fromDomain(d domain.TreeState) treeState {
-	st := treeState{Path: d.Path, Repo: d.Repo, Project: d.Project, Folders: d.Folders, Settings: d.Settings, Before: d.Before, Personal: d.Personal, Commit: d.Commit}
+	st := treeState{Path: d.Path, Repo: d.Repo, Project: d.Project, Settings: d.Settings, Before: d.Before, Personal: d.Personal, Commit: d.Commit}
 	if len(d.Links) > 0 {
 		st.Links = map[string]linkState{}
 		for rel, l := range d.Links {
@@ -237,16 +242,17 @@ func (f MachineFiles) DropState(dir string) error {
 // state folder.
 var statePattern = regexp.MustCompile(`^[0-9a-f]{16}\.json$`)
 
-// States reads every tree's state it can; State reports the others to their
-// own trees. Other files in the state folder are left alone.
-func (f MachineFiles) States() ([]domain.TreeState, error) {
+// States reads every tree's state it can, and says whether some file could
+// not be read; State reports those to their own trees. Other files in the state folder are left alone.
+func (f MachineFiles) States() ([]domain.TreeState, bool, error) {
 	entries, err := os.ReadDir(filepath.Join(f.dir, "state"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	unreadable := false
 	var states []domain.TreeState
 	for _, e := range entries {
 		if !statePattern.MatchString(e.Name()) {
@@ -262,9 +268,10 @@ func (f MachineFiles) States() ([]domain.TreeState, error) {
 			err = errors.New("no path")
 		}
 		if err != nil {
+			unreadable = true
 			continue
 		}
 		states = append(states, st.domain())
 	}
-	return states, nil
+	return states, unreadable, nil
 }

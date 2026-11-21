@@ -2,6 +2,7 @@ package domain_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -78,7 +79,7 @@ func TestReconcileKeepsPersonalSettingsAndSaysWhich(t *testing.T) {
 	}
 }
 
-func TestReconcileDiscardOverwritesDrift(t *testing.T) {
+func TestReconcileForceOverwritesDrift(t *testing.T) {
 	rc := domain.Reconcile(obj(t, `{"model": "sonnet"}`), obj(t, `{"model": "opus"}`), obj(t, `{"model": "opus"}`), true)
 
 	if len(rc.Drift) > 0 || text(rc.Result) != `{"model":"opus"}` {
@@ -160,7 +161,7 @@ func TestReconcilePropertiesWithNestedKeys(t *testing.T) {
 		[]string{"", `{"c":["p"]}`, `{"c":{"d":["p","q"]}}`})
 }
 
-func TestReconcileDiscardWritesNoEmptyObjectAFreshFileLacks(t *testing.T) {
+func TestReconcileForceWritesNoEmptyObjectAFreshFileLacks(t *testing.T) {
 	want := obj(t, `{"a": {"c": {}}}`)
 
 	discard := domain.Reconcile(obj(t, `{"a": 1}`), obj(t, `{"a": {"c": 1}}`), want, true)
@@ -331,8 +332,13 @@ func TestMergeLeavesNoRepeatsInAListUnderANewKey(t *testing.T) {
 
 func TestPersonalKeysNameAnItemApartFromAKeyLikeIt(t *testing.T) {
 	names, shown := domain.PersonalKeys(obj(t, `{"a": [1], "a 1": true, "a=1": true}`))
-	if len(names) != 3 || len(shown) != 3 {
-		t.Errorf("names %q", names)
+	var keys []string
+	for _, n := range names {
+		keys = append(keys, fmt.Sprintf("%s|%v", shown[n].Key, shown[n].Item))
+	}
+	slices.Sort(keys)
+	if want := []string{`"a=1"|false`, "a 1|false", "a|true"}; !slices.Equal(keys, want) || len(names) != 3 {
+		t.Errorf("personal keys %q, want %q", keys, want)
 	}
 }
 
@@ -445,7 +451,7 @@ func TestParseValueKeepsEveryDigitOfAWholeNumberBeyondInt64(t *testing.T) {
 }
 
 func TestParseKeyReadsWhatDottedWrites(t *testing.T) {
-	for _, path := range [][]string{{"model"}, {"permissions", "deny"}, {"enabledPlugins", "x@y.z"}, {"a=b", "c"}, {`a"b`}, {""}, {"a", "", "b"}, {`a\b`}, {`x"y.z\`}} {
+	for _, path := range [][]string{{"model"}, {"permissions", "deny"}, {"enabledPlugins", "x@y.z"}, {"a=b", "c"}, {`a"b`}, {`a\b`}, {`x"y.z\`}} {
 		shown := domain.Dotted(domain.LeafKey(path))
 		got, err := domain.ParseKey(shown)
 		if err != nil || !reflect.DeepEqual(got, path) {
@@ -459,6 +465,23 @@ func TestParseKeyRefusesWhatIsNotAKey(t *testing.T) {
 		if path, err := domain.ParseKey(key); err == nil {
 			t.Errorf("%q reads as %v", key, path)
 		}
+	}
+}
+
+func TestParseKeySaysWhyItRefusesAKey(t *testing.T) {
+	for key, want := range map[string]string{
+		"model=opus":   "holds = outside double quotes",
+		`""`:           "has an empty key",
+		`a."".b`:       "has an empty key",
+		"a\x1fb":       "holds a control character",
+		"\"a\x1fb\".c": "holds a control character",
+	} {
+		if path, err := domain.ParseKey(key); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q reads as %v, %v, want %q", key, path, err, want)
+		}
+	}
+	if path, err := domain.ParseKey(`env."A=B"`); err != nil || !reflect.DeepEqual(path, []string{"env", "A=B"}) {
+		t.Errorf("a quoted key holding = reads as %v, %v", path, err)
 	}
 }
 
@@ -498,7 +521,7 @@ func TestReconcileTakesAListItemByItem(t *testing.T) {
 	}
 }
 
-func TestReconcileDiscardDropsOnlyWhatDrifted(t *testing.T) {
+func TestReconcileForceDropsOnlyWhatDrifted(t *testing.T) {
 	last := obj(t, `{"permissions": {"allow": ["Read"]}}`)
 	current := obj(t, `{"permissions": {"allow": ["Bash(make)"]}}`) // Read removed, an approval added
 

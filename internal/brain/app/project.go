@@ -2,7 +2,9 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/medilies/nerve/internal/brain/domain"
 )
@@ -14,11 +16,14 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 	if !domain.NamePattern.MatchString(name) {
 		return fmt.Errorf("project %q must be lowercase words joined by hyphens", name)
 	}
-	l, err := a.load()
+	t, err := a.Trees.Locate(dir)
 	if err != nil {
 		return err
 	}
-	t, err := a.Trees.Locate(dir)
+	if filepath.Clean(t.Top) == filepath.Clean(a.Brain.Root()) {
+		return fmt.Errorf("%s is the Brain's checkout, not a project's: run nerve project add in a project", t.Top)
+	}
+	l, err := a.fresh(r)
 	if err != nil {
 		return err
 	}
@@ -35,7 +40,7 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 		r.Add(Event{Kind: EvProject, Project: name, Detail: "already in the Brain: this checkout joins it"})
 	default:
 		l.m.Projects[name] = &domain.Project{}
-		if err := a.Brain.Save(l.m); err != nil {
+		if err := a.pushManifest(l.m, "add project "+name, r); err != nil {
 			return err
 		}
 		r.Add(Event{Kind: EvProject, Project: name, Detail: "added to " + domain.ManifestFile})
@@ -44,7 +49,7 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 	if err := a.Machine.Save(l.machine); err != nil {
 		return err
 	}
-	r.Add(Event{Kind: EvCheckout, Path: t.Top, Project: name, Detail: "listed: review brain.toml, then nerve sync --here"})
+	r.Add(Event{Kind: EvCheckout, Path: t.Top, Project: name, Detail: "listed: nerve sync --here carries the Brain to it"})
 	return nil
 }
 
@@ -101,12 +106,12 @@ func (a App) RemoveProject(name string, r Reporter) error {
 	if !domain.NamePattern.MatchString(name) {
 		return fmt.Errorf("no project %q: a project's name is lowercase words joined by hyphens", name)
 	}
-	l, err := a.load()
+	l, err := a.fresh(r)
 	if err != nil {
 		return err
 	}
 	_, inBrain := l.m.Projects[name]
-	states, err := a.Machine.States()
+	states, _, err := a.Machine.States()
 	if err != nil {
 		return err
 	}
@@ -129,22 +134,44 @@ func (a App) RemoveProject(name string, r Reporter) error {
 			trees = append(trees, c.Path)
 		}
 	}
+	// A checkout nerve would refuse halfway refuses them all, before any
+	// is cleaned.
 	for _, dir := range trees {
-		if p := l.m.Projects[name]; p != nil {
-			if err := a.adopt(l.m, p, overlay, dir, r); err != nil {
-				return err
-			}
+		if !a.Trees.Exists(dir) {
+			continue
 		}
-		if err := a.clean(dir, "project "+name+" removed", r); err != nil {
+		if err := a.throughLink(dir); err != nil {
+			return fmt.Errorf("%s: %w", dir, err)
+		}
+		if _, err := a.Trees.ReadSettings(settingsPath(dir)); err != nil {
 			return err
 		}
+		if t, err := a.Trees.Locate(dir); err == nil { // one git cannot locate is cleaned all the same
+			if err := a.Trees.SyncExclude(t.Top, func(current []string) ([]string, error) { return current, nil }); err != nil {
+				return fmt.Errorf("%s: %w", dir, err)
+			}
+		}
 	}
+	p := l.m.Projects[name]
+	if p == nil {
+		p = &domain.Project{}
+	}
+	// Dropped from the remote first: a checkout left half-cleaned is one
+	// whose project left the Brain, which the next sync cleans.
 	if inBrain {
 		delete(l.m.Projects, name)
-		if err := a.Brain.Save(l.m); err != nil {
+		if err := a.pushManifest(l.m, "remove project "+name, r); err != nil {
 			return err
 		}
 		r.Add(Event{Kind: EvProject, Project: name, Detail: "dropped from " + domain.ManifestFile})
+	}
+	for _, dir := range trees {
+		if err := a.adopt(l.m, p, overlay, dir, r); err != nil {
+			return fmt.Errorf("%s: %w: nerve sync cleans it", dir, err)
+		}
+		if err := a.clean(dir, "project "+name+" removed", r); err != nil {
+			return fmt.Errorf("%s: %w: nerve sync cleans it", dir, err)
+		}
 	}
 	if listed {
 		l.machine.Checkouts = slices.DeleteFunc(l.machine.Checkouts, func(c domain.Checkout) bool { return c.Project == name })
@@ -158,49 +185,62 @@ func (a App) RemoveProject(name string, r Reporter) error {
 	return nil
 }
 
-// adopt takes as nerve's, in a tree it has no state for, the links that
-// already point where it would point them for project p and, when there
-// are some, the settings it would write: what a checkout that moved still
-// holds, so that cleaning it takes them out. A tree with none of nerve's
-// links was never synced, so its settings are the user's. A third-party
-// skill is left, since knowing its folder may need a fetch.
+// adopt takes as nerve's, in a tree it has no state for, what a checkout
+// that moved still holds, so that cleaning it takes that out: the links
+// that point where nerve points its own, into the Brain's skills/ or
+// agents/ or at its own skill, and the settings it would write for project
+// p, common and nerve's own included. Only a tree where nerve's own skill
+// is linked was synced: in any other, the links and settings are the
+// user's. A third-party skill's link is left, since its folder cannot be
+// told from another one.
 func (a App) adopt(m domain.Manifest, p *domain.Project, overlay map[string]any, dir string, r Reporter) error {
 	st, err := a.state(dir, r)
 	if err != nil || len(st.Links) > 0 || st.Settings != nil || !a.Trees.Exists(dir) {
 		return err
 	}
-	self, err := a.Self.Skill()
-	if err != nil {
+	links, err := a.leftLinks(dir)
+	if err != nil || len(links) == 0 {
 		return err
 	}
 	cmd, err := a.Self.Command()
 	if err != nil {
 		return err
 	}
-	links := []domain.Link{{Kind: "skill", Name: "nerve", Target: self.Dir}}
-	for _, n := range p.Skills {
-		if s, own, err := a.Brain.OwnSkill(n); own && err == nil {
-			links = append(links, domain.Link{Kind: "skill", Name: n, Target: s.Dir})
-		}
-	}
-	for _, n := range p.Agents {
-		if file, ok := a.Brain.AgentFile(n); ok {
-			links = append(links, domain.Link{Kind: "agent", Name: n, Target: file})
-		}
-	}
-	if st.Links == nil {
-		st.Links = map[string]domain.Link{}
-	}
-	for _, l := range links {
-		if a.ours(dir, l.Rel(), l) {
-			st.Links[l.Rel()] = l
-		}
-	}
-	if len(st.Links) == 0 {
-		return nil
-	}
+	st.Links = links
 	st.Settings = domain.Want(m, p, cmd, overlay, a.Brain.Root())
 	return a.Machine.SaveState(st)
+}
+
+// leftLinks are the links in dir that point where nerve points its own,
+// into the Brain's skills/ or agents/, or at its own skill: what a checkout
+// that moved holds. Only a tree where nerve's own skill is linked was
+// synced: in any other, the links are the user's, and it finds none.
+func (a App) leftLinks(dir string) (map[string]domain.Link, error) {
+	self, err := a.Self.Skill()
+	if err != nil {
+		return nil, err
+	}
+	links := map[string]domain.Link{}
+	brain := filepath.Clean(a.Brain.Root())
+	for _, kind := range []string{"skill", "agent"} {
+		sub := map[string]string{"skill": "skills", "agent": "agents"}[kind]
+		for _, e := range a.Trees.Entries(filepath.Join(dir, ".claude", sub)) {
+			l := domain.Link{Kind: kind, Name: strings.TrimSuffix(e, ".md")}
+			target, ok := a.Trees.LinkTarget(filepath.Join(dir, l.Rel()))
+			if !ok || filepath.Join(dir, l.Rel()) != filepath.Join(dir, ".claude", sub, e) {
+				continue
+			}
+			if target == self.Dir && l == (domain.Link{Kind: "skill", Name: "nerve"}) ||
+				filepath.Dir(filepath.Clean(target)) == filepath.Join(brain, sub) {
+				l.Target = target
+				links[l.Rel()] = l
+			}
+		}
+	}
+	if _, synced := links[domain.Link{Kind: "skill", Name: "nerve"}.Rel()]; !synced {
+		return nil, nil
+	}
+	return links, nil
 }
 
 // Init writes this machine's file, naming the Brain's checkout, once the
@@ -208,6 +248,9 @@ func (a App) adopt(m domain.Manifest, p *domain.Project, overlay map[string]any,
 func (a App) Init(r Reporter) error {
 	if _, err := a.Brain.Load(); err != nil {
 		return err
+	}
+	if root := a.Brain.Root(); !a.Trees.Exists(filepath.Join(root, ".git")) {
+		return fmt.Errorf("%s is not a git repo, so it is not a Brain: run git init there, or nerve init on the folder that holds yours", root)
 	}
 	path, err := a.Machine.Create(domain.Machine{Brain: a.Brain.Root()})
 	if err != nil {

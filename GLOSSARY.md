@@ -65,15 +65,19 @@ The Brain's own working tree on one machine, named in the machine file; sync mak
 _Avoid_: config, settings
 
 **Sync**:
-Bringing the remote to this machine: the Brain checkout made equal to its remote, then carried into each listed checkout.
+Bringing the remote to this machine: the Brain checkout made equal to its remote, then carried into each listed checkout; it drops the Brain's work not pushed only with `-f`.
 _Avoid_: pull, install
 
 **Push**:
-Bringing this machine to the remote: everything in the Brain checkout committed, then force-pushed.
+Bringing this machine to the remote: everything in the Brain checkout committed, then pushed, refused when the remote has commits the Brain lacks unless `-f` overwrites them. A command that changes `brain.toml` pushes that change alone, at once, after a refresh.
 _Avoid_: publish, upload
 
+**Refresh**:
+Taking the remote's new commits into the Brain checkout by a fast-forward, before a command changes `brain.toml`; it drops nothing, and refuses a Brain with changes to `brain.toml` or commits its remote lacks.
+_Avoid_: pull, fetch
+
 **Update**:
-Moving each source's pin to its latest commit, after showing how its skills changed.
+Moving each source's pin to its latest commit, after showing how its skills changed, then pushing it and syncing the checkout here.
 _Avoid_: upgrade, bump
 
 **State**:
@@ -105,7 +109,7 @@ A project's settings kept on one machine and never in the Brain: those the Brain
 _Avoid_: secrets file, private settings
 
 **Drift**:
-A setting, or one item of a list, that nerve wrote or the Brain sets, changed in a project since nerve last wrote it, and that the Brain disagrees with; nerve leaves it as is and reports it at every sync.
+A setting, or one item of a list, that nerve wrote or the Brain sets, changed in a project since nerve last wrote it, and that the Brain disagrees with; nerve leaves it as is, fails a sync on it, and overwrites it only with `-f`.
 _Avoid_: out of sync, divergence
 
 **Personal setting**:

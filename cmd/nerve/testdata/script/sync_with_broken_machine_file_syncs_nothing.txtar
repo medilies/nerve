@@ -1,4 +1,4 @@
-# Sync with a broken machine file pulls no repo: it never takes the
+# Sync with a broken machine file syncs no repo: it never takes the
 # project around the working directory for the Brain.
 
 exec nerve init brain

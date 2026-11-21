@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -22,6 +23,9 @@ var _ app.Trees = LocalTrees{}
 func (LocalTrees) Locate(dir string) (domain.Tree, error) {
 	top, err := git(dir, "rev-parse", "--show-toplevel")
 	if err != nil {
+		if _, serr := os.Stat(dir); errors.Is(serr, fs.ErrNotExist) {
+			return domain.Tree{}, fmt.Errorf("%s: no such folder", dir)
+		}
 		return domain.Tree{}, fmt.Errorf("not in a git repo: %w", err)
 	}
 	common, err := git(dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
@@ -61,17 +65,6 @@ func (LocalTrees) Link(path, target string) error {
 }
 
 func (LocalTrees) Remove(path string) error { return os.Remove(path) }
-
-func (LocalTrees) RemoveEmptyFolder(path string) (bool, error) {
-	fi, err := os.Lstat(path)
-	if err != nil || !fi.IsDir() {
-		return false, nil
-	}
-	if entries, err := os.ReadDir(path); err != nil || len(entries) > 0 {
-		return false, err
-	}
-	return true, os.Remove(path)
-}
 
 func (LocalTrees) Entries(dir string) []string {
 	entries, err := os.ReadDir(dir)
@@ -126,7 +119,7 @@ const (
 // block in the repo's info/exclude, which only this clone reads, and all
 // its worktrees share. Syncs of two worktrees at once take turns, so
 // neither writes a block that lacks the other's links.
-func (LocalTrees) SyncExclude(dir string, wanted func() ([]string, error)) error {
+func (LocalTrees) SyncExclude(dir string, wanted func(current []string) ([]string, error)) error {
 	// The common git folder, where info/ is for every worktree: git would
 	// give info/exclude with its links followed.
 	out, err := git(dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
@@ -144,15 +137,12 @@ func (LocalTrees) SyncExclude(dir string, wanted func() ([]string, error)) error
 		return err
 	}
 	defer unlock()
-	rels, err := wanted()
-	if err != nil {
-		return err
-	}
 	old, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	var kept []string // the lines outside nerve's block
+	var kept []string    // the lines outside nerve's block
+	var current []string // the paths in it
 	begin, end := -1, -1
 	lines := strings.SplitAfter(string(old), "\n")
 	for i, line := range lines {
@@ -170,11 +160,17 @@ func (LocalTrees) SyncExclude(dir string, wanted func() ([]string, error)) error
 		default:
 			if begin < 0 || end >= 0 {
 				kept = append(kept, line)
+			} else if rel, ours := strings.CutPrefix(strings.TrimRight(line, "\r\n"), "/"); ours && rel != "" { // as nerve writes its lines
+				current = append(current, rel)
 			}
 		}
 	}
 	if begin >= 0 && end < 0 {
 		return damagedExclude(path)
+	}
+	rels, err := wanted(current)
+	if err != nil || slices.Equal(rels, current) { // as it is: written as the user left it
+		return err
 	}
 	text := strings.Join(kept, "")
 	if len(rels) > 0 {

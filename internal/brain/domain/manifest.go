@@ -155,12 +155,16 @@ func (m Manifest) Validate() error {
 		if !NamePattern.MatchString(name) {
 			return fmt.Errorf("%s: project %q must be lowercase words joined by hyphens", ManifestFile, name)
 		}
-		// Skills, agents and hooks name files and folders: a name must not
-		// lead out of them.
-		for _, kind := range []string{"skill", "agent", "hook"} {
-			for _, item := range *p.List(kind) {
-				if !NamePattern.MatchString(item) {
+		for _, kind := range ItemKinds {
+			list := *p.List(kind)
+			for i, item := range list {
+				// Skills, agents and hooks name files and folders: a name
+				// must not lead out of them.
+				if kind != "plugin" && !NamePattern.MatchString(item) {
 					return fmt.Errorf("%s: project %s: %s %q must be lowercase words joined by hyphens", ManifestFile, name, kind, item)
+				}
+				if slices.Contains(list[:i], item) {
+					return fmt.Errorf("%s: project %s: %s %q is listed twice: list it once", ManifestFile, name, kind, item)
 				}
 			}
 		}

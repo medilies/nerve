@@ -8,7 +8,7 @@ exec nerve project add app
 exec nerve skill add go-stack
 
 exec nerve status --hook
-stdout '^\{"systemMessage":"nerve: checkout [^"]*/proj \(app\): never synced; 2 changes wait for nerve sync"\}$'
+stdout '^\{"systemMessage":"nerve: checkout [^"]*/proj \(app\): never synced; 3 changes wait for nerve sync"\}$'
 ! exists .claude
 
 exec nerve sync --here
@@ -17,7 +17,7 @@ grep '"command": "[^"]* status --hook"' .claude/settings.local.json
 mkdir src
 cd src
 exec sh -c 'eval "$(sed -n "s/.*\"command\": \"\(.*\)\",*$/\1/p" ../.claude/settings.local.json)"'
-stdout '^\{"systemMessage":"nerve: checkout [^"]*/proj \(app\): synced at an uncommitted Brain"\}$'
+stdout '^\{"systemMessage":"nerve: checkout [^"]*/proj \(app\): synced at [0-9a-f]{7}"\}$'
 ! stderr .
 
 -- brain/skills/go-stack/SKILL.md --

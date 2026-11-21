@@ -7,6 +7,8 @@ exec nerve project add app
 rm $HOME/.config/git/ignore
 
 ! exec nerve sync --here
-
+stderr 'git does not ignore .claude/settings.local.json: add \*\*/.claude/settings.local.json to ~/.config/git/ignore'
+! exec nerve sync
+stderr '^error: 1 of 1 checkouts did not sync$'
 stdout 'git does not ignore .claude/settings.local.json: add \*\*/.claude/settings.local.json to ~/.config/git/ignore'
 ! exists .claude

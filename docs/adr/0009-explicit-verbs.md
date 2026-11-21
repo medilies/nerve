@@ -1,6 +1,6 @@
 # Explicit verbs: nerve acts only when told
 
-Status: accepted, 2026-11-21. Supersedes, in [ADR 0005](0005-projects-opt-in.md), "Autosync is explicit" and "Keeping sensitive values out" but for the allow-list; the `nerve` pin of [ADR 0002](0002-brain-and-nervous-system.md) and [ADR 0007](0007-drop-guessing-features.md).
+Status: accepted, 2026-11-21. Supersedes, in [ADR 0005](0005-projects-opt-in.md), "Autosync is explicit" and "Keeping sensitive values out" but for the allow-list; the `nerve` pin of [ADR 0002](0002-brain-and-nervous-system.md) and [ADR 0007](0007-drop-guessing-features.md). Losing an unpushed `brain.toml` at a sync, push force-pushing unasked, `--discard`, and `update` leaving its pin to push, superseded by [ADR 0010](0010-brain-toml-in-step.md).
 
 ## Context
 

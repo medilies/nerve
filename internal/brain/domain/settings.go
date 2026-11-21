@@ -7,7 +7,9 @@ import (
 	"math"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
+	"unicode"
 )
 
 // LocalSettings is the one settings file nerve writes in a project, relative
@@ -122,6 +124,12 @@ func Dotted(key string) string {
 // ErrKey is a settings key a user wrote that nerve cannot read.
 var ErrKey = errors.New(`must be keys joined by dots, such as model or permissions.deny, with a key that holds a dot in double quotes, such as enabledPlugins."x@y.z"`)
 
+var (
+	errKeyEquals  = errors.New("holds = outside double quotes: give the value as its own argument, such as model opus, or put a key holding = in double quotes")
+	errKeyEmpty   = errors.New("has an empty key: name each key, such as permissions.deny")
+	errKeyControl = errors.New("holds a control character: name each key in plain text")
+)
+
 // ParseKey reads a settings key the way a user writes it, as Dotted shows
 // it, into its path of keys.
 func ParseKey(s string) ([]string, error) {
@@ -149,6 +157,15 @@ func ParseKey(s string) ([]string, error) {
 				return nil, ErrKey
 			}
 			seg, i = s[i:i+j], i+j
+			if strings.Contains(seg, "=") {
+				return nil, errKeyEquals
+			}
+		}
+		switch {
+		case seg == "":
+			return nil, errKeyEmpty
+		case strings.ContainsFunc(seg, unicode.IsControl):
+			return nil, errKeyControl
 		}
 		if i < len(s) && (s[i] != '.' || i == len(s)-1) {
 			return nil, ErrKey
@@ -424,15 +441,15 @@ type Reconciliation struct {
 
 // Reconcile works out what a settings file holding current should hold to
 // match want, given what nerve meant it to hold when it last wrote it. A key
-// that neither want nor last holds is personal: kept, discard or not. A key
+// that neither want nor last holds is personal: kept, forced or not. A key
 // changed there since, that want does not agree with, is drift and kept as
-// it is, unless discard is set. A list is reconciled item by item, so an
+// it is, unless force is set. A list is reconciled item by item, so an
 // item added or removed there is personal or drift on its own, and the
 // Brain's other items still arrive. A file that is gone (current nil) holds
 // nothing to keep: it is written anew. On nerve's first write to a file
 // (last nil), Before records what it already held as want does, so that
 // cleaning it leaves the file's own.
-func Reconcile(current, last, want map[string]any, discard bool) Reconciliation {
+func Reconcile(current, last, want map[string]any, force bool) Reconciliation {
 	if current == nil {
 		last = nil
 	}
@@ -446,7 +463,7 @@ func Reconcile(current, last, want map[string]any, discard bool) Reconciliation 
 	var rc Reconciliation
 	for _, k := range unionKeys(have, prev, goal) {
 		if lists(k, have, prev, goal) {
-			rc.Drift = append(rc.Drift, reconcileList(k, have, prev, goal, discard, result, next, personal, before)...)
+			rc.Drift = append(rc.Drift, reconcileList(k, have, prev, goal, force, result, next, personal, before)...)
 			continue
 		}
 		_, inP := prev[k]
@@ -458,7 +475,7 @@ func Reconcile(current, last, want map[string]any, discard bool) Reconciliation 
 		if before != nil && Same(have, goal, k) {
 			before[k] = have[k]
 		}
-		if discard || Same(have, prev, k) || Same(have, goal, k) {
+		if force || Same(have, prev, k) || Same(have, goal, k) {
 			setOrDelete(result, k, goal)
 			setOrDelete(next, k, goal)
 			continue
@@ -490,7 +507,7 @@ func Reconcile(current, last, want map[string]any, discard bool) Reconciliation 
 // keys, into result, next, personal and, unless nil, before. The result
 // keeps the file's order, and adds the Brain's new items after; next takes
 // the Brain's order, so it does not change with the file's.
-func reconcileList(k string, have, prev, goal map[string]any, discard bool, result, next, personal, before map[string]any) []Change {
+func reconcileList(k string, have, prev, goal map[string]any, force bool, result, next, personal, before map[string]any) []Change {
 	h, _ := have[k].([]any)
 	p, _ := prev[k].([]any)
 	g, _ := goal[k].([]any)
@@ -514,7 +531,7 @@ func reconcileList(k string, have, prev, goal map[string]any, discard bool, resu
 		if before != nil && inH && inG {
 			had = append(had, x)
 		}
-		if discard || inH == inP || inH == inG {
+		if force || inH == inP || inH == inG {
 			if inG {
 				kept, means = append(kept, x), append(means, x)
 			}
@@ -546,7 +563,7 @@ func reconcileList(k string, have, prev, goal map[string]any, discard bool, resu
 	case onlyFile:
 		keep = true
 		personal[k] = h
-	case !discard && hasH != hasP && hasH != hasG:
+	case !force && hasH != hasP && hasH != hasG:
 		keep, mean = hasH, hasP
 	}
 	if len(mine) > 0 && !onlyFile {
@@ -655,21 +672,24 @@ func ParseValue(s string) any {
 // Numbers makes each number in decoded JSON, read as json.Number, one that
 // compares equal to the same number written another way: an int64 when it
 // is whole and fits, a float64 when it has a fraction or exponent, as
-// brain.toml and Claude Code hold it, and else the json.Number itself, so a
-// whole number beyond int64 keeps every digit. It changes objects and lists
-// in place.
+// brain.toml and Claude Code hold it, or when it is how JSON writes a
+// float64, such as 10000000000000000000 for 1e19, and else the json.Number
+// itself, so a whole number beyond int64 keeps every digit. It changes
+// objects and lists in place.
 func Numbers(v any) any {
 	switch t := v.(type) {
 	case json.Number:
 		if i, err := t.Int64(); err == nil {
 			return i
 		}
-		if !strings.ContainsAny(string(t), ".eE") {
+		f, err := t.Float64()
+		if err != nil {
 			return t
 		}
-		if f, err := t.Float64(); err == nil {
-			return Numbers(f)
+		if !strings.ContainsAny(string(t), ".eE") && strconv.FormatFloat(f, 'f', -1, 64) != string(t) {
+			return t
 		}
+		return Numbers(f)
 	case float64:
 		if t == math.Trunc(t) && math.Abs(t) < 1<<63 {
 			return int64(t)

@@ -63,7 +63,17 @@ func (SourceCache) Diff(src domain.Source, name, to string) (string, error) {
 	}
 	// The source's own text only: no diff tool or text conversion of the
 	// user's, and shown as visible says.
-	out, err := git("", "diff", "--no-index", "--no-color", "--no-ext-diff", "--no-textconv", "--", oldDir, newDir)
+	// Named from the cache folder both commits sit in, as <commit>/<path>:
+	// the cache's own path tells the reader nothing.
+	dir, from, to := "", oldDir, newDir
+	if parent := filepath.Dir(oldTree); parent == filepath.Dir(newTree) {
+		if a, err := filepath.Rel(parent, oldDir); err == nil {
+			if b, err := filepath.Rel(parent, newDir); err == nil {
+				dir, from, to = parent, a, b
+			}
+		}
+	}
+	out, err := git(dir, "diff", "--no-index", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=", "--dst-prefix=", "--", from, to)
 	if err != nil && exitCode(err) != 1 { // 1: they differ
 		return "", err
 	}
@@ -174,8 +184,9 @@ func sweep(dir string) {
 
 // findSkill finds a skill in a repo checkout, in the folder path names, or
 // "" for the repo's root: that folder when its SKILL.md names the skill,
-// else its folder of that name holding a SKILL.md. At the root, a skill may
-// also be in skills/; it must be in one place only.
+// else its folder of that name holding a SKILL.md. At the root, that folder
+// may also be in skills/; a SKILL.md naming the skill wins over both, which
+// must not both hold one.
 func findSkill(tree, path, name string) (string, error) {
 	base := filepath.Join(tree, filepath.FromSlash(path))
 	meta, rootErr := readFrontmatter(filepath.Join(base, "SKILL.md"))

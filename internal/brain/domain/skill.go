@@ -176,6 +176,8 @@ func unquote(q string) string {
 // AgentProblem says what is wrong with an agent file's frontmatter, or nil.
 func AgentProblem(name string, meta map[string]string) error {
 	switch {
+	case !NamePattern.MatchString(name):
+		return errors.New("name must be lowercase words joined by hyphens")
 	case meta["name"] != name:
 		return fmt.Errorf("frontmatter name %q differs from file name", meta["name"])
 	case meta["description"] == "":

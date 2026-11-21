@@ -15,13 +15,32 @@ func (a App) Check(r Reporter) error {
 	if err != nil {
 		return err
 	}
+	p, err := a.problems(m)
+	if err != nil {
+		return err
+	}
+	for _, e := range p {
+		r.Add(problemEvent(e))
+	}
+	if len(p) > 0 {
+		if len(p) == 1 {
+			return errors.New("1 problem")
+		}
+		return fmt.Errorf("%d problems", len(p))
+	}
+	r.Add(Event{Kind: EvOK, Detail: "no problems"})
+	return nil
+}
+
+// problems lists what is wrong with a Brain whose manifest is m.
+func (a App) problems(m domain.Manifest) ([]domain.Problem, error) {
 	var p []domain.Problem
 	problem := func(path, key, detail string) {
 		p = append(p, domain.Problem{Path: path, Key: key, Detail: detail})
 	}
 	own, err := a.Brain.OwnSkills()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ownNames := map[string]bool{}
 	for _, s := range own {
@@ -40,7 +59,7 @@ func (a App) Check(r Reporter) error {
 	}
 	agents, err := a.Brain.Agents()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, ag := range agents {
 		if ag.Err != nil {
@@ -78,16 +97,5 @@ func (a App) Check(r Reporter) error {
 			problem(domain.ManifestFile, key+".settings."+k, "equals common: drop it from the project")
 		}
 	}
-	p = append(p, m.Refusals()...)
-	for _, e := range p {
-		r.Add(problemEvent(e))
-	}
-	if len(p) > 0 {
-		if len(p) == 1 {
-			return errors.New("1 problem")
-		}
-		return fmt.Errorf("%d problems", len(p))
-	}
-	r.Add(Event{Kind: EvOK, Detail: "no problems"})
-	return nil
+	return append(p, m.Refusals()...), nil
 }

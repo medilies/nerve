@@ -13,7 +13,7 @@ import (
 
 // AddItem adds a skill, agent, hook or plugin to the target project.
 func (a App) AddItem(ref ProjectRef, kind, name string, r Reporter) error {
-	l, err := a.load()
+	l, err := a.fresh(r)
 	if err != nil {
 		return err
 	}
@@ -29,13 +29,24 @@ func (a App) AddItem(ref ProjectRef, kind, name string, r Reporter) error {
 			return err // one sync would only report
 		}
 	}
+	// What brain.toml lists, the remote must hold, or other machines'
+	// syncs refuse the project.
+	rel := ""
+	if _, own, _ := a.Brain.OwnSkill(name); kind == "skill" && own {
+		rel = "skills/" + name
+	} else if kind == "agent" {
+		rel = "agents/" + name + ".md"
+	}
+	if rel != "" && !a.Brain.OnRemote(rel) {
+		return fmt.Errorf("%s %s is not on the Brain's remote yet, as it is here: nerve push it, then add it", kind, name)
+	}
 	list := p.List(kind)
 	if slices.Contains(*list, name) {
 		r.Add(Event{Kind: EvItem, Project: project, Item: kind + " " + name, Detail: "already in project " + project})
 		return nil
 	}
 	*list = append(*list, name)
-	if err := a.Brain.Save(l.m); err != nil {
+	if err := a.pushManifest(l.m, fmt.Sprintf("add %s %s to project %s", kind, name, project), r); err != nil {
 		return err
 	}
 	r.Add(Event{Kind: EvAdded, Project: project, Item: kind + " " + name})
@@ -48,7 +59,7 @@ func (a App) RemoveItem(ref ProjectRef, kind, name string, all bool, r Reporter)
 	if err := onePlace(ref.Project, false, all); err != nil {
 		return err
 	}
-	l, err := a.load()
+	l, err := a.fresh(r)
 	if err != nil {
 		return err
 	}
@@ -77,7 +88,11 @@ func (a App) RemoveItem(ref ProjectRef, kind, name string, all bool, r Reporter)
 		}
 		return fmt.Errorf("project %s has no %s %s", projects[0], kind, name)
 	}
-	if err := a.Brain.Save(l.m); err != nil {
+	where := "project " + projects[0]
+	if all {
+		where = "every project"
+	}
+	if err := a.pushManifest(l.m, fmt.Sprintf("remove %s %s from %s", kind, name, where), r); err != nil {
 		return err
 	}
 	for _, e := range dropped {
@@ -119,18 +134,27 @@ func (a App) agentFile(path string) bool {
 }
 
 // Update moves the pin of each source, or of repo alone, to the tip of its
-// default branch, first showing how each of its skills changed. A source
-// that cannot move is reported, and the others still do.
-func (a App) Update(repo string, r Reporter) error {
-	m, err := a.Brain.Load()
+// default branch, first showing how each of its skills changed, and pushes
+// the new pins. Then it syncs the listed checkout around dir, if any, so
+// the project here gets them. A source that cannot move is reported, and
+// the others still do.
+func (a App) Update(dir, repo string, r Reporter) error {
+	l, err := a.fresh(r)
 	if err != nil {
 		return err
 	}
+	m := l.m
 	repo = strings.TrimSuffix(strings.TrimPrefix(repo, "https://github.com/"), ".git")
 	if repo != "" && !slices.ContainsFunc(m.Sources, func(s domain.Source) bool { return s.Repo == repo }) {
 		return fmt.Errorf("%s is not a source in %s", repo, domain.ManifestFile)
 	}
-	moved, failed := false, 0
+	if len(m.Sources) == 0 {
+		r.Add(Event{Kind: EvOK, Detail: domain.ManifestFile + " has no [[source]] to update"})
+		return nil
+	}
+	failed := 0
+	var pinned []Event // reported once pushed
+	var moved []string
 	for i, src := range m.Sources {
 		if repo != "" && src.Repo != repo {
 			continue
@@ -143,19 +167,35 @@ func (a App) Update(repo string, r Reporter) error {
 		case sha == src.SHA:
 			r.Add(Event{Kind: EvAlreadyThere, Detail: src.Repo, Target: sha})
 		default:
-			m.Sources[i].SHA, moved = sha, true
-			r.Add(Event{Kind: EvPinned, Detail: src.Repo, Target: sha})
+			m.Sources[i].SHA = sha
+			pinned = append(pinned, Event{Kind: EvPinned, Detail: src.Repo, Target: sha})
+			moved = append(moved, src.Repo+" at "+Short(sha))
 		}
 	}
-	if moved {
-		if err := a.Brain.Save(m); err != nil {
+	var errs []error
+	if len(moved) > 0 {
+		if err := a.pushManifest(m, "pin "+strings.Join(moved, ", "), r); err != nil {
 			return err
+		}
+		for _, e := range pinned {
+			r.Add(e)
+		}
+		if _, _, err := a.here(l.machine, dir); err == nil {
+			// The Brain is its remote's already: a sync of it would only
+			// drop the user's work in it.
+			errs = append(errs, a.Sync(SyncOptions{Dir: dir, Here: true, brainAsIs: true}, r))
+		} else {
+			r.Add(Event{Kind: EvOK, Detail: "no listed checkout here: nerve sync carries the new pins to each one"})
 		}
 	}
 	if failed > 0 {
-		return fmt.Errorf("%d sources did not move", failed)
+		what := "sources"
+		if failed == 1 {
+			what = "source"
+		}
+		errs = append(errs, fmt.Errorf("%d %s did not move", failed, what))
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // pinTip finds the tip of a source's default branch and reports how each of

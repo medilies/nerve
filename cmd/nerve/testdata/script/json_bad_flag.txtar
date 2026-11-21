@@ -4,3 +4,5 @@
 
 ! stderr .
 stdout '^  "error": '
+stdout '"error": "--bogus is not a flag nerve knows: put -- before a word that starts with -: nerve help lists the commands"'
+! stdout 'usage: nerve'

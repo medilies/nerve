@@ -30,12 +30,16 @@ func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 		`acme/up is in two [[source]]`:     {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{"x"}}, {Repo: "acme/up", SHA: sha, Skills: []string{"y"}}}},
 		`"hooks.Stop" is written by nerve`: {AllowedSettings: []string{"hooks.Stop"}},
 		`"enabledPlugins" is written by`:   {AllowedSettings: []string{"enabledPlugins"}},
+		`app: skill "foo" is listed twice`: {Projects: map[string]*domain.Project{"app": {Skills: []string{"foo", "foo"}}}},
+		`app: agent "rv" is listed twice`:  {Projects: map[string]*domain.Project{"app": {Agents: []string{"rv", "rv"}}}},
+		`app: hook "fmt" is listed twice`:  {Projects: map[string]*domain.Project{"app": {Hooks: []string{"fmt", "fmt"}}}},
+		`plugin "a@b" is listed twice`:     {Projects: map[string]*domain.Project{"app": {Plugins: []string{"a@b", "a@b"}}}},
 	} {
 		if err := m.Validate(); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("got %v, want %q", err, want)
 		}
 	}
-	if err := (domain.Manifest{AllowedSettings: []string{"mcpServers.db.env"}, Projects: map[string]*domain.Project{"app": {}}}).Validate(); err != nil {
+	if err := (domain.Manifest{AllowedSettings: []string{"mcpServers.db.env"}, Hooks: map[string]domain.Hook{"fmt": {Event: "PostToolUse", Command: "x"}}, Projects: map[string]*domain.Project{"app": {}}}).Validate(); err != nil {
 		t.Errorf("a valid manifest is refused: %v", err)
 	}
 }

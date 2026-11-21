@@ -6,7 +6,8 @@
 - `domain` holds the Brain and its rules. `app` holds the use cases, the events they report and the ports they need. `infra` holds every adapter, such as `brain.toml`, the machine file, git, caches, links and reports. A new adapter needs a port in `app` first.
 - Minimalism: add only what is needed now. No speculative abstractions, unused dependencies or placeholder files. Ideas wait in `docs/backlog.md`.
 - Only where needed ([ADR 0005](docs/adr/0005-projects-opt-in.md)): nerve writes only in listed projects, never at user level, and only what their entry names. Every effect is visible and reported. It removes only what it made, and never edits `.gitignore`.
-- Explicit verbs ([ADR 0009](docs/adr/0009-explicit-verbs.md)): nerve changes the Brain, its remote or a project only when a command says so; otherwise it reports. `sync` brings the remote here, `push` sends the Brain there, `update` moves pins.
+- [core.md](core.md) is the reference for what nerve is. Where an ADR disagrees with it, a new ADR follows core.md.
+- Explicit verbs ([ADR 0009](docs/adr/0009-explicit-verbs.md), [ADR 0010](docs/adr/0010-brain-toml-in-step.md)): nerve changes the Brain, its remote or a project only when a command says so; otherwise it reports. `sync` brings the remote here, `push` sends the Brain there, `update` moves pins and syncs here. A command that changes `brain.toml` pushes it at once.
 - nerve writes nothing of this machine into the Brain: no checkout paths or repo remotes, which stay in this machine's files. What an allowed setting holds is the user's to judge.
 
 ## Ubiquitous language
@@ -42,7 +43,7 @@ If your output contradicts an ADR in `docs/adr/`, say so explicitly rather than 
   - Agents in users' projects: the nerve skill.
   - Contributors: `development.md` (commands, design, releasing), `backlog.md` (ideas left out), `not-bugs.md` (behaviour kept on purpose).
   - Agents here: this file.
-- ADRs in `docs/adr/`, plans in `docs/plans/` and `conversation-notes.md` are records. They aren't updated, apart from a status line.
+- ADRs in `docs/adr/`, plans in `docs/plans/`, `conversation-notes.md` and `review-feat-projects.md` are records. They aren't updated, apart from a status line.
 - Never list in full what the code lists (use cases, ports, adapters, events). Name a few as examples, so the list can't go stale.
 - User docs say what nerve does, not how. Leave out internals, the reasons behind workarounds, and history. History is in git, and decisions are in ADRs.
 - Output shown in a doc is copied from a real run on a temp HOME, never written by hand.

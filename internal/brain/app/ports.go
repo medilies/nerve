@@ -13,12 +13,25 @@ type Brain interface {
 	Load() (domain.Manifest, error)
 	// Save writes the manifest in nerve's own layout.
 	Save(domain.Manifest) error
-	// Pull makes the checkout equal to its upstream, reporting the local
-	// commits and changes it drops, or says why it could not.
-	Pull(Reporter) error
-	// Push commits everything in the checkout with message, then
-	// force-pushes it to its upstream.
-	Push(message string, r Reporter) error
+	// Refresh brings the upstream's new commits to a checkout that has
+	// nothing of its own to push, refusing one with changes to brain.toml
+	// or commits its upstream lacks, or whose upstream it cannot reach.
+	Refresh(Reporter) error
+	// PushManifest commits brain.toml alone with message, then pushes that
+	// commit to the upstream.
+	PushManifest(message string, r Reporter) error
+	// OnRemote says whether the upstream holds the file or folder at rel,
+	// relative to the Brain, as the checkout does.
+	OnRemote(rel string) bool
+	// Sync makes the checkout equal to its upstream, reporting the local
+	// commits, changes and untracked files it drops, or says why it could
+	// not.
+	// It refuses to drop any unless force says to.
+	Sync(force bool, r Reporter) error
+	// Push commits everything in the checkout with message, then pushes it
+	// to its upstream, refusing when the upstream has commits the checkout
+	// lacks, unless force says to overwrite them.
+	Push(message string, force bool, r Reporter) error
 	// Head is the checked-out commit, "" outside git.
 	Head() string
 	// State says what the checkout holds that others cannot see yet.
@@ -71,8 +84,9 @@ type Machine interface {
 	State(dir string) (domain.TreeState, error)
 	SaveState(domain.TreeState) error
 	DropState(dir string) error
-	// States reads every state it can.
-	States() ([]domain.TreeState, error)
+	// States reads every state it can, and says whether some could not be
+	// read.
+	States() (states []domain.TreeState, unreadable bool, err error)
 }
 
 // ErrUnreadable is a state nerve cannot read, which it replaces.
@@ -92,18 +106,16 @@ type Trees interface {
 	// makes the folders on the way.
 	Link(path, target string) error
 	Remove(path string) error
-	// RemoveEmptyFolder removes path if it is an empty folder, and says
-	// whether it did.
-	RemoveEmptyFolder(path string) (bool, error)
 	Entries(dir string) []string
 	// CheckIgnored refuses a tree whose settings.local.json git tracks or
 	// does not ignore.
 	CheckIgnored(dir string) error
 	// SyncExclude keeps out of git, through nerve's block in the repo's
 	// info/exclude, the paths rels returns, which must cover every worktree
-	// of the repo. It calls rels while no other run can write the block,
-	// and refuses a block someone damaged.
-	SyncExclude(dir string, rels func() ([]string, error)) error
+	// of the repo. It calls rels with the paths the block holds now, while
+	// no other run can write the block, and refuses a block someone
+	// damaged.
+	SyncExclude(dir string, rels func(current []string) ([]string, error)) error
 	ReadSettings(path string) (map[string]any, error)
 	WriteSettings(path string, settings map[string]any) error
 	// Frontmatter reads the frontmatter of the Markdown file at path.

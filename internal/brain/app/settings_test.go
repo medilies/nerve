@@ -22,7 +22,7 @@ func TestSetSettingInTheProjectOrCommon(t *testing.T) {
 	if got := jsonText(e.brain.m.Common); got != `{"model":"opus"}` {
 		t.Errorf("common is %s", got)
 	}
-	contains(t, r, `set      permissions.deny = ["Cron"]`, `set      model = "opus"`)
+	contains(t, r, `set      brain.toml (project app): permissions.deny = ["Cron"]`, `set      brain.toml (common): model = "opus"`)
 }
 
 func TestSetSettingSendsASettingNoListAllowsToTheOverlay(t *testing.T) {
@@ -61,7 +61,7 @@ func TestSetSettingReportsTheObjectItSets(t *testing.T) {
 
 	e.must(r, e.app.SetSetting(target("/w/app"), "permissions", map[string]any{"defaultMode": "plan"}, false, r))
 
-	contains(t, r, `set      permissions = {"defaultMode":"plan"}`)
+	contains(t, r, `set      brain.toml (project app): permissions = {"defaultMode":"plan"}`)
 }
 
 func TestSetSettingRefusesWhatBrainTomlCannotHold(t *testing.T) {
@@ -140,9 +140,9 @@ func TestAddSettingAddsOneItemToAList(t *testing.T) {
 		t.Errorf("common is %s", got)
 	}
 	contains(t, r,
-		`set      permissions.allow = ["Read","Bash(make)"] (was ["Read"])`,
+		`set      brain.toml (project app): permissions.allow = ["Read","Bash(make)"] (was ["Read"])`,
 		`permissions.allow already holds "Bash(make)" in brain.toml (project app)`,
-		`set      permissions.deny = ["Cron"]`)
+		`set      brain.toml (common): permissions.deny = ["Cron"]`)
 	if err := e.app.AddSetting(target("/w/app"), "model", "x", false, &recorder{}); err == nil || err.Error() != "model is not a list" {
 		t.Errorf("got %v, want a value that is not a list refused", err)
 	}
@@ -239,7 +239,7 @@ func TestSetSettingInTheBrainDropsTheOverlaysValueThatWouldWin(t *testing.T) {
 	if got := jsonText(e.machine.overlays["app"]); got != `{"statusLine":{"padding":1}}` {
 		t.Errorf("overlay is %s, want only the key set in the Brain dropped", got)
 	}
-	contains(t, r, `set      statusLine.command = "y"`, "dropped  setting statusLine.command from the local overlay of project app")
+	contains(t, r, `set      brain.toml (project app): statusLine.command = "y"`, "dropped  setting statusLine.command from the local overlay of project app")
 }
 
 func TestSetSettingInTheBrainDropsAnOverlayValueAboveTheKey(t *testing.T) {
@@ -323,4 +323,31 @@ func TestSetSettingWhoseOverlaySaveFailsChangesNothing(t *testing.T) {
 	if err == nil || e.brain.saves != 0 || e.machine.overlays["app"] != nil || len(r.events) > 0 {
 		t.Errorf("got %v, saves %d, overlay %v, events:\n%s", err, e.brain.saves, e.machine.overlays["app"], r)
 	}
+}
+
+func TestASettingWhoseOverlayCannotBeReadChangesNothing(t *testing.T) {
+	for _, common := range []bool{false, true} {
+		e := newEnv(t)
+		e.listed("app", "/w/app")
+		e.machine.fail["Overlay"] = errors.New("/cfg/nerve/overlays/app.json: invalid character: fix it by hand")
+
+		err := e.app.SetSetting(target("/w/app"), "model", "opus", common, &recorder{})
+
+		if err == nil || !strings.Contains(err.Error(), "fix it by hand") || len(e.brain.manifestPushes) > 0 {
+			t.Errorf("common %v: got %v, pushed %q", common, err, e.brain.manifestPushes)
+		}
+	}
+}
+
+func TestSettingAValueTheBrainHoldsAlreadyChangesNothing(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
+	r := &recorder{}
+
+	e.must(r, e.app.SetSetting(target("/w/app"), "model", "opus", false, r))
+
+	if len(e.brain.manifestPushes) > 0 || strings.Contains(r.String(), "set ") {
+		t.Errorf("pushed %q:\n%s", e.brain.manifestPushes, r)
+	}
+	contains(t, r, `model already holds "opus" in brain.toml (project app)`)
 }

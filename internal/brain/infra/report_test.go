@@ -91,3 +91,22 @@ func TestHookReportShowsNoControlCharacter(t *testing.T) {
 		t.Errorf("message is %q", msg)
 	}
 }
+
+// brokenPipe is a stdout that was closed.
+type brokenPipe struct{}
+
+func (brokenPipe) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
+
+func TestAReportThatCannotBePrintedSaysSo(t *testing.T) {
+	for name, mode := range map[string]int{"text": AsText, "JSON": AsJSON, "hook": AsHook} {
+		t.Run(name, func(t *testing.T) {
+			r := NewReport(brokenPipe{}, mode)
+			r.Add(app.Event{Kind: app.EvWrote, Path: "/x"})
+			r.Finish(nil)
+
+			if err := r.Err(); err == nil || !strings.Contains(err.Error(), "broken pipe") {
+				t.Errorf("got %v", err)
+			}
+		})
+	}
+}

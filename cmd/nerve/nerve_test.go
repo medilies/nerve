@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -28,6 +29,19 @@ func TestAnErrorReachesTheTerminalWithNoControlCharacter(t *testing.T) {
 	var stdout, stderr strings.Builder
 
 	if code := cli([]string{"init", filepath.Join(home, "brain\x1b]0;owned\x07")}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "has no brain.toml") || strings.ContainsAny(stderr.String(), "\x1b\x07") {
+		t.Errorf("exit %d, stderr %q", code, stderr.String())
+	}
+}
+
+// failingWriter is a stdout that is closed.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
+
+func TestAReportThatCannotBePrintedExitsOne(t *testing.T) {
+	var stderr strings.Builder
+
+	if code := cli([]string{"help"}, failingWriter{}, &stderr); code != 1 || !strings.Contains(stderr.String(), "broken pipe") {
 		t.Errorf("exit %d, stderr %q", code, stderr.String())
 	}
 }

@@ -124,3 +124,11 @@ func (e *testEnv) commit(dir string) string {
 func skillMD(name, extra string) string {
 	return "---\nname: " + name + "\ndescription: Does " + name + ".\n" + extra + "---\n\n# " + name + "\n"
 }
+
+// must fails the test on err.
+func (e *testEnv) must(err error) {
+	e.t.Helper()
+	if err != nil {
+		e.t.Fatal(err)
+	}
+}

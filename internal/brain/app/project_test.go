@@ -31,7 +31,7 @@ func TestAddProjectListsTheCheckoutAndRecordsNoneOfItsSettings(t *testing.T) {
 	}
 	contains(t, r,
 		"project  app: added to brain.toml",
-		"checkout /w/app (app): listed: review brain.toml, then nerve sync --here")
+		"checkout /w/app (app): listed: nerve sync --here carries the Brain to it")
 }
 
 func TestRemovingAProjectKeepsTheSettingsItsCheckoutHadBefore(t *testing.T) {
@@ -153,25 +153,24 @@ func TestRemoveProjectCleansItsTreesAndDropsIt(t *testing.T) {
 	}
 }
 
-func TestRemoveProjectRemovesTheFoldersNerveMadeLeftEmptyAndNoOthers(t *testing.T) {
+func TestRemoveProjectLeavesTheFoldersAndTheSettingsFileItLeftEmpty(t *testing.T) {
 	e := newEnv(t)
 	e.ownSkill("go-stack")
 	e.listed("app", "/w/app").Skills = []string{"go-stack"}
-	e.trees.mkdirs("/w/app/.claude/agents") // the team's, before nerve
 	e.must(e.sync("/w/app", app.SyncOptions{}))
 
-	e.must(&recorder{}, e.app.RemoveProject("app", &recorder{}))
+	r := e.must(&recorder{}, e.app.RemoveProject("app", &recorder{}))
 
-	for dir, want := range map[string]bool{"/w/app/.claude/skills": false, "/w/app/.claude/agents": true, "/w/app/.claude": true} {
-		if e.trees.dirs[dir] != want {
-			t.Errorf("%s is there: %v, want %v", dir, e.trees.dirs[dir], want)
+	for _, dir := range []string{"/w/app/.claude/skills", "/w/app/.claude"} {
+		if !e.trees.dirs[dir] {
+			t.Errorf("%s is gone: nerve never deletes a folder left empty", dir)
 		}
 	}
-	e.listed("other", "/w/other")
-	e.must(e.sync("/w/other", app.SyncOptions{}))
-	e.must(&recorder{}, e.app.RemoveProject("other", &recorder{}))
-	if e.trees.dirs["/w/other/.claude/skills"] || jsonText(e.settings("/w/other")) != "{}" {
-		t.Errorf("want .claude/skills gone, and settings.local.json kept as {}, never deleted")
+	if jsonText(e.settings("/w/app")) != "{}" {
+		t.Errorf("want settings.local.json kept as {}, never deleted")
+	}
+	if strings.Contains(r.String(), "removed  /w/app/.claude/skills\n") {
+		t.Errorf("reported a folder removed:\n%s", r)
 	}
 }
 
@@ -180,6 +179,7 @@ func TestInitNamesTheBrainOnce(t *testing.T) {
 	e.machine.missing = true
 	r := &recorder{}
 
+	e.trees.dirs["/brain/.git"] = true
 	e.must(r, e.app.Init(r))
 
 	if e.machine.machine.Brain != "/brain" {
@@ -187,6 +187,20 @@ func TestInitNamesTheBrainOnce(t *testing.T) {
 	}
 	if err := e.app.Init(&recorder{}); err == nil || !strings.Contains(err.Error(), "exists") {
 		t.Errorf("got %v", err)
+	}
+}
+
+func TestInitRefusesABrainThatIsNotAGitRepo(t *testing.T) {
+	e := newEnv(t)
+	e.machine.missing = true
+
+	err := e.app.Init(&recorder{})
+
+	if err == nil || !strings.Contains(err.Error(), "/brain is not a git repo") {
+		t.Errorf("got %v", err)
+	}
+	if !e.machine.missing {
+		t.Errorf("init wrote the machine file")
 	}
 }
 
@@ -349,5 +363,67 @@ func TestRemoveProjectKeepsASettingsFileTheCheckoutHadEmpty(t *testing.T) {
 
 	if got, ok := e.trees.settings["/w/app/.claude/settings.local.json"]; !ok || len(got) > 0 {
 		t.Errorf("settings are %v, want the checkout's own {} kept", got)
+	}
+}
+
+func TestRemoveProjectChecksEveryCheckoutBeforeCleaningAny(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go-stack")
+	e.listed("app", "/w/a").Skills = []string{"go-stack"}
+	e.checkout("/w/b")
+	e.machine.machine.Checkouts = append(e.machine.machine.Checkouts, domain.Checkout{Path: "/w/b", Project: "app"})
+	e.must(e.sync("/w", app.SyncOptions{}))
+	e.trees.links["/w/b/.claude"] = "/elsewhere"
+
+	err := e.app.RemoveProject("app", &recorder{})
+
+	if err == nil || !strings.Contains(err.Error(), "/w/b: .claude is a link") {
+		t.Errorf("got %v", err)
+	}
+	if _, ok := e.trees.links["/w/a/.claude/skills/go-stack"]; !ok {
+		t.Errorf("cleaned /w/a before refusing /w/b")
+	}
+}
+
+func TestRemoveProjectWhosePushFailsLeavesItsCheckoutsAsTheyAre(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go-stack")
+	e.listed("app", "/w/app").Skills = []string{"go-stack"}
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	e.brain.manifestPushErr = errors.New("git push: rejected")
+
+	if err := e.app.RemoveProject("app", &recorder{}); err == nil {
+		t.Fatal("no error")
+	}
+
+	if _, ok := e.trees.links["/w/app/.claude/skills/go-stack"]; !ok || len(e.machine.machine.Checkouts) != 1 {
+		t.Errorf("cleaned a checkout of a project still on the remote: links %v", e.trees.links)
+	}
+}
+
+func TestRemoveProjectTakesNoLinkOfACheckoutNerveNeverSynced(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("mine")
+	e.listed("app", "/w/app")
+	e.trees.links["/w/app/.claude/skills/mine"] = "/brain/skills/mine" // made by hand
+	e.trees.dirs["/w/app/.claude/skills"] = true
+
+	e.must(&recorder{}, e.app.RemoveProject("app", &recorder{}))
+
+	if _, ok := e.trees.links["/w/app/.claude/skills/mine"]; !ok {
+		t.Errorf("removed a link the user made")
+	}
+}
+
+func TestRemoveProjectRefusesADamagedExcludeBlockBeforePushing(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	e.trees.damaged["/w/app"] = true
+
+	err := e.app.RemoveProject("app", &recorder{})
+
+	if err == nil || !strings.Contains(err.Error(), "damaged") || len(e.brain.manifestPushes) > 0 {
+		t.Errorf("got %v, pushed %q", err, e.brain.manifestPushes)
 	}
 }

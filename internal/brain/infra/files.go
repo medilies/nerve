@@ -132,7 +132,7 @@ func linkEnd(path string) (string, error) {
 // keep every digit.
 func readObject(path string) (map[string]any, error) {
 	b, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) { // a file where a folder of the path should be
 		return nil, nil
 	}
 	if err != nil {
@@ -141,8 +141,11 @@ func readObject(path string) (map[string]any, error) {
 	b = bytes.TrimPrefix(b, []byte("\xef\xbb\xbf"))
 	var obj map[string]any
 	if len(bytes.TrimSpace(b)) > 0 {
-		if err := decodeJSON(b, &obj); err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+		var notObject *json.UnmarshalTypeError
+		if err := decodeJSON(b, &obj); errors.As(err, &notObject) {
+			return nil, fmt.Errorf("%s: must hold a JSON object: fix it by hand", path)
+		} else if err != nil {
+			return nil, fmt.Errorf("%s: %w: fix it by hand", path, err)
 		}
 	}
 	if obj == nil {
@@ -231,7 +234,7 @@ func shortenHome(path string) string {
 		homes = append(homes, real)
 	}
 	for _, home := range homes {
-		if rel, err := filepath.Rel(home, path); err == nil && !strings.HasPrefix(rel, "..") {
+		if rel, err := filepath.Rel(home, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			if rel == "." {
 				return "~"
 			}
@@ -282,7 +285,9 @@ func exitCode(err error) int {
 // stops after gitTimeout.
 func git(dir string, args ...string) (string, error) { return gitWithin(gitTimeout, dir, args...) }
 
-// gitWithin runs git as git does, stopping after timeout.
+// gitWithin runs git as git does, stopping after timeout. It takes no
+// optional lock, so a git status never writes the index under the user's
+// own git commands.
 func gitWithin(timeout time.Duration, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -291,7 +296,7 @@ func gitWithin(timeout time.Duration, dir string, args ...string) (string, error
 	cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool {
 		name, _, _ := strings.Cut(kv, "=")
 		return slices.Contains(repoEnv, name) || slices.Contains(askEnv, name)
-	}), "GIT_TERMINAL_PROMPT=0", "SSH_ASKPASS_REQUIRE=never", "GCM_INTERACTIVE=never")
+	}), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "SSH_ASKPASS_REQUIRE=never", "GCM_INTERACTIVE=never")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) } // ssh too
 	cmd.WaitDelay = time.Second

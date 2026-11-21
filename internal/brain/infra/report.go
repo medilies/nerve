@@ -21,6 +21,7 @@ type Report struct {
 	w      io.Writer
 	mode   int
 	events []app.Event
+	err    error // the first write that failed
 }
 
 var _ app.Reporter = (*Report)(nil)
@@ -33,8 +34,19 @@ func (r *Report) Add(e app.Event) {
 		r.events = append(r.events, e)
 		return
 	}
-	_, _ = fmt.Fprintln(r.w, Visible(e.String()))
+	_, err := fmt.Fprintln(r.w, Visible(e.String()))
+	r.failed(err)
 }
+
+func (r *Report) failed(err error) {
+	if r.err == nil && err != nil {
+		r.err = fmt.Errorf("cannot print the report: %w", err)
+	}
+}
+
+// Err is the first write of the report that failed, if any: what it
+// printed is cut short.
+func (r *Report) Err() error { return r.err }
 
 // gathered is the events gathered so far, nil when printed as they come.
 func (r *Report) gathered() []app.Event {
@@ -61,10 +73,10 @@ func (r *Report) Finish(err error) bool {
 		}
 		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(doc)
+		r.failed(enc.Encode(doc))
 		return true
 	case AsHook:
-		_ = json.NewEncoder(r.w).Encode(hookOutput(r.events, err))
+		r.failed(json.NewEncoder(r.w).Encode(hookOutput(r.events, err)))
 		return true
 	}
 	return false

@@ -6,3 +6,7 @@ cd proj
 ! exec nerve sync --here --hook
 ! stdout .
 stderr '^--hook does not go with this command$'
+
+# --project before the command keeps the session report's form.
+exec nerve --project nope status --hook
+stdout '^\{"systemMessage":"nerve: error: '

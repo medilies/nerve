@@ -113,7 +113,7 @@ func TestUpdateShowsEachSkillsDiffThenMovesThePin(t *testing.T) {
 	e.sources.skills["acme/up@"+pinB+"/grilling"] = domain.Skill{}
 	r := &recorder{}
 
-	e.must(r, e.app.Update("https://github.com/acme/up.git", r))
+	e.must(r, e.app.Update("/w", "https://github.com/acme/up.git", r))
 
 	if got := e.brain.m.Sources[0].SHA; got != pinB {
 		t.Errorf("pinned at %s", got)
@@ -121,10 +121,10 @@ func TestUpdateShowsEachSkillsDiffThenMovesThePin(t *testing.T) {
 	contains(t, r, "diff grilling 5863806..84b741e", "pinned   acme/up at 84b741e")
 
 	r = &recorder{}
-	e.must(r, e.app.Update("", r))
+	e.must(r, e.app.Update("/w", "", r))
 	contains(t, r, "acme/up is already pinned at "+pinB)
 
-	if err := e.app.Update("acme/other", &recorder{}); err == nil || err.Error() != "acme/other is not a source in brain.toml" {
+	if err := e.app.Update("/w", "acme/other", &recorder{}); err == nil || err.Error() != "acme/other is not a source in brain.toml" {
 		t.Errorf("got %v", err)
 	}
 }
@@ -139,10 +139,23 @@ func TestUpdateLeavesASourceThatDropsASkillAndMovesTheOthers(t *testing.T) {
 	e.sources.skills["acme/other@"+pinB+"/tdd"] = domain.Skill{}
 	r := &recorder{}
 
-	err := e.app.Update("", r)
+	err := e.app.Update("/w", "", r)
 
 	if err == nil || e.brain.m.Sources[0].SHA != pinA || e.brain.m.Sources[1].SHA != pinB {
 		t.Errorf("got %v, sources %v", err, e.brain.m.Sources)
 	}
 	contains(t, r, "problem  brain.toml: acme/up: at 84b741e: no skill \"grilling\"; drop it from brain.toml first")
+}
+
+func TestAddItemToACheckoutWhoseProjectLeftTheBrainSaysWhatToDo(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.ownSkill("go-stack")
+	delete(e.brain.m.Projects, "app")
+
+	err := e.app.AddItem(target("/w/app"), "skill", "go-stack", &recorder{})
+
+	if err == nil || !strings.Contains(err.Error(), "nerve sync cleans this checkout, and nerve project add lists it again") {
+		t.Errorf("got %v", err)
+	}
 }

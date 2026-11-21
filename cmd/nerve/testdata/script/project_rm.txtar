@@ -1,6 +1,7 @@
-# Removing a project takes out everything nerve made, and keeps what the
-# checkout had before, even a setting the Brain sets the same, what the
-# user set since, and the local overlay, which may hold a secret.
+# Removing a project takes out the links and settings nerve made, and keeps
+# its folders, even empty, what the checkout had before, even a setting the
+# Brain sets the same, what the user set since, and the local overlay, which
+# may hold a secret.
 
 exec nerve init brain
 cd proj
@@ -11,15 +12,15 @@ exec nerve setting set env.API_KEY x
 stdout '^overlay  env.API_KEY set in '
 # What the checkout had before is personal: kept, and reported once.
 exec nerve sync --here
-stdout '^personal outputStyle = "terse": kept, the Brain does not set it$'
-stdout '^personal env.TOKEN = "x": kept, the Brain does not set it$'
+stdout '^personal .*/proj/.claude/settings.local.json: outputStyle = "terse": kept, the Brain does not set it$'
+stdout '^personal .*/proj/.claude/settings.local.json: env.TOKEN = "x": kept, the Brain does not set it$'
 # The user's own, since the sync.
 replace .claude/settings.local.json '"model": "opus"' '"spinnerTipsEnabled": false, "model": "opus"'
 
 exec nerve project rm app
 stdout '^kept     .*/overlays/app.json: the local overlay of project app may hold what is nowhere else: delete it once you no longer need it$'
 
-! exists .claude/skills
+exists .claude/skills
 ! grep nerve .git/info/exclude
 cmp .claude/settings.local.json $HOME/want-settings
 grep API_KEY $NERVE_CONFIG/overlays/app.json
