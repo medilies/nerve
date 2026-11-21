@@ -54,13 +54,22 @@ func TestMachineFileKeepsAPathAsItIsWritten(t *testing.T) {
 	}
 }
 
-func TestStatesRefuseAStateFileTheyCannotRead(t *testing.T) {
+func TestAStateFileNerveCannotReadStopsOnlyItsOwnTree(t *testing.T) {
 	e := newTestEnv(t)
 	files, _ := NewMachineFiles()
-	e.write(e.path(".config/nerve/state/0123456789abcdef.json"), "{broken")
+	if err := files.SaveState(domain.TreeState{Path: "/w/other", Project: "other"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := files.SaveState(domain.TreeState{Path: "/w/app", Project: "app"}); err != nil {
+		t.Fatal(err)
+	}
+	e.write(files.statePath("/w/app"), "")
 
-	if _, err := files.States(); err == nil || !strings.Contains(err.Error(), "0123456789abcdef.json") {
-		t.Errorf("got %v", err)
+	if all, err := files.States(); err != nil || len(all) != 1 || all[0].Path != "/w/other" {
+		t.Errorf("states are %+v (%v), want the other tree's", all, err)
+	}
+	if _, err := files.State("/w/app"); err == nil || !strings.Contains(err.Error(), "is not a state nerve can read: delete it, then sync again") {
+		t.Errorf("got %v, want the fix named", err)
 	}
 }
 

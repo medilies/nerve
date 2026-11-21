@@ -217,7 +217,7 @@ func (f MachineFiles) statePath(dir string) string {
 func (f MachineFiles) State(dir string) (domain.TreeState, error) {
 	st := treeState{Path: dir}
 	if err := readJSON(f.statePath(dir), &st); err != nil {
-		return domain.TreeState{}, err
+		return domain.TreeState{}, fmt.Errorf("%s is not a state nerve can read: delete it, then sync again (%w)", f.statePath(dir), err)
 	}
 	return st.domain(), nil
 }
@@ -237,8 +237,9 @@ func (f MachineFiles) DropState(dir string) error {
 // state folder.
 var statePattern = strings.Repeat("[0-9a-f]", 16) + ".json"
 
-// States reads every tree's state. Other files in the state folder are left
-// alone, but a state it cannot read is refused: nerve wrote it.
+// States reads every tree's state it can. Other files in the state folder
+// are left alone, and so is a state it cannot read: State refuses it to its
+// own tree only.
 func (f MachineFiles) States() ([]domain.TreeState, error) {
 	files, err := filepath.Glob(filepath.Join(f.dir, "state", statePattern))
 	if err != nil {
@@ -255,7 +256,7 @@ func (f MachineFiles) States() ([]domain.TreeState, error) {
 			err = errors.New("no path")
 		}
 		if err != nil {
-			return nil, fmt.Errorf("%s is not a state nerve can read: delete it, then sync the tree it was for (%w)", file, err)
+			continue
 		}
 		states = append(states, st.domain())
 	}
