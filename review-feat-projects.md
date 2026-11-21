@@ -1,6 +1,6 @@
 # Review of `feat/projects`: open items
 
-Scope: what is still open from the reviews of the branch, the fifth included ([review-feat-projects-0ffecaa.md](review-feat-projects-0ffecaa.md)), after the fixes made on top of 0ffecaa. Everything else they found is fixed, backlogged or went with ADR 0007.
+Scope: what is still open from the five reviews of the branch, after the fixes made on top of 0ffecaa (`git log 0ffecaa..`). Everything else they found is fixed, backlogged or went with ADR 0007.
 
 How each item was checked:
 
