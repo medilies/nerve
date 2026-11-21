@@ -60,8 +60,12 @@ _Avoid_: clone, path
 **Brain checkout**:
 The Brain's own working tree on one machine, named in the machine file; sync makes it equal to its remote, and push sends it there; not a project's checkout.
 
+**Manifest**:
+`brain.json` at the top of a Brain: its sources, hooks, allowed settings, common settings, and each project's entry.
+_Avoid_: config
+
 **Machine file**:
-`config.toml` in nerve's config folder: this machine's Brain checkout and each checkout's project, never in the Brain.
+`config.json` in nerve's config folder: this machine's Brain checkout and each checkout's project, never in the Brain.
 _Avoid_: config, settings
 
 **Sync**:
@@ -69,11 +73,11 @@ Bringing the remote to this machine: the Brain checkout made equal to its remote
 _Avoid_: pull, install
 
 **Push**:
-Bringing this machine to the remote: everything in the Brain checkout committed, then pushed, refused when the remote has commits the Brain lacks unless `-f` overwrites them. A command that changes `brain.toml` pushes that change alone, at once, after a refresh.
+Bringing this machine to the remote: everything in the Brain checkout committed, then pushed, refused when the remote has commits the Brain lacks unless `-f` overwrites them. A command that changes `brain.json` pushes that change alone, at once, after a refresh.
 _Avoid_: publish, upload
 
 **Refresh**:
-Taking the remote's new commits into the Brain checkout by a fast-forward, before a command changes `brain.toml`; it drops nothing, and refuses a Brain with changes to `brain.toml` or commits its remote lacks.
+Taking the remote's new commits into the Brain checkout by a fast-forward, before a command changes `brain.json`; it drops nothing, and refuses a Brain with changes to `brain.json` or commits its remote lacks.
 _Avoid_: pull, fetch
 
 **Update**:
@@ -93,8 +97,12 @@ Settings every listed project gets; the only thing a Brain gives to more than on
 _Avoid_: base, defaults, global
 
 **Allowed setting**:
-A settings key a Brain may hold: one nerve allows on its own, or one the Brain's `allowed-settings` adds; any other stays in a local overlay.
+A settings key a Brain may hold: one nerve allows on its own, or one the Brain's `allowedSettings` adds; any other stays in a local overlay.
 _Avoid_: whitelist, safe setting
+
+**Misfit**:
+A value of a setting nerve allows that Claude Code would refuse there, such as text where it takes `true` or `false`; a Brain does not hold one.
+_Avoid_: invalid setting, wrong type
 
 **Session report**:
 The session-start hook in every listed project: it says how the project stands against the Brain, its drift and problems, and changes nothing.
@@ -105,7 +113,7 @@ What a command says it did and found, one event at a time: links made or removed
 _Avoid_: log, output
 
 **Local overlay**:
-A project's settings kept on one machine and never in the Brain: those the Brain does not allow, and anything `brain.toml` cannot hold.
+A project's settings kept on one machine and never in the Brain: those the Brain does not allow.
 _Avoid_: secrets file, private settings
 
 **Drift**:

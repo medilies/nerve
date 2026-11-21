@@ -18,13 +18,12 @@ grep '"SessionStart"' .claude/settings.local.json
 grep '"deny": \[\n +"Cron"\n +\]' .claude/settings.local.json
 exec git status --porcelain --untracked-files=all
 ! stdout .
-grep '^\[project.app\]\nskills = \["go-stack"\]\nagents = \["reviewer"\]$' $HOME/brain/brain.toml
+grep '^    "app": \{\n      "skills": \[\n        "go-stack"\n      \],\n      "agents": \[\n        "reviewer"\n      \],$' $HOME/brain/brain.json
 exec nerve status
 stdout '^project  app: 1 skill, 1 agent, 1 setting$'
 
--- brain/brain.toml --
-[common.settings]
-model = "opus"
+-- brain/brain.json --
+{"common": {"settings": {"model": "opus"}}}
 -- brain/skills/go-stack/SKILL.md --
 ---
 name: go-stack

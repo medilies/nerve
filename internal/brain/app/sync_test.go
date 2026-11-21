@@ -459,7 +459,7 @@ func TestSyncRefusesItemsTheBrainCannotGive(t *testing.T) {
 	if err == nil {
 		t.Fatal("sync passed")
 	}
-	contains(t, r, `problem  /w/app: brain.toml defines no hook "ghost": add a [hook.ghost] table; plugin "bad" must be <plugin>@<marketplace>`)
+	contains(t, r, `problem  /w/app: brain.json defines no hook "ghost": add ghost to hooks; plugin "bad" must be <plugin>@<marketplace>`)
 	if e.settings("/w/app") != nil || len(e.trees.links) > 0 {
 		t.Errorf("wrote in a refused tree")
 	}
@@ -608,7 +608,7 @@ func TestAFullSyncWhoseMachineFileCannotBeSavedReportsNothingUnlisted(t *testing
 	e.listed("gone", "/w/gone")
 	e.must(e.sync("/w", app.SyncOptions{}))
 	delete(e.trees.dirs, "/w/gone")
-	e.machine.fail["Save"] = errors.New("config.toml: read-only")
+	e.machine.fail["Save"] = errors.New("config.json: read-only")
 
 	r, err := e.sync("/w", app.SyncOptions{})
 
@@ -829,7 +829,7 @@ func TestPushPassesTheMessageOnceTheBrainHoldsNothingCheckReports(t *testing.T) 
 	if err := e.app.Push("add go-stack", false, r); err == nil || len(e.brain.pushed) > 0 {
 		t.Errorf("pushed a Brain sync refuses: %v", err)
 	}
-	contains(t, r, "problem  brain.toml: common.settings.apiKeyHelper: not an allowed setting")
+	contains(t, r, "problem  brain.json: common.settings.apiKeyHelper: not an allowed setting")
 
 	e.brain.m.Common = nil
 	e.brain.m.Projects["app"] = &domain.Project{Skills: []string{"gone"}} // its folder deleted
@@ -947,7 +947,7 @@ func TestSyncDropsTheStateOfAGoneCheckoutOnlyOnceItIsUnlisted(t *testing.T) {
 	e.listed("app", "/w/app")
 	e.must(e.sync("/w/app", app.SyncOptions{}))
 	delete(e.trees.dirs, "/w/app")
-	e.machine.fail["Save"] = errors.New("config.toml: read-only")
+	e.machine.fail["Save"] = errors.New("config.json: read-only")
 
 	if _, err := e.sync("/w", app.SyncOptions{}); err == nil {
 		t.Fatal("no error")

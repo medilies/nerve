@@ -22,7 +22,7 @@ func TestSetSettingInTheProjectOrCommon(t *testing.T) {
 	if got := jsonText(e.brain.m.Common); got != `{"model":"opus"}` {
 		t.Errorf("common is %s", got)
 	}
-	contains(t, r, `set      brain.toml (project app): permissions.deny = ["Cron"]`, `set      brain.toml (common): model = "opus"`)
+	contains(t, r, `set      brain.json (project app): permissions.deny = ["Cron"]`, `set      brain.json (common): model = "opus"`)
 }
 
 func TestSetSettingSendsASettingNoListAllowsToTheOverlay(t *testing.T) {
@@ -35,9 +35,9 @@ func TestSetSettingSendsASettingNoListAllowsToTheOverlay(t *testing.T) {
 	if e.project("app").Settings != nil || e.brain.saves != 0 {
 		t.Errorf("a setting no list allows reached the Brain")
 	}
-	contains(t, r, "overlay  statusLine.command set in /cfg/nerve/overlays/app.json: not an allowed setting: list it in allowed-settings to share it")
+	contains(t, r, "overlay  statusLine.command set in /cfg/nerve/overlays/app.json: not an allowed setting: list it in allowedSettings to share it")
 	err := e.app.SetSetting(target("/w/app"), "statusLine.command", "~/bin/line", true, &recorder{})
-	if err == nil || !strings.Contains(err.Error(), "statusLine.command is not an allowed setting: list it in allowed-settings") {
+	if err == nil || !strings.Contains(err.Error(), "statusLine.command is not an allowed setting: list it in allowedSettings") {
 		t.Errorf("got %v, want common refused", err)
 	}
 }
@@ -61,7 +61,7 @@ func TestSetSettingReportsTheObjectItSets(t *testing.T) {
 
 	e.must(r, e.app.SetSetting(target("/w/app"), "permissions", map[string]any{"defaultMode": "plan"}, false, r))
 
-	contains(t, r, `set      brain.toml (project app): permissions = {"defaultMode":"plan"}`)
+	contains(t, r, `set      brain.json (project app): permissions = {"defaultMode":"plan"}`)
 }
 
 func TestSetSettingRefusesWhatBrainTomlCannotHold(t *testing.T) {
@@ -140,9 +140,9 @@ func TestAddSettingAddsOneItemToAList(t *testing.T) {
 		t.Errorf("common is %s", got)
 	}
 	contains(t, r,
-		`set      brain.toml (project app): permissions.allow = ["Read","Bash(make)"] (was ["Read"])`,
-		`permissions.allow already holds "Bash(make)" in brain.toml (project app)`,
-		`set      brain.toml (common): permissions.deny = ["Cron"]`)
+		`set      brain.json (project app): permissions.allow = ["Read","Bash(make)"] (was ["Read"])`,
+		`permissions.allow already holds "Bash(make)" in brain.json (project app)`,
+		`set      brain.json (common): permissions.deny = ["Cron"]`)
 	if err := e.app.AddSetting(target("/w/app"), "model", "x", false, &recorder{}); err == nil || err.Error() != "model is not a list" {
 		t.Errorf("got %v, want a value that is not a list refused", err)
 	}
@@ -239,7 +239,7 @@ func TestSetSettingInTheBrainDropsTheOverlaysValueThatWouldWin(t *testing.T) {
 	if got := jsonText(e.machine.overlays["app"]); got != `{"statusLine":{"padding":1}}` {
 		t.Errorf("overlay is %s, want only the key set in the Brain dropped", got)
 	}
-	contains(t, r, `set      brain.toml (project app): statusLine.command = "y"`, "dropped  setting statusLine.command from the local overlay of project app")
+	contains(t, r, `set      brain.json (project app): statusLine.command = "y"`, "dropped  setting statusLine.command from the local overlay of project app")
 }
 
 func TestSetSettingInTheBrainDropsAnOverlayValueAboveTheKey(t *testing.T) {
@@ -262,7 +262,7 @@ func TestSetSettingNamesHowToShareAPluginOrAHook(t *testing.T) {
 
 	e.must(r, e.app.SetSetting(target("/w/app"), `enabledPlugins."x@y"`, true, false, r))
 
-	contains(t, r, `overlay  enabledPlugins.x@y set in /cfg/nerve/overlays/app.json: not an allowed setting: share a plugin with nerve plugin add, a hook with [hook.<name>]`)
+	contains(t, r, `overlay  enabledPlugins.x@y set in /cfg/nerve/overlays/app.json: not an allowed setting: share a plugin with nerve plugin add, a hook in hooks`)
 }
 
 func TestSetSettingInCommonNamesTheKeyAndWhy(t *testing.T) {
@@ -271,9 +271,28 @@ func TestSetSettingInCommonNamesTheKeyAndWhy(t *testing.T) {
 
 	err := e.app.SetSetting(target("/w/app"), "apiKeyHelper", "x", true, &recorder{})
 
-	if want := "apiKeyHelper is not an allowed setting: list it in allowed-settings in brain.toml, or set it per project, where it goes to the local overlay"; err == nil || err.Error() != want {
+	if want := "apiKeyHelper is not an allowed setting: list it in allowedSettings in brain.json, or set it per project, where it goes to the local overlay"; err == nil || err.Error() != want {
 		t.Errorf("got %v, want %q", err, want)
 	}
+}
+
+func TestSetSettingRefusesAValueClaudeCodeRefuses(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+
+	err := e.app.SetSetting(target("/w/app"), "cleanupPeriodDays", "abc", true, &recorder{})
+
+	if err == nil || err.Error() != "cleanupPeriodDays must be a whole number of days, at least 1" || e.brain.saves != 0 {
+		t.Errorf("got %v, %d saves", err, e.brain.saves)
+	}
+}
+
+func TestSetSettingKeepsAValueThatDidNotFitBefore(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app").Settings = map[string]any{"model": int64(42)}
+	r := &recorder{}
+
+	e.must(r, e.app.SetSetting(target("/w/app"), "outputStyle", "Explanatory", false, r))
 }
 
 func TestSetSettingRefusesAnythingButAListOfTextAtOneOfNervesLists(t *testing.T) {
@@ -282,7 +301,7 @@ func TestSetSettingRefusesAnythingButAListOfTextAtOneOfNervesLists(t *testing.T)
 
 	for key, v := range map[string]any{"permissions.deny": "Cron", "permissions.allow.x": 1.0} {
 		err := e.app.SetSetting(target("/w/app"), key, v, false, &recorder{})
-		if err == nil || !strings.HasSuffix(err.Error(), "holds a list of text, such as [\"Read\"]: nerve setting add adds one item") {
+		if err == nil || !strings.HasSuffix(err.Error(), "must be a list of text, such as [\"Read\"]: nerve setting add adds one item") {
 			t.Errorf("%s: got %v", key, err)
 		}
 	}
@@ -349,5 +368,5 @@ func TestSettingAValueTheBrainHoldsAlreadyChangesNothing(t *testing.T) {
 	if len(e.brain.manifestPushes) > 0 || strings.Contains(r.String(), "set ") {
 		t.Errorf("pushed %q:\n%s", e.brain.manifestPushes, r)
 	}
-	contains(t, r, `model already holds "opus" in brain.toml (project app)`)
+	contains(t, r, `model already holds "opus" in brain.json (project app)`)
 }

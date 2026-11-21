@@ -1,5 +1,5 @@
 # A Brain holds only allowed settings: nerve's own, and those its
-# allowed-settings adds. Any other goes to the local overlay. What an
+# allowedSettings adds. Any other goes to the local overlay. What an
 # allowed setting holds is the user's to judge.
 
 exec nerve init brain
@@ -7,41 +7,43 @@ cd proj
 exec nerve project add app
 
 exec nerve setting set statusLine.command '~/bin/line'
-stdout '^overlay  statusLine.command set in .*overlays/app.json: not an allowed setting: list it in allowed-settings to share it$'
-! grep statusLine $HOME/brain/brain.toml
+stdout '^overlay  statusLine.command set in .*overlays/app.json: not an allowed setting: list it in allowedSettings to share it$'
+! grep statusLine $HOME/brain/brain.json
 
 exec nerve setting rm statusLine.command
-cp $HOME/allowed.toml $HOME/brain/brain.toml
+cp $HOME/allowed.json $HOME/brain/brain.json
 exec nerve push 'allow statusLine'
 exec nerve setting set statusLine.command '~/bin/line'
-stdout '^set      brain.toml \(project app\): statusLine.command = "~/bin/line"$'
-grep '^allowed-settings = \["statusLine", "mcpServers"\]$' $HOME/brain/brain.toml
+stdout '^set      brain.json \(project app\): statusLine.command = "~/bin/line"$'
+grep '^  "allowedSettings": \[\n    "statusLine",\n    "mcpServers"\n  \],$' $HOME/brain/brain.json
 
 exec nerve setting set mcpServers.db.headers.X-Api-Key k
-stdout '^set      brain.toml \(project app\): mcpServers.db.headers.X-Api-Key = "k"$'
+stdout '^set      brain.json \(project app\): mcpServers.db.headers.X-Api-Key = "k"$'
 
-cp $HOME/other.toml $HOME/brain/brain.toml
+cp $HOME/other.json $HOME/brain/brain.json
 ! exec nerve check
-stdout '^problem  brain.toml: common.settings.sandbox.enabled: not an allowed setting: list it in allowed-settings, or '
+stdout '^problem  brain.json: common.settings.sandbox.enabled: not an allowed setting: list it in allowedSettings, or '
 ! stdout DB_PASSWORD
 
-cp $HOME/never.toml $HOME/brain/brain.toml
+cp $HOME/never.json $HOME/brain/brain.json
 ! exec nerve check
-stderr 'allowed-settings: "hooks.Stop" is written by nerve from hooks and plugins'
+stderr 'allowedSettings: "hooks.Stop" is written by nerve from hooks and plugins'
 
--- allowed.toml --
-allowed-settings = ["statusLine", "mcpServers"]
-
-[project.app]
--- other.toml --
-allowed-settings = ["mcpServers"]
-
-[common.settings.mcpServers.db.env]
-DB_PASSWORD = "x"
-
-[common.settings.sandbox]
-enabled = true
-
-[project.app]
--- never.toml --
-allowed-settings = ["hooks.Stop"]
+-- allowed.json --
+{
+  "allowedSettings": ["statusLine", "mcpServers"],
+  "projects": {"app": {}}
+}
+-- other.json --
+{
+  "allowedSettings": ["mcpServers"],
+  "common": {
+    "settings": {
+      "mcpServers": {"db": {"env": {"DB_PASSWORD": "x"}}},
+      "sandbox": {"enabled": true}
+    }
+  },
+  "projects": {"app": {}}
+}
+-- never.json --
+{"allowedSettings": ["hooks.Stop"]}

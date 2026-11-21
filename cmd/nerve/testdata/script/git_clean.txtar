@@ -14,7 +14,7 @@ exec nerve sync --here
 
 stdout '^linked   .*/proj/.claude/skills/py -> '
 ! stdout drift
-grep '^skills = \["go-stack", "py"\]$' $HOME/brain/brain.toml
+grep '^      "skills": \[\n        "go-stack",\n        "py"\n      \],$' $HOME/brain/brain.json
 link .claude/skills/py $HOME/brain/skills/py
 
 -- brain/skills/go-stack/SKILL.md --

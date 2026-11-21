@@ -28,7 +28,7 @@ func TestAnErrorReachesTheTerminalWithNoControlCharacter(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	var stdout, stderr strings.Builder
 
-	if code := cli([]string{"init", filepath.Join(home, "brain\x1b]0;owned\x07")}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "has no brain.toml") || strings.ContainsAny(stderr.String(), "\x1b\x07") {
+	if code := cli([]string{"init", filepath.Join(home, "brain\x1b]0;owned\x07")}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "has no brain.json") || strings.ContainsAny(stderr.String(), "\x1b\x07") {
 		t.Errorf("exit %d, stderr %q", code, stderr.String())
 	}
 }

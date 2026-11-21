@@ -1,4 +1,4 @@
-// Package infra holds nerve's adapters: the TOML and JSON files it reads and
+// Package infra holds nerve's adapters: the JSON files it reads and
 // writes, git, the source cache, links, its own skill and version, and
 // how it prints reports.
 package infra
@@ -42,10 +42,6 @@ const (
 // it half written. A path that is a link keeps the link and replaces what it
 // points to, even a file that does not exist yet.
 func writeFile(path string, b []byte) error { return replace(path, b, anyone) }
-
-// writePrivate replaces path's content as writeFile does, for the user
-// only.
-func writePrivate(path string, b []byte) error { return replace(path, b, private) }
 
 func replace(path string, b []byte, who access) error {
 	path, err := linkEnd(path)
@@ -174,6 +170,38 @@ func writeObject(path string, obj map[string]any, who access) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	return nil
+}
+
+// readStrict reads the JSON object at path into v, refusing keys v has no
+// field for. People edit such files, so one that is blank, or starts with
+// a byte order mark, reads too. Numbers are read as json.Number.
+func readStrict(path string, v any) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	b = bytes.TrimPrefix(b, []byte("\xef\xbb\xbf"))
+	if len(bytes.TrimSpace(b)) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(b, new(json.RawMessage)); err != nil {
+		return err
+	}
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	d.DisallowUnknownFields()
+	err = d.Decode(v)
+	var typ *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &typ) && typ.Field == "":
+		return errors.New("must hold a JSON object")
+	case errors.As(err, &typ):
+		key := typ.Field[strings.LastIndex(typ.Field, ".")+1:] // the path leaves out map keys, such as a project's name
+		return fmt.Errorf("%q cannot be a %s", key, typ.Value)
+	case err != nil && strings.HasPrefix(err.Error(), "json: unknown field "):
+		return errors.New("unknown key " + strings.TrimPrefix(err.Error(), "json: unknown field "))
+	}
+	return err
 }
 
 // readJSON reads path into v, leaving v alone when the file is missing.

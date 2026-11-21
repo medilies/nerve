@@ -16,11 +16,11 @@ stdout '^added    hook fmt to project app$'
 exec nerve plugin add gopls@claude-plugins-official
 stdout '^added    plugin gopls@claude-plugins-official'
 exec nerve setting set model opus
-stdout '^set      brain.toml \(project app\): model = "opus"$'
+stdout '^set      brain.json \(project app\): model = "opus"$'
 exec nerve setting add permissions.deny Cron
-stdout '^set      brain.toml \(project app\): permissions.deny = \["Cron"\]$'
+stdout '^set      brain.json \(project app\): permissions.deny = \["Cron"\]$'
 exec nerve setting set outputStyle terse --common
-stdout '^set      brain.toml \(common\): outputStyle = "terse"$'
+stdout '^set      brain.json \(common\): outputStyle = "terse"$'
 mkdir ../brain/skills/tdd
 cp ../tdd.md ../brain/skills/tdd/SKILL.md
 exec nerve push 'add tdd'
@@ -50,9 +50,9 @@ stdout '^dropped  agent reviewer from project app$'
 exec nerve skill rm go-stack
 stdout '^dropped  skill go-stack from project app$'
 ! exec nerve update acme/up
-stderr 'acme/up is not a source in brain.toml'
+stderr 'acme/up is not a source in brain.json'
 exec nerve project rm app
-stdout 'project  app: dropped from brain.toml'
+stdout 'project  app: dropped from brain.json'
 
 exec nerve help
 stdout '^  init <brain> '
@@ -73,10 +73,8 @@ stdout '^  setting add <key> <value> '
 stdout '^  setting rm <key>\[=<value>\] '
 stdout '^  help, --help, -h '
 
--- brain/brain.toml --
-[hook.fmt]
-event = "Stop"
-command = "true"
+-- brain/brain.json --
+{"hooks": {"fmt": {"event": "Stop", "command": "true"}}}
 -- brain/skills/go-stack/SKILL.md --
 ---
 name: go-stack

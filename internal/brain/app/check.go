@@ -85,7 +85,7 @@ func (a App) problems(m domain.Manifest) ([]domain.Problem, error) {
 	}
 	for _, name := range domain.SortedKeys(m.Projects) {
 		pr := m.Projects[name]
-		key := "project." + name
+		key := "projects." + name
 		for _, kind := range domain.ItemKinds {
 			for _, item := range *pr.List(kind) {
 				if why := a.offers(m, kind, item); why != "" {

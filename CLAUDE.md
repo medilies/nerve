@@ -3,23 +3,23 @@
 ## Design
 
 - One bounded context in hexagonal layers: `internal/brain/{domain,app,infra}` plus a thin `cmd/nerve` layer ([ADR 0006](docs/adr/0006-hexagonal-layers.md)). `domain` imports only the standard library, and `app` only that and `domain`; enforced by the `depguard` allow-lists in `.golangci.yml`.
-- `domain` holds the Brain and its rules. `app` holds the use cases, the events they report and the ports they need. `infra` holds every adapter, such as `brain.toml`, the machine file, git, caches, links and reports. A new adapter needs a port in `app` first.
+- `domain` holds the Brain and its rules. `app` holds the use cases, the events they report and the ports they need. `infra` holds every adapter, such as `brain.json`, the machine file, git, caches, links and reports. A new adapter needs a port in `app` first.
 - Minimalism: add only what is needed now. No speculative abstractions, unused dependencies or placeholder files. Ideas wait in `docs/backlog.md`.
 - Only where needed ([ADR 0005](docs/adr/0005-projects-opt-in.md)): nerve writes only in listed projects, never at user level, and only what their entry names. Every effect is visible and reported. It removes only what it made, and never edits `.gitignore`.
 - [core.md](core.md) is the reference for what nerve is. Where an ADR disagrees with it, a new ADR follows core.md.
-- Explicit verbs ([ADR 0009](docs/adr/0009-explicit-verbs.md), [ADR 0010](docs/adr/0010-brain-toml-in-step.md)): nerve changes the Brain, its remote or a project only when a command says so; otherwise it reports. `sync` brings the remote here, `push` sends the Brain there, `update` moves pins and syncs here. A command that changes `brain.toml` pushes it at once.
+- Explicit verbs ([ADR 0009](docs/adr/0009-explicit-verbs.md), [ADR 0010](docs/adr/0010-brain-toml-in-step.md)): nerve changes the Brain, its remote or a project only when a command says so; otherwise it reports. `sync` brings the remote here, `push` sends the Brain there, `update` moves pins and syncs here. A command that changes `brain.json` pushes it at once.
 - nerve writes nothing of this machine into the Brain: no checkout paths or repo remotes, which stay in this machine's files. What an allowed setting holds is the user's to judge.
 
 ## Ubiquitous language
 
-Code, `brain.toml`, the CLI, the nerve skill, docs and commits use the words of [GLOSSARY.md](GLOSSARY.md), and respect its _Avoid_ notes. A new concept gets an entry there before it gets code. When code and user-facing words disagree, the code is renamed.
+Code, `brain.json`, the CLI, the nerve skill, docs and commits use the words of [GLOSSARY.md](GLOSSARY.md), and respect its _Avoid_ notes. A new concept gets an entry there before it gets code. When code and user-facing words disagree, the code is renamed.
 
 If your output contradicts an ADR in `docs/adr/`, say so explicitly rather than silently overriding it.
 
 ## Environment
 
 - `go.mod` is the source of truth for the Go version (`go 1.26.0`). CI reads it through setup-go's `go-version-file`.
-- No database. The Brain is a git repo with `brain.toml` at its root. This machine's file, local overlays and state live under `os.UserConfigDir()/nerve/`, read and written through the ports in `app`.
+- No database. The Brain is a git repo with `brain.json` at its root. This machine's file, local overlays and state live under `os.UserConfigDir()/nerve/`, read and written through the ports in `app`.
 
 ## Tests
 
@@ -37,9 +37,9 @@ If your output contradicts an ADR in `docs/adr/`, say so explicitly rather than 
   - the embedded nerve skill (`cmd/nerve/skill/SKILL.md`) and `nerve help`
   - `GLOSSARY.md`, `docs/development.md`, `docs/backlog.md` and `docs/not-bugs.md`
   - this file
-- Before committing, grep the docs for each command, flag, `brain.toml` key, file and identifier the change renames or removes.
+- Before committing, grep the docs for each command, flag, `brain.json` key, file and identifier the change renames or removes.
 - Each fact lives in one doc, and the others link to it:
-  - Users: the README (what nerve is, install, usage), `brain.md` (`brain.toml`, this machine, checking a Brain), `sync.md` (what sync and push do, the session report, drift).
+  - Users: the README (what nerve is, install, usage), `brain.md` (`brain.json`, this machine, checking a Brain), `sync.md` (what sync and push do, the session report, drift).
   - Agents in users' projects: the nerve skill.
   - Contributors: `development.md` (commands, design, releasing), `backlog.md` (ideas left out), `not-bugs.md` (behaviour kept on purpose).
   - Agents here: this file.
@@ -63,4 +63,4 @@ If your output contradicts an ADR in `docs/adr/`, say so explicitly rather than 
 
 The test, lint and release commands are in `docs/development.md`.
 
-Navigate Go code with gopls through the LSP tool: definitions, references, implementers of a port, callers. Grep for text, docs and `brain.toml`, which gopls doesn't read. A rename still greps the docs for the old word.
+Navigate Go code with gopls through the LSP tool: definitions, references, implementers of a port, callers. Grep for text, docs and `brain.json`, which gopls doesn't read. A rename still greps the docs for the old word.

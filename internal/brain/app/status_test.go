@@ -80,7 +80,7 @@ func TestStatusRefusesAProjectTheBrainDoesNotList(t *testing.T) {
 
 	err := e.app.Status(app.ProjectRef{Dir: "/w/app", Project: "typo"}, &recorder{})
 
-	if err == nil || err.Error() != `brain.toml lists no project "typo"` {
+	if err == nil || err.Error() != `brain.json lists no project "typo"` {
 		t.Errorf("got %v", err)
 	}
 }
@@ -145,10 +145,10 @@ func TestCheckRefusesASourceSkillMissingAtItsPin(t *testing.T) {
 
 func TestCheckRefusesItemsTheBrainCannotGive(t *testing.T) {
 	for kind, want := range map[string]string{
-		"skill":  `project.app: the Brain has no skill "ghost"`,
-		"agent":  `project.app: the Brain has no agent "ghost"`,
-		"hook":   `project.app: brain.toml defines no hook "ghost"`,
-		"plugin": `project.app: plugin "ghost" must be <plugin>@<marketplace>`,
+		"skill":  `projects.app: the Brain has no skill "ghost"`,
+		"agent":  `projects.app: the Brain has no agent "ghost"`,
+		"hook":   `projects.app: brain.json defines no hook "ghost"`,
+		"plugin": `projects.app: plugin "ghost" must be <plugin>@<marketplace>`,
 	} {
 		e := newEnv(t)
 		*e.listed("app", "/w/app").List(kind) = []string{"ghost"}
@@ -162,7 +162,7 @@ func TestCheckRefusesAProjectSettingThatEqualsCommon(t *testing.T) {
 	e := newEnv(t)
 	e.brain.m.Common = map[string]any{"model": "opus"}
 	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
-	if out := check(t, e); !strings.Contains(out, "project.app.settings.model: equals common: drop it from the project") {
+	if out := check(t, e); !strings.Contains(out, "projects.app.settings.model: equals common: drop it from the project") {
 		t.Errorf("check says:\n%s", out)
 	}
 }

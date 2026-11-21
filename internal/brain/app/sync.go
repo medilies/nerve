@@ -162,7 +162,7 @@ func (a App) Push(message string, force bool, r Reporter) error {
 		if len(p) == 1 {
 			what = "1 problem"
 		}
-		return fmt.Errorf("the Brain has %s, so nothing is pushed: fix each as it says; while brain.toml has changes not pushed, edit it by hand", what)
+		return fmt.Errorf("the Brain has %s, so nothing is pushed: fix each as it says; while brain.json has changes not pushed, edit it by hand", what)
 	}
 	return a.Brain.Push(message, force, r)
 }

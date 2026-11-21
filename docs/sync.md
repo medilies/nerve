@@ -7,7 +7,7 @@ one command:
   checkout this machine lists. `nerve sync --here` does the one around
   the working directory.
 - `nerve push` brings this machine to the remote.
-- A command that changes `brain.toml`, such as `nerve skill add`, keeps
+- A command that changes `brain.json`, such as `nerve skill add`, keeps
   it in step: see [Push](#push).
 - At each session start, the [session report](#the-session-report) says
   what waits for a sync. It changes nothing.
@@ -63,21 +63,21 @@ A worktree is a checkout like any other: it gets nerve once
 
 ## Push
 
-A command that changes `brain.toml` pushes it at once: `project add`
+A command that changes `brain.json` pushes it at once: `project add`
 and `rm`, `skill`, `agent`, `hook` and `plugin` `add` and `rm`,
 `setting set`, `add` and `rm`, and `update`.
 
-- It first takes the remote's new commits, so it changes `brain.toml` as
+- It first takes the remote's new commits, so it changes `brain.json` as
   the remote holds it.
 - It refuses, and changes nothing, when:
-  - `brain.toml` has changes, which it shows, or the Brain has commits
+  - `brain.json` has changes, which it shows, or the Brain has commits
     its remote lacks;
   - the remote's commits change files changed here, which it names;
   - the remote cannot be reached, or does not have the branch yet:
     `nerve push` makes it there.
 - `skill add` and `agent add` refuse an own skill or agent the remote
   does not hold yet: push it first.
-- It commits `brain.toml` alone, with a message saying what changed. If
+- It commits `brain.json` alone, with a message saying what changed. If
   the push fails, it changes nothing; when the remote moved meanwhile, it
   says so: run it again.
 

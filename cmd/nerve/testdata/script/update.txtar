@@ -9,7 +9,7 @@ exec git init -q -b main
 exec git config uploadpack.allowAnySHA1InWant true
 exec git add -A
 exec git commit -q -m v1
-exec sh -c 'printf "[[source]]\nrepo = \"acme/up\"\nsha = \"%s\"\nskills = [\"grilling\"]\n" "$(git rev-parse HEAD)" > $HOME/brain/brain.toml'
+exec sh -c 'printf "{\"sources\": [{\"repo\": \"acme/up\", \"sha\": \"%s\", \"skills\": [\"grilling\"]}]}\n" "$(git rev-parse HEAD)" > $HOME/brain/brain.json'
 cp $WORK/v2.md skills/grilling/SKILL.md
 exec git commit -qam v2
 
@@ -28,7 +28,7 @@ stdout '^pushed   the Brain at [0-9a-f]{7}: nerve: pin acme/up at [0-9a-f]{7}$'
 stdout '^pinned   acme/up at [0-9a-f]{7}$'
 stdout '^linked   .*/proj/.claude/skills/grilling -> '
 stdout '^synced   app at [0-9a-f]{7} in .*/proj$'
-exec sh -c 'grep -q "sha = \"$(git -C $HOME/github/acme/up.git rev-parse HEAD)\"" $HOME/brain/brain.toml'
+exec sh -c 'grep -q "\"sha\": \"$(git -C $HOME/github/acme/up.git rev-parse HEAD)\"" $HOME/brain/brain.json'
 exec sh -c 'test "$(git -C $HOME/brain rev-parse HEAD)" = "$(git -C $HOME/brain.git rev-parse main)"'
 cd $WORK/brain
 

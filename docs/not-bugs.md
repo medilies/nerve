@@ -14,9 +14,9 @@ Behaviour a review may take for a bug, kept on purpose. A review lists what it f
 - **In a moved checkout, every setting as the Brain sets it is nerve's**, so `project rm` takes out a value the checkout had before nerve, if it equals the Brain's. After a move nerve cannot tell the two apart, and leaving its own settings would leave its hooks running. sync.md says so.
 - **A checkout path reached through a link** in a hand-written machine file is not found. `project add` lists the path git gives, with links followed.
 - **A link is removed, then made again**, not swapped at once. A run that dies between the two leaves no link, and the next sync makes it.
-- **Writes follow a link at `brain.toml`**, and make a missing folder it points into. The Brain is the user's own; only a checkout's files are refused as links.
+- **Writes follow a link at `brain.json`**, and make a missing folder it points into. The Brain is the user's own; only a checkout's files are refused as links.
 - **The nerve skill is written through a link someone put at its `SKILL.md` in the cache.** The cache is the user's own, as the Brain is, and a fetched source holds no links.
-- **A relative link target holding `..` is read as written**, not through the links on its way. Only a hand-made link at `brain.toml` or in nerve's folders can hold one.
+- **A relative link target holding `..` is read as written**, not through the links on its way. Only a hand-made link at `brain.json` or in nerve's folders can hold one.
 - **After a move, an own skill whose `SKILL.md` cannot be read keeps its link at `project rm`.** nerve cannot tell its link from the user's; `check` reports the skill.
 - **Changes to the exclude block are not reported.** sync.md says links are kept out of git by it, and it follows them.
 - **While any state file cannot be read, no exclude block loses a line.** nerve cannot tell which repo the file was for. The next sync of its tree replaces it; a state left by a checkout taken out of the machine file by hand stays until the user deletes it.
@@ -34,7 +34,7 @@ Behaviour a review may take for a bug, kept on purpose. A review lists what it f
 - **`main.go` ignores the machine file's load error in `onMachine`.** Every use case loads it again and reports it.
 - **A local overlay left empty is deleted.** It is nerve's own file on this machine, not a project's settings, which nerve never deletes.
 - **After a sync that kept a third-party skill at its old pin**, offline say, `status` shows the checkout synced. The sync reported the problem, and the next one relinks it.
-- **A setting that goes to the local overlay still needs the Brain's remote.** Where a setting goes depends on the Brain's `allowed-settings`, read as the remote holds it.
+- **A setting that goes to the local overlay still needs the Brain's remote.** Where a setting goes depends on the Brain's `allowedSettings`, read as the remote holds it.
 - **`push` with no git identity leaves the Brain's files staged**, behind git's own message. Staging loses nothing, and the next `push` commits them.
 - **`--hook` with `--json` prints a session report of the usage error**, and exits 0, as every session report does.
 
@@ -65,7 +65,7 @@ Behaviour a review may take for a bug, kept on purpose. A review lists what it f
 - **brain.md names `state/`, and sync.md names `info/exclude`.** A message tells the user to delete a file in the one, or to fix the other by hand.
 - **Git's own words stay in git's sense**: upstream, the global git ignore file, the repo. So does the machine file's `path` key.
 - **`nerve help` repeats what the README says of `--project`.** The usage is the CLI's own text, not a doc.
-- **brain.md lists the allowed settings in full.** Users need the list where they write `brain.toml`; a review checks it against `nerveAllows`.
+- **brain.md lists the allowed settings in full.** Users need the list where they write `brain.json`; a review checks it against `nerveAllows`.
 - **The report shows private-use characters as they are.** It makes control characters and invisible format characters visible, which can hide or rewrite text; private-use ones cannot.
 
 ## Tests

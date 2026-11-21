@@ -11,29 +11,31 @@ const sha = "5863806dd4e15c63174bee4e7515a4256792ecfa"
 
 func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 	for want, m := range map[string]domain.Manifest{
-		"is not owner/name":                {Sources: []domain.Source{{Repo: "acme", SHA: sha, Skills: []string{"x"}}}},
-		`"../x" is not owner/name`:         {Sources: []domain.Source{{Repo: "../x", SHA: sha, Skills: []string{"x"}}}},
-		`"acme/." is not owner/name`:       {Sources: []domain.Source{{Repo: "acme/.", SHA: sha, Skills: []string{"x"}}}},
-		"sha must be a full":               {Sources: []domain.Source{{Repo: "acme/up", SHA: "main", Skills: []string{"x"}}}},
-		"acme/up: no skills":               {Sources: []domain.Source{{Repo: "acme/up", SHA: sha}}},
-		`path "../x" must be a folder in`:  {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Path: "../x", Skills: []string{"x"}}}},
-		`path "/x" must be a folder in`:    {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Path: "/x", Skills: []string{"x"}}}},
-		`path "a/./b" must be a folder in`: {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Path: "a/./b", Skills: []string{"x"}}}},
-		"needs an event and a command":     {Hooks: map[string]domain.Hook{"fmt": {Event: "Stop"}}},
-		`hook "Fmt" must be lowercase`:     {Hooks: map[string]domain.Hook{"Fmt": {Event: "Stop", Command: "x"}}},
-		`project "App" must be lowercase`:  {Projects: map[string]*domain.Project{"App": {}}},
-		`skill "../x" must be lowercase`:   {Projects: map[string]*domain.Project{"app": {Skills: []string{"../x"}}}},
-		`agent "a/b" must be lowercase`:    {Projects: map[string]*domain.Project{"app": {Agents: []string{"a/b"}}}},
-		`hook "Fmt" must be lowercase w`:   {Projects: map[string]*domain.Project{"app": {Hooks: []string{"Fmt"}}}},
-		`up: skill ".." must be`:           {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{".."}}}},
-		`allowed-settings: "a..b" is not`:  {AllowedSettings: []string{"a..b"}},
-		`acme/up is in two [[source]]`:     {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{"x"}}, {Repo: "acme/up", SHA: sha, Skills: []string{"y"}}}},
-		`"hooks.Stop" is written by nerve`: {AllowedSettings: []string{"hooks.Stop"}},
-		`"enabledPlugins" is written by`:   {AllowedSettings: []string{"enabledPlugins"}},
-		`app: skill "foo" is listed twice`: {Projects: map[string]*domain.Project{"app": {Skills: []string{"foo", "foo"}}}},
-		`app: agent "rv" is listed twice`:  {Projects: map[string]*domain.Project{"app": {Agents: []string{"rv", "rv"}}}},
-		`app: hook "fmt" is listed twice`:  {Projects: map[string]*domain.Project{"app": {Hooks: []string{"fmt", "fmt"}}}},
-		`plugin "a@b" is listed twice`:     {Projects: map[string]*domain.Project{"app": {Plugins: []string{"a@b", "a@b"}}}},
+		"is not owner/name":                                    {Sources: []domain.Source{{Repo: "acme", SHA: sha, Skills: []string{"x"}}}},
+		`"../x" is not owner/name`:                             {Sources: []domain.Source{{Repo: "../x", SHA: sha, Skills: []string{"x"}}}},
+		`"acme/." is not owner/name`:                           {Sources: []domain.Source{{Repo: "acme/.", SHA: sha, Skills: []string{"x"}}}},
+		"sha must be a full":                                   {Sources: []domain.Source{{Repo: "acme/up", SHA: "main", Skills: []string{"x"}}}},
+		"acme/up: no skills":                                   {Sources: []domain.Source{{Repo: "acme/up", SHA: sha}}},
+		`path "../x" must be a folder in`:                      {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Path: "../x", Skills: []string{"x"}}}},
+		`path "/x" must be a folder in`:                        {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Path: "/x", Skills: []string{"x"}}}},
+		`path "a/./b" must be a folder in`:                     {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Path: "a/./b", Skills: []string{"x"}}}},
+		"needs an event and a command":                         {Hooks: map[string]domain.Hook{"fmt": {Event: "Stop"}}},
+		`hook "Fmt" must be lowercase`:                         {Hooks: map[string]domain.Hook{"Fmt": {Event: "Stop", Command: "x"}}},
+		`project "App" must be lowercase`:                      {Projects: map[string]*domain.Project{"App": {}}},
+		`skill "../x" must be lowercase`:                       {Projects: map[string]*domain.Project{"app": {Skills: []string{"../x"}}}},
+		`agent "a/b" must be lowercase`:                        {Projects: map[string]*domain.Project{"app": {Agents: []string{"a/b"}}}},
+		`hook "Fmt" must be lowercase w`:                       {Projects: map[string]*domain.Project{"app": {Hooks: []string{"Fmt"}}}},
+		`up: skill ".." must be`:                               {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{".."}}}},
+		`allowedSettings: "a..b" is not`:                       {AllowedSettings: []string{"a..b"}},
+		`acme/up is in sources twice`:                          {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{"x"}}, {Repo: "acme/up", SHA: sha, Skills: []string{"y"}}}},
+		`"hooks.Stop" is written by nerve`:                     {AllowedSettings: []string{"hooks.Stop"}},
+		`"enabledPlugins" is written by`:                       {AllowedSettings: []string{"enabledPlugins"}},
+		`app: skill "foo" is listed twice`:                     {Projects: map[string]*domain.Project{"app": {Skills: []string{"foo", "foo"}}}},
+		`app: agent "rv" is listed twice`:                      {Projects: map[string]*domain.Project{"app": {Agents: []string{"rv", "rv"}}}},
+		`app: hook "fmt" is listed twice`:                      {Projects: map[string]*domain.Project{"app": {Hooks: []string{"fmt", "fmt"}}}},
+		`plugin "a@b" is listed twice`:                         {Projects: map[string]*domain.Project{"app": {Plugins: []string{"a@b", "a@b"}}}},
+		`common.settings.x: settings cannot hold null`:         {Common: map[string]any{"x": nil}},
+		`projects.app.settings.a.b: settings cannot hold null`: {Projects: map[string]*domain.Project{"app": {Settings: map[string]any{"a": map[string]any{"b": []any{nil}}}}}},
 	} {
 		if err := m.Validate(); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("got %v, want %q", err, want)
@@ -107,9 +109,9 @@ func TestRefusalsRefuseASettingNoListAllows(t *testing.T) {
 		}}},
 	}
 
-	want := "common.settings.includeCoAuthoredBy: not an allowed setting: list it in allowed-settings, or run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay\n" +
-		"common.settings.statusLine.command: not an allowed setting: list it in allowed-settings, or run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay\n" +
-		"project.app.settings.permissions.additionalDirectories: not an allowed setting: list it in allowed-settings, or run nerve setting rm --project app on it, then nerve setting set --project app, which keeps it in the local overlay"
+	want := "common.settings.includeCoAuthoredBy: not an allowed setting: list it in allowedSettings, or run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay\n" +
+		"common.settings.statusLine.command: not an allowed setting: list it in allowedSettings, or run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay\n" +
+		"projects.app.settings.permissions.additionalDirectories: not an allowed setting: list it in allowedSettings, or run nerve setting rm --project app on it, then nerve setting set --project app, which keeps it in the local overlay"
 	if got := refusals(m); got != want {
 		t.Errorf("problems are\n%s\nwant\n%s", got, want)
 	}
@@ -155,17 +157,18 @@ func TestListGivesEachItemKindsList(t *testing.T) {
 	}
 }
 
-func TestRefusalsRefuseANerveListHeldAsAnythingElse(t *testing.T) {
+func TestRefusalsRefuseASettingNerveAllowsHeldAsClaudeCodeRefusesIt(t *testing.T) {
 	m := domain.Manifest{
 		Common:   map[string]any{"permissions": map[string]any{"deny": "Cron"}},
-		Projects: map[string]*domain.Project{"app": {Settings: map[string]any{"permissions": map[string]any{"allow": map[string]any{"x": 1.0}}}}},
+		Projects: map[string]*domain.Project{"app": {Settings: map[string]any{"permissions": map[string]any{"allow": map[string]any{"x": 1.0}, "defaultMode": "x"}}}},
 	}
 
 	got := refusals(m)
 
 	for _, want := range []string{
-		`common.settings.permissions.deny: holds a list of text, such as ["Read"]: write it as one`,
-		`project.app.settings.permissions.allow: holds a list of text, such as ["Read"]: write it as one`,
+		`common.settings.permissions.deny: must be a list of text, such as ["Read"]`,
+		`projects.app.settings.permissions.allow: must be a list of text, such as ["Read"]`,
+		`projects.app.settings.permissions.defaultMode: must be one of`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("lacks %q:\n%s", want, got)
@@ -176,7 +179,7 @@ func TestRefusalsRefuseANerveListHeldAsAnythingElse(t *testing.T) {
 func TestRefusalsSayHowToShareASettingNerveWrites(t *testing.T) {
 	m := domain.Manifest{Common: map[string]any{"enabledPlugins": map[string]any{"x@y": true}}}
 
-	if got := refusals(m); !strings.Contains(got, `common.settings.enabledPlugins.x@y: not an allowed setting: share a plugin with nerve plugin add, a hook with [hook.<name>]`) || strings.Contains(got, "allowed-settings") {
+	if got := refusals(m); !strings.Contains(got, `common.settings.enabledPlugins.x@y: not an allowed setting: share a plugin with nerve plugin add, a hook in hooks`) || strings.Contains(got, "allowedSettings") {
 		t.Errorf("got:\n%s", got)
 	}
 }
@@ -187,7 +190,7 @@ func TestValidateRefusesOneRepoInTwoSourcesWhateverTheCase(t *testing.T) {
 		{Repo: "acme/skills", SHA: sha, Skills: []string{"b"}},
 	}}
 
-	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "is in two [[source]] tables") {
+	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "is in sources twice") {
 		t.Errorf("got %v", err)
 	}
 }

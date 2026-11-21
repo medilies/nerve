@@ -1,5 +1,5 @@
-# A command that changes brain.toml takes the remote's first, and refuses a
-# Brain with changes to brain.toml not pushed, showing them; it changes
+# A command that changes brain.json takes the remote's first, and refuses a
+# Brain with changes to brain.json not pushed, showing them; it changes
 # nothing then. A push that would overwrite the remote's commits needs -f.
 
 exec nerve init brain
@@ -9,7 +9,7 @@ exec nerve project add app
 # Another machine pushes a change.
 exec git clone -q ../brain.git ../other
 cd ../other
-exec sh -c 'printf "[project.app]\nskills = [\"go-stack\"]\n" > brain.toml'
+exec sh -c 'printf "{\"projects\": {\"app\": {\"skills\": [\"go-stack\"]}}}\n" > brain.json'
 exec git commit -qam 'other machine'
 exec git push -q
 cd ../proj
@@ -17,18 +17,18 @@ cd ../proj
 exec nerve agent add reviewer
 stdout '^synced   the Brain to [0-9a-f]{7}$'
 stdout '^pushed   the Brain at [0-9a-f]{7}: nerve: add agent reviewer to project app$'
-exec git -C ../brain.git show main:brain.toml
-stdout 'skills = \["go-stack"\]'
-stdout 'agents = \["reviewer"\]'
+exec git -C ../brain.git show main:brain.json
+stdout '"skills": \[\n +"go-stack"\n +\]'
+stdout '"agents": \[\n +"reviewer"\n +\]'
 
-# brain.toml edited here, not pushed.
-exec sh -c 'echo "[project.other]" >> ../brain/brain.toml'
+# brain.json edited here, not pushed.
+replace ../brain/brain.json '"app": {' '"other": {}, "app": {'
 ! exec nerve setting set model opus
-stdout '^\+\[project.other\]$'
-stderr '^error: brain.toml has changes not pushed: nerve push sends them, nerve sync drops them$'
-! grep model ../brain/brain.toml
+stdout '^\+    "other": \{\}, "app": \{$'
+stderr '^error: brain.json has changes not pushed: nerve push sends them, nerve sync drops them$'
+! grep model ../brain/brain.json
 ! exec nerve --json setting set model opus
-stdout '"error": "brain.toml has changes not pushed'
+stdout '"error": "brain.json has changes not pushed'
 
 # Meanwhile the remote moves on, and the Brain has a commit of its own: push
 # refuses, -f overwrites.

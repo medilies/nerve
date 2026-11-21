@@ -207,7 +207,7 @@ func findSkill(tree, path, name string) (string, error) {
 			found = append(found, rel+"/")
 		}
 	}
-	const fix = "name the folder that holds it with path in its [[source]]"
+	const fix = "name the folder that holds it with path in its entry of sources"
 	switch {
 	case len(found) == 1:
 		return filepath.Join(base, filepath.FromSlash(found[0])), nil

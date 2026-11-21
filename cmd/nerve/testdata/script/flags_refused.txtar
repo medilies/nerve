@@ -30,6 +30,6 @@ stderr '^--project needs a project name$'
 ! exec nerve status --project --project nope
 stderr 'lists no project "nope"'
 
-cmp $HOME/brain/brain.toml $HOME/empty
+cmp $HOME/brain/brain.json $HOME/empty
 
 -- empty --

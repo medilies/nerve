@@ -80,14 +80,18 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 	}
 	changeAny := change
 	change = func(obj map[string]any, path []string) (map[string]any, error) {
-		was := domain.MisTyped(obj)
+		was := domain.Misfits(obj)
 		obj, err := changeAny(obj, path)
 		if err != nil {
 			return nil, err
 		}
-		for _, k := range domain.MisTyped(obj) {
-			if !slices.Contains(was, k) {
-				return nil, fmt.Errorf("%s %s: nerve setting add adds one item", k, domain.ListOfText)
+		for _, f := range domain.Misfits(obj) {
+			switch {
+			case slices.Contains(was, f): // a value that did not fit before stays for nerve check to report
+			case f.Detail == domain.ListOfText:
+				return nil, fmt.Errorf("%s %s: nerve setting add adds one item", f.Key, f.Detail)
+			default:
+				return nil, fmt.Errorf("%s %s", f.Key, f.Detail)
 			}
 		}
 		return obj, nil
@@ -122,7 +126,7 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 		case domain.WrittenByNerve(k):
 			return fmt.Errorf("%s is %s: %s, or set it per project, where it goes to the local overlay", key, why, domain.ShareNerves)
 		default:
-			return fmt.Errorf("%s is %s: list it in allowed-settings in %s, or set it per project, where it goes to the local overlay", key, why, domain.ManifestFile)
+			return fmt.Errorf("%s is %s: list it in allowedSettings in %s, or set it per project, where it goes to the local overlay", key, why, domain.ManifestFile)
 		}
 		// Every overlay the change drops a value from reads, before any
 		// change is pushed.
@@ -170,7 +174,7 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 		if domain.WrittenByNerve(k) {
 			why += ": " + domain.ShareNerves
 		} else {
-			why += ": list it in allowed-settings to share it"
+			why += ": list it in allowedSettings to share it"
 		}
 		r.Add(Event{Kind: EvOverlay, Project: project, Key: shown, Path: file, Detail: why})
 		return nil

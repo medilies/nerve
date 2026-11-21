@@ -4,14 +4,16 @@
 package domain
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strings"
 )
 
 // ManifestFile is the Brain's manifest, as users know it.
-const ManifestFile = "brain.toml"
+const ManifestFile = "brain.json"
 
 var (
 	RepoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
@@ -20,7 +22,7 @@ var (
 	pathPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$`)
 )
 
-// Manifest is a Brain's brain.toml: the settings it allows, the
+// Manifest is a Brain's brain.json: the settings it allows, the
 // third-party sources it pins, the hooks it defines, the settings common to
 // its projects, and the projects themselves.
 type Manifest struct {
@@ -32,41 +34,122 @@ type Manifest struct {
 }
 
 // nerveAllows are the settings a Brain may hold without listing them in
-// allowed-settings: they shape how a project works.
-var nerveAllows = []string{
-	"alwaysThinkingEnabled", "attribution", "cleanupPeriodDays", "disabledMcpjsonServers", "enableAllProjectMcpServers",
-	"enabledMcpjsonServers", "model", "outputStyle", "permissions.allow",
-	"permissions.ask", "permissions.defaultMode", "permissions.deny", "spinnerTipsEnabled", "syncClaudeAiSkills",
+// allowedSettings, as they shape how a project works, each with what it
+// holds as Claude Code's settings reference gives it: why a value does not
+// fit, or "".
+var nerveAllows = map[string]func(v any) string{
+	"alwaysThinkingEnabled":      boolean,
+	"attribution":                attribution,
+	"cleanupPeriodDays":          days,
+	"disabledMcpjsonServers":     listOfText,
+	"enableAllProjectMcpServers": boolean,
+	"enabledMcpjsonServers":      listOfText,
+	"model":                      text,
+	"outputStyle":                text,
+	"permissions.allow":          listOfText,
+	"permissions.ask":            listOfText,
+	"permissions.defaultMode":    mode,
+	"permissions.deny":           listOfText,
+	"spinnerTipsEnabled":         boolean,
+	"syncClaudeAiSkills":         boolean,
 }
 
-// nerveLists are the settings nerve allows that hold a list of text.
-var nerveLists = []string{"disabledMcpjsonServers", "enabledMcpjsonServers", "permissions.allow", "permissions.ask", "permissions.deny"}
+// ListOfText is why a value does not fit a setting that holds a list of
+// text.
+const ListOfText = `must be a list of text, such as ["Read"]`
 
-// ListOfText is what a setting of nerveLists holds.
-const ListOfText = `holds a list of text, such as ["Read"]`
+func boolean(v any) string {
+	if _, ok := v.(bool); !ok {
+		return "must be true or false"
+	}
+	return ""
+}
 
-// MisTyped names the settings of nerveLists that s holds as anything but a
-// list of text.
-func MisTyped(s map[string]any) []string {
+func text(v any) string {
+	if _, ok := v.(string); !ok {
+		return "must be text"
+	}
+	return ""
+}
+
+func listOfText(v any) string {
+	list, ok := v.([]any)
+	if !ok || slices.ContainsFunc(list, func(x any) bool { return text(x) != "" }) {
+		return ListOfText
+	}
+	return ""
+}
+
+// days fits a whole number of at least 1, however it is written.
+func days(v any) string {
+	switch t := v.(type) {
+	case int64:
+		if t >= 1 {
+			return ""
+		}
+	case float64:
+		if t >= 1 && t == math.Trunc(t) {
+			return ""
+		}
+	case json.Number: // a whole number beyond int64
+		if !strings.HasPrefix(string(t), "-") {
+			return ""
+		}
+	}
+	return "must be a whole number of days, at least 1"
+}
+
+// mode fits the permission modes a project's settings can set: Claude Code
+// takes auto and bypassPermissions only from the user's own settings.
+func mode(v any) string {
+	switch v {
+	case "default", "acceptEdits", "plan", "dontAsk", "manual":
+		return ""
+	case "auto", "bypassPermissions":
+		return fmt.Sprintf("%q does not take effect from a project's settings: set it in ~/.claude/settings.json", v)
+	}
+	return `must be one of "default", "acceptEdits", "plan", "dontAsk" or "manual"`
+}
+
+func attribution(v any) string {
+	const why = "must be false, or hold commit and pr as text and sessionUrl as true or false"
+	if v == false {
+		return ""
+	}
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return why
+	}
+	for k, x := range obj {
+		fit := map[string]func(any) string{"commit": text, "pr": text, "sessionUrl": boolean}[k]
+		if fit == nil || fit(x) != "" {
+			return why
+		}
+	}
+	return ""
+}
+
+// Misfits names each setting of nerveAllows that s holds as Claude Code
+// would refuse it, and why.
+func Misfits(s map[string]any) []Problem {
 	whole := map[string]bool{}
-	for _, k := range nerveLists {
+	for k := range nerveAllows {
 		path, _ := ParseKey(k)
 		whole[LeafKey(path)] = true
 	}
 	l := leavesUpTo(s, whole)
-	var keys []string
-	for _, k := range nerveLists {
+	var p []Problem
+	for _, k := range SortedKeys(nerveAllows) {
 		path, _ := ParseKey(k)
 		v, ok := l[LeafKey(path)]
 		if !ok {
 			continue
 		}
-		list, isList := v.([]any)
-		if !isList || slices.ContainsFunc(list, func(x any) bool { _, text := x.(string); return !text }) {
-			keys = append(keys, k)
+		if why := nerveAllows[k](v); why != "" {
+			p = append(p, Problem{Key: k, Detail: why})
 		}
 	}
-	return keys
+	return p
 }
 
 // nerveWrites are the settings nerve writes from a Brain's hooks and
@@ -114,14 +197,14 @@ func (m Manifest) Validate() error {
 		path, err := ParseKey(a)
 		switch {
 		case err != nil:
-			return fmt.Errorf("%s: allowed-settings: %q is not a settings key", ManifestFile, a)
+			return fmt.Errorf("%s: allowedSettings: %q is not a settings key", ManifestFile, a)
 		case slices.Contains(nerveWrites, path[0]):
-			return fmt.Errorf("%s: allowed-settings: %q is written by nerve from hooks and plugins", ManifestFile, a)
+			return fmt.Errorf("%s: allowedSettings: %q is written by nerve from hooks and plugins", ManifestFile, a)
 		}
 	}
 	for i, s := range m.Sources {
 		if slices.ContainsFunc(m.Sources[:i], func(o Source) bool { return strings.EqualFold(o.Repo, s.Repo) }) {
-			return fmt.Errorf("%s: %s is in two [[source]] tables: list all its skills in one", ManifestFile, s.Repo)
+			return fmt.Errorf("%s: %s is in sources twice: list all its skills in one entry", ManifestFile, s.Repo)
 		}
 		if !RepoPattern.MatchString(s.Repo) || slices.ContainsFunc(strings.Split(s.Repo, "/"), func(p string) bool { return p == "." || p == ".." }) {
 			return fmt.Errorf("%s: repo %q is not owner/name", ManifestFile, s.Repo)
@@ -150,10 +233,16 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("%s: hook %s needs an event and a command", ManifestFile, name)
 		}
 	}
+	if at := nullAt("common.settings.", m.Common); at != "" {
+		return fmt.Errorf("%s: %s: settings cannot hold null: nerve setting rm removes a setting", ManifestFile, at)
+	}
 	for _, name := range SortedKeys(m.Projects) {
 		p := m.Projects[name]
 		if !NamePattern.MatchString(name) {
 			return fmt.Errorf("%s: project %q must be lowercase words joined by hyphens", ManifestFile, name)
+		}
+		if at := nullAt("projects."+name+".settings.", p.Settings); at != "" {
+			return fmt.Errorf("%s: %s: settings cannot hold null: nerve setting rm removes a setting", ManifestFile, at)
 		}
 		for _, kind := range ItemKinds {
 			list := *p.List(kind)
@@ -170,6 +259,18 @@ func (m Manifest) Validate() error {
 		}
 	}
 	return nil
+}
+
+// nullAt names the first setting in s that is or holds null, after where,
+// or "".
+func nullAt(where string, s map[string]any) string {
+	l := Leaves(s)
+	for _, k := range SortedKeys(l) {
+		if HasNull(l[k]) {
+			return where + Dotted(k)
+		}
+	}
+	return ""
 }
 
 // Project returns the named project, or an error naming the manifest.
@@ -222,7 +323,7 @@ type Problem struct {
 
 // allows says whether a leaf key is an allowed setting, or under one.
 func (m Manifest) allows(key string) bool {
-	for _, a := range slices.Concat(nerveAllows, m.AllowedSettings) {
+	for _, a := range slices.Concat(SortedKeys(nerveAllows), m.AllowedSettings) {
 		path, err := ParseKey(a)
 		if err != nil {
 			continue
@@ -254,8 +355,8 @@ func (m Manifest) SettingRefusal(key string, v any) string {
 	return ""
 }
 
-// Refusals lists the settings in the manifest no list allows, and those of
-// nerveLists that are not a list of text.
+// Refusals lists the settings in the manifest no list allows, and the
+// misfits among those nerve allows.
 func (m Manifest) Refusals() []Problem {
 	var p []Problem
 	add := func(key, why string) {
@@ -272,26 +373,26 @@ func (m Manifest) Refusals() []Problem {
 				add(where+Dotted(k), why+": "+ShareNerves)
 				continue
 			}
-			add(where+Dotted(k), why+": list it in allowed-settings, or "+fix)
+			add(where+Dotted(k), why+": list it in allowedSettings, or "+fix)
 		}
-		for _, k := range MisTyped(s) {
-			add(where+k, ListOfText+": write it as one")
+		for _, f := range Misfits(s) {
+			add(where+f.Key, f.Detail)
 		}
 	}
 	settings("common.settings.", "run nerve setting rm --common on it, then nerve setting set per project, which keeps it in the local overlay", m.Common)
 	for _, name := range SortedKeys(m.Projects) {
 		pr := m.Projects[name]
-		settings("project."+name+".settings.", "run nerve setting rm --project "+name+" on it, then nerve setting set --project "+name+", which keeps it in the local overlay", pr.Settings)
+		settings("projects."+name+".settings.", "run nerve setting rm --project "+name+" on it, then nerve setting set --project "+name+", which keeps it in the local overlay", pr.Settings)
 	}
 	return p
 }
 
 // ShareNerves says how to share a setting nerve writes from a Brain's
 // plugins and hooks.
-const ShareNerves = "share a plugin with nerve plugin add, a hook with [hook.<name>]"
+const ShareNerves = "share a plugin with nerve plugin add, a hook in hooks"
 
 // WrittenByNerve says whether a leaf key is one nerve writes from a Brain's
-// hooks and plugins, which no allowed-settings can let the Brain set.
+// hooks and plugins, which no allowedSettings can let the Brain set.
 func WrittenByNerve(key string) bool {
 	first, _, _ := strings.Cut(key, Sep)
 	return slices.Contains(nerveWrites, first)

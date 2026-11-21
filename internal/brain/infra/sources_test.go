@@ -35,7 +35,7 @@ func TestSkillFetchesASkillAtItsPin(t *testing.T) {
 			t.Errorf("%s: got %+v (%v)", name, s, err)
 		}
 	}
-	if _, err := (SourceCache{}).Skill(domain.Source{Repo: "acme/up", SHA: sha}, "ghost"); err == nil || err.Error() != "acme/up@"+sha[:7]+`: no skill "ghost" at the root, in skills/ghost/ or in ghost/: name the folder that holds it with path in its [[source]]` {
+	if _, err := (SourceCache{}).Skill(domain.Source{Repo: "acme/up", SHA: sha}, "ghost"); err == nil || err.Error() != "acme/up@"+sha[:7]+`: no skill "ghost" at the root, in skills/ghost/ or in ghost/: name the folder that holds it with path in its entry of sources` {
 		t.Errorf("got %v", err)
 	}
 }
@@ -101,7 +101,7 @@ func TestDiffShowsHowASkillChangedUpstream(t *testing.T) {
 	}
 	e.git(e.path("github/acme/up.git"), "rm", "-q", "-r", "skills/grilling")
 	gone := e.upstream(map[string]string{"skills/other/SKILL.md": skillMD("other", "")})
-	if _, err := src.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", gone); err == nil || !strings.Contains(err.Error(), "drop it from brain.toml first") {
+	if _, err := src.Diff(domain.Source{Repo: "acme/up", SHA: old}, "grilling", gone); err == nil || !strings.Contains(err.Error(), "drop it from brain.json first") {
 		t.Errorf("got %v", err)
 	}
 }
@@ -296,7 +296,7 @@ func TestSkillLooksOnlyInItsPlaces(t *testing.T) {
 
 	_, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling")
 
-	if err == nil || !strings.HasSuffix(err.Error(), `: no skill "grilling" at the root, in skills/grilling/ or in grilling/: name the folder that holds it with path in its [[source]]`) {
+	if err == nil || !strings.HasSuffix(err.Error(), `: no skill "grilling" at the root, in skills/grilling/ or in grilling/: name the folder that holds it with path in its entry of sources`) {
 		t.Errorf("got %v, want no skill outside the root, skills/ and a folder of its name", err)
 	}
 }
@@ -320,7 +320,7 @@ func TestSkillInTwoOfItsPlacesIsRefused(t *testing.T) {
 
 	_, err := SourceCache{}.Skill(domain.Source{Repo: "acme/up", SHA: sha}, "grilling")
 
-	if err == nil || !strings.HasSuffix(err.Error(), `skill "grilling" is in both skills/grilling/ and grilling/: name the folder that holds it with path in its [[source]]`) {
+	if err == nil || !strings.HasSuffix(err.Error(), `skill "grilling" is in both skills/grilling/ and grilling/: name the folder that holds it with path in its entry of sources`) {
 		t.Errorf("got %v", err)
 	}
 }

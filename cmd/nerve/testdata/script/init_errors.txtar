@@ -1,18 +1,18 @@
-# init refuses a folder that is not a Brain, with no brain.toml or no git, and a machine file already
+# init refuses a folder that is not a Brain, with no brain.json or no git, and a machine file already
 # there, which it never replaces.
 
 ! exec nerve init nowhere
-stderr '/nowhere has no brain.toml: a Brain is a git repo with brain.toml at its top; make one there, or run nerve init on the folder that holds yours'
-! exists $NERVE_CONFIG/config.toml
+stderr '/nowhere has no brain.json: a Brain is a git repo with brain.json at its top; make one there, or run nerve init on the folder that holds yours'
+! exists $NERVE_CONFIG/config.json
 
 mkdir loose
-cp brain/brain.toml loose/brain.toml
+cp brain/brain.json loose/brain.json
 ! exec nerve init loose
 stderr '/loose is not a git repo, so it is not a Brain: run git init there, or nerve init on the folder that holds yours'
-! exists $NERVE_CONFIG/config.toml
+! exists $NERVE_CONFIG/config.json
 
 exec nerve init brain
-cp $NERVE_CONFIG/config.toml $HOME/first
+cp $NERVE_CONFIG/config.json $HOME/first
 ! exec nerve init brain
-stderr 'config.toml exists: edit it instead'
-cmp $NERVE_CONFIG/config.toml $HOME/first
+stderr 'config.json exists: edit it instead'
+cmp $NERVE_CONFIG/config.json $HOME/first

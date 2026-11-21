@@ -37,7 +37,7 @@ func TestScripts(t *testing.T) {
 
 // setupWorld makes $WORK a HOME holding a Brain at brain, pushed to its
 // remote at brain.git, and a project checkout at proj, listed nowhere yet. A script's own files are written first, so it can give the
-// Brain a brain.toml, skills and agents. Git reads no config of the user's,
+// Brain a brain.json, skills and agents. Git reads no config of the user's,
 // and https://github.com/ is routed to local repos under $WORK/github.
 func setupWorld(env *testscript.Env) error {
 	home, err := filepath.EvalSymlinks(env.WorkDir)
@@ -74,7 +74,7 @@ func setupWorld(env *testscript.Env) error {
 	if err := writeNew(filepath.Join(home, ".config", "git", "ignore"), "**/.claude/settings.local.json\n"); err != nil {
 		return err
 	}
-	if err := writeNew(filepath.Join(home, "brain", "brain.toml"), ""); err != nil {
+	if err := writeNew(filepath.Join(home, "brain", "brain.json"), ""); err != nil {
 		return err
 	}
 	if err := writeNew(filepath.Join(home, "proj", "README"), "x"); err != nil {

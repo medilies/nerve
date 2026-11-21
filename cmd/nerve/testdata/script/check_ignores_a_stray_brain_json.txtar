@@ -1,5 +1,5 @@
 # Outside the Brain and any listed checkout, check uses this machine's
-# Brain, not a brain.toml found above the working directory.
+# Brain, not a brain.json found above the working directory.
 
 exec nerve init brain
 mkdir x
@@ -9,8 +9,8 @@ cd x
 
 stdout 'skills/bad: frontmatter name "other" differs from folder name'
 
--- brain.toml --
-nerve = "v9.9.9"
+-- brain.json --
+{"nerve": "v9.9.9"}
 -- brain/skills/bad/SKILL.md --
 ---
 name: other

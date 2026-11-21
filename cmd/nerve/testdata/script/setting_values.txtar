@@ -1,0 +1,26 @@
+# A setting nerve allows takes only what Claude Code takes; a value is kept
+# as JSON, as it was given.
+
+exec nerve init brain
+cd proj
+exec nerve project add app
+
+! exec nerve setting set model 42
+stderr '^error: model must be text$'
+! exec nerve setting set permissions.defaultMode bypassPermissions
+stderr '"bypassPermissions" does not take effect from a project''s settings: set it in ~/.claude/settings.json'
+! exec nerve setting set cleanupPeriodDays 0
+stderr 'cleanupPeriodDays must be a whole number of days, at least 1'
+! grep 'model|defaultMode|cleanupPeriodDays' $HOME/brain/brain.json
+
+exec nerve setting set --common attribution.commit ''
+exec nerve setting set --common statusLine '{"type":"command","command":"x"}'
+grep '^        "type": "command"$' $HOME/brain/brain.json
+
+# A value edited by hand that Claude Code would refuse is a problem.
+exec sh -c 'sed "s/\"commit\": \"\"/\"commit\": true/" $HOME/brain/brain.json > x && mv x $HOME/brain/brain.json'
+! exec nerve check
+stdout 'common.settings.attribution: must be false, or hold commit and pr as text and sessionUrl as true or false'
+
+-- brain/brain.json --
+{"allowedSettings": ["statusLine"]}

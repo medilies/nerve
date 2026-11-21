@@ -30,7 +30,7 @@ func TestAddProjectListsTheCheckoutAndRecordsNoneOfItsSettings(t *testing.T) {
 		t.Errorf("project add wrote in the project")
 	}
 	contains(t, r,
-		"project  app: added to brain.toml",
+		"project  app: added to brain.json",
 		"checkout /w/app (app): listed: nerve sync --here carries the Brain to it")
 }
 
@@ -146,7 +146,7 @@ func TestRemoveProjectCleansItsTreesAndDropsIt(t *testing.T) {
 	if _, ok := e.trees.links["/w/other/.claude/skills/nerve"]; !ok {
 		t.Errorf("another project was cleaned")
 	}
-	contains(t, r, "cleaned  /w/app: project app removed", "project  app: dropped from brain.toml",
+	contains(t, r, "cleaned  /w/app: project app removed", "project  app: dropped from brain.json",
 		"kept     /cfg/nerve/overlays/app.json: the local overlay of project app may hold what is nowhere else: delete it once you no longer need it")
 	if err := e.app.RemoveProject("app", &recorder{}); err == nil {
 		t.Errorf("removing it again passed")
@@ -321,7 +321,7 @@ func TestAddProjectWhoseBrainSaveFailsListsNothing(t *testing.T) {
 func TestAddProjectWhoseMachineSaveFailsJoinsTheBrainsEntryOnARetry(t *testing.T) {
 	e := newEnv(t)
 	e.checkout("/w/app")
-	e.machine.fail["Save"] = errors.New("config.toml: read-only")
+	e.machine.fail["Save"] = errors.New("config.json: read-only")
 	if err := e.app.AddProject("/w/app", "app", &recorder{}); err == nil {
 		t.Fatal("add passed")
 	}

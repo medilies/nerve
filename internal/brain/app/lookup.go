@@ -36,8 +36,8 @@ func (a App) load() (loaded, error) {
 	return loaded{machine: machine, m: m}, nil
 }
 
-// fresh brings the remote's brain.toml to the Brain, then loads it with
-// this machine: what a command that may change brain.toml starts from.
+// fresh brings the remote's brain.json to the Brain, then loads it with
+// this machine: what a command that may change brain.json starts from.
 func (a App) fresh(r Reporter) (loaded, error) {
 	if _, err := a.Machine.Load(); err != nil {
 		return loaded{}, err
@@ -48,8 +48,8 @@ func (a App) fresh(r Reporter) (loaded, error) {
 	return a.load()
 }
 
-// pushManifest writes m as brain.toml, then commits it alone with message and
-// pushes it, so the Brain and its remote never hold two brain.toml.
+// pushManifest writes m as brain.json, then commits it alone with message and
+// pushes it, so the Brain and its remote never hold two brain.json.
 func (a App) pushManifest(m domain.Manifest, message string, r Reporter) error {
 	if err := a.Brain.Save(m); err != nil {
 		return err
@@ -153,7 +153,7 @@ func (a App) offers(m domain.Manifest, kind, name string) string {
 		}
 	case "hook":
 		if _, ok := m.Hooks[name]; !ok {
-			return fmt.Sprintf("%s defines no hook %q: add a [hook.%s] table", domain.ManifestFile, name, name)
+			return fmt.Sprintf("%s defines no hook %q: add %s to hooks", domain.ManifestFile, name, name)
 		}
 	case "plugin":
 		if !pluginID(name) {

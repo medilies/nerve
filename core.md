@@ -13,7 +13,7 @@
 - non sensitive setting per project and common for all projects
 - It references 3rd party skills with hashes
 - hooks, plugins...
-- all in a toml file
+- all in a json file
 
 ## claude ai
 
@@ -29,7 +29,7 @@ Everything it does is explicit and returns understandable output
 - All conflict fails and return a failure message with diff
 - -f ignores conflicts
 - empty settings or folders are not deleted when left empty
-- remote and local brain toml always sync
+- remote and local brain json always sync
 
 ## a skill
 

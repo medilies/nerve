@@ -66,7 +66,7 @@ type fakeBrain struct {
 	manifestPushErr error
 	manifestPushes  []string         // messages of each PushManifest
 	calls           []string         // refresh, load, save, push-manifest, sync and push, in order
-	unpushed        *domain.Manifest // brain.toml before the last save, until it is pushed
+	unpushed        *domain.Manifest // brain.json before the last save, until it is pushed
 	notPushed       map[string]bool  // files and folders the remote lacks, by path in the Brain
 }
 
@@ -88,7 +88,7 @@ func (b *fakeBrain) Refresh(app.Reporter) error {
 	return b.refreshErr
 }
 
-// PushManifest pushes what Save wrote, as the real Brain commits brain.toml.
+// PushManifest pushes what Save wrote, as the real Brain commits brain.json.
 func (b *fakeBrain) PushManifest(message string, r app.Reporter) error {
 	b.calls = append(b.calls, "push-manifest")
 	if b.manifestPushErr != nil {
@@ -117,7 +117,7 @@ func (b *fakeBrain) Save(m domain.Manifest) error {
 	b.calls = append(b.calls, "save")
 	if b.failSaves > 0 {
 		b.failSaves--
-		return errors.New("brain.toml: read-only")
+		return errors.New("brain.json: read-only")
 	}
 	if err := m.Validate(); err != nil {
 		return err
@@ -179,7 +179,7 @@ func (s *fakeSources) Head(repo string) (string, error) { return s.heads[repo], 
 
 func (s *fakeSources) Diff(src domain.Source, name, to string) (string, error) {
 	if _, ok := s.skills[src.Repo+"@"+to+"/"+name]; !ok {
-		return "", fmt.Errorf("at %s: no skill %q; drop it from brain.toml first", to[:7], name)
+		return "", fmt.Errorf("at %s: no skill %q; drop it from brain.json first", to[:7], name)
 	}
 	return fmt.Sprintf("diff %s %s..%s", name, src.SHA[:7], to[:7]), nil
 }
@@ -195,7 +195,7 @@ type fakeMachine struct {
 
 func (m *fakeMachine) Load() (domain.Machine, error) {
 	if m.missing {
-		return domain.Machine{}, errors.New("no machine file at /cfg/nerve/config.toml: run nerve init")
+		return domain.Machine{}, errors.New("no machine file at /cfg/nerve/config.json: run nerve init")
 	}
 	c := m.machine
 	c.Checkouts = slices.Clone(m.machine.Checkouts)
@@ -212,10 +212,10 @@ func (m *fakeMachine) Save(machine domain.Machine) error {
 
 func (m *fakeMachine) Create(machine domain.Machine) (string, error) {
 	if !m.missing {
-		return "", errors.New("/cfg/nerve/config.toml exists: edit it instead")
+		return "", errors.New("/cfg/nerve/config.json exists: edit it instead")
 	}
 	m.machine, m.missing = machine, false
-	return "/cfg/nerve/config.toml", nil
+	return "/cfg/nerve/config.json", nil
 }
 
 func (m *fakeMachine) Overlay(project string) (map[string]any, string, error) {

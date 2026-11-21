@@ -118,16 +118,16 @@ func TestWriteFileLeavesTheFilesBesideIt(t *testing.T) {
 	}
 }
 
-func TestWritePrivateIsForTheUserOnlyWhateverTheUmask(t *testing.T) {
+func TestAPrivateFileIsForTheUserOnlyWhateverTheUmask(t *testing.T) {
 	e := newTestEnv(t)
 	defer syscall.Umask(syscall.Umask(0o022))
 	path := e.path("cfg/nerve/overlays/app.json")
 	e.write(path, "{}") // as an earlier nerve left it: 0644
 
-	if err := writePrivate(path, []byte("{}")); err != nil {
+	if err := replace(path, []byte("{}"), private); err != nil {
 		t.Fatal(err)
 	}
-	if err := writePrivate(e.path("cfg/nerve/state/x.json"), []byte("{}")); err != nil {
+	if err := replace(e.path("cfg/nerve/state/x.json"), []byte("{}"), private); err != nil {
 		t.Fatal(err)
 	}
 
@@ -239,7 +239,7 @@ func TestGitIgnoresTheRepoAGitHookPointsAt(t *testing.T) {
 func TestGitStatusLeavesTheIndexUnwritten(t *testing.T) {
 	e := newTestEnv(t)
 	repo := e.repo(e.path("brain"))
-	e.write(filepath.Join(repo, "brain.toml"), "x = 1\n")
+	e.write(filepath.Join(repo, "brain.json"), "{}\n")
 	e.commit(repo)
 	index := filepath.Join(repo, ".git", "index")
 	old := time.Now().Add(-time.Hour).Truncate(time.Second)
@@ -247,7 +247,7 @@ func TestGitStatusLeavesTheIndexUnwritten(t *testing.T) {
 		t.Fatal(err)
 	}
 	touched := time.Now().Add(-time.Minute)
-	if err := os.Chtimes(filepath.Join(repo, "brain.toml"), touched, touched); err != nil {
+	if err := os.Chtimes(filepath.Join(repo, "brain.json"), touched, touched); err != nil {
 		t.Fatal(err)
 	}
 

@@ -672,7 +672,7 @@ func ParseValue(s string) any {
 // Numbers makes each number in decoded JSON, read as json.Number, one that
 // compares equal to the same number written another way: an int64 when it
 // is whole and fits, a float64 when it has a fraction or exponent, as
-// brain.toml and Claude Code hold it, or when it is how JSON writes a
+// brain.json and Claude Code hold it, or when it is how JSON writes a
 // float64, such as 10000000000000000000 for 1e19, and else the json.Number
 // itself, so a whole number beyond int64 keeps every digit. It changes
 // objects and lists in place.
@@ -706,8 +706,8 @@ func Numbers(v any) any {
 	return v
 }
 
-// HasNull says whether a value is or holds null, which brain.toml cannot
-// hold.
+// HasNull says whether a value is or holds null, which a Brain's settings
+// do not hold.
 func HasNull(v any) bool {
 	switch t := v.(type) {
 	case nil:

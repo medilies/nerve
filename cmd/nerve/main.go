@@ -54,7 +54,7 @@ status, and the skill, agent, hook, plugin and setting commands act on the proje
 working directory; --project <name> names another.
 A key that holds a dot is written in double quotes: enabledPlugins."x@y.z".
 -- ends the flags, so a value after it may start with --.
-Commands that change brain.toml first bring the remote's, then commit and push the change.
+Commands that change brain.json first bring the remote's, then commit and push the change.
 --json, with any command, prints one JSON document of its events and error instead of text.
 `
 
@@ -236,7 +236,7 @@ func onMachine() (app.App, error) {
 }
 
 // onBrainHere builds nerve on the Brain around the working directory, else
-// this machine's. Inside a checkout this machine lists, a brain.toml is the
+// this machine's. Inside a checkout this machine lists, a brain.json is the
 // project's own, so it is this machine's Brain.
 func onBrainHere(wd string) (app.App, error) {
 	machine, err := infra.NewMachineFiles()
@@ -258,7 +258,7 @@ func onBrainHere(wd string) (app.App, error) {
 }
 
 // brainAround finds the Brain around dir: from dir up, the top of a git
-// repo holding a brain.toml. A brain.toml elsewhere is not a Brain: stray
+// repo holding a brain.json. A brain.json elsewhere is not a Brain: stray
 // names the first such folder, when no Brain is found.
 func brainAround(dir string) (brain, stray string) {
 	for ; ; dir = filepath.Dir(dir) {

@@ -1,4 +1,4 @@
-# In a checkout this machine lists, a brain.toml is the project's own, so
+# In a checkout this machine lists, a brain.json is the project's own, so
 # check uses this machine's Brain.
 
 exec nerve init brain
@@ -8,5 +8,5 @@ exec nerve project add app
 exec nerve check
 stdout 'no problems'
 
--- proj/brain.toml --
-unrelated = 1
+-- proj/brain.json --
+{"unrelated": 1}

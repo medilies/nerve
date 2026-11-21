@@ -49,7 +49,7 @@ func TestAddItemRefusesWhatTheBrainDoesNotOffer(t *testing.T) {
 		{"", "skill", "ghost", `the Brain has no skill "ghost": add skills/ghost/, or a source that lists it`},
 		{"", "skill", "nerve", "nerve's own skill reaches every project already"},
 		{"", "agent", "nobody", `the Brain has no agent "nobody"`},
-		{"", "hook", "fmt", `brain.toml defines no hook "fmt"`},
+		{"", "hook", "fmt", `brain.json defines no hook "fmt"`},
 		{"", "plugin", "gopls", `plugin "gopls" must be <plugin>@<marketplace>`},
 		{"", "plugin", "a@b@c", "must be <plugin>@<marketplace>"},
 		{"", "agent", "Reviewer", `agent "Reviewer" must be lowercase words joined by hyphens`},
@@ -124,7 +124,7 @@ func TestUpdateShowsEachSkillsDiffThenMovesThePin(t *testing.T) {
 	e.must(r, e.app.Update("/w", "", r))
 	contains(t, r, "acme/up is already pinned at "+pinB)
 
-	if err := e.app.Update("/w", "acme/other", &recorder{}); err == nil || err.Error() != "acme/other is not a source in brain.toml" {
+	if err := e.app.Update("/w", "acme/other", &recorder{}); err == nil || err.Error() != "acme/other is not a source in brain.json" {
 		t.Errorf("got %v", err)
 	}
 }
@@ -144,7 +144,7 @@ func TestUpdateLeavesASourceThatDropsASkillAndMovesTheOthers(t *testing.T) {
 	if err == nil || e.brain.m.Sources[0].SHA != pinA || e.brain.m.Sources[1].SHA != pinB {
 		t.Errorf("got %v, sources %v", err, e.brain.m.Sources)
 	}
-	contains(t, r, "problem  brain.toml: acme/up: at 84b741e: no skill \"grilling\"; drop it from brain.toml first")
+	contains(t, r, "problem  brain.json: acme/up: at 84b741e: no skill \"grilling\"; drop it from brain.json first")
 }
 
 func TestAddItemToACheckoutWhoseProjectLeftTheBrainSaysWhatToDo(t *testing.T) {

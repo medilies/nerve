@@ -14,10 +14,10 @@ type Brain interface {
 	// Save writes the manifest in nerve's own layout.
 	Save(domain.Manifest) error
 	// Refresh brings the upstream's new commits to a checkout that has
-	// nothing of its own to push, refusing one with changes to brain.toml
+	// nothing of its own to push, refusing one with changes to brain.json
 	// or commits its upstream lacks, or whose upstream it cannot reach.
 	Refresh(Reporter) error
-	// PushManifest commits brain.toml alone with message, then pushes that
+	// PushManifest commits brain.json alone with message, then pushes that
 	// commit to the upstream.
 	PushManifest(message string, r Reporter) error
 	// OnRemote says whether the upstream holds the file or folder at rel,

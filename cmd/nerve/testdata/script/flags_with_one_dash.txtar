@@ -8,10 +8,10 @@ exec nerve project add app
 
 ! exec nerve setting set -all model
 stderr '-all is not a flag nerve knows: put -- before a word that starts with -'
-! grep all $HOME/brain/brain.toml
+! grep all $HOME/brain/brain.json
 
-exec nerve setting set cleanupPeriodDays -1
-grep 'cleanupPeriodDays = -1' $HOME/brain/brain.toml
+exec nerve setting set statusLine.padding -1
+grep '^    "padding": -1$' $NERVE_CONFIG/overlays/app.json
 
 ! exec nerve setting set cleanupPeriodDays -inf
 stderr '-inf is not a flag nerve knows: put -- before a word that starts with -'
@@ -20,6 +20,6 @@ stderr '-inf is not a flag nerve knows: put -- before a word that starts with -'
 ! exec nerve setting set outputStyle -f
 stderr 'a value that starts with - goes after --'
 exec nerve setting set outputStyle -- -f
-grep 'outputStyle = "-f"' $HOME/brain/brain.toml
+grep '^        "outputStyle": "-f"$' $HOME/brain/brain.json
 ! exec nerve skill add go-stack -f
 stderr '^-f does not go with this command$'

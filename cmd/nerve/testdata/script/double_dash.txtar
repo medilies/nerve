@@ -6,4 +6,4 @@ exec nerve project add app
 
 exec nerve --json setting set outputStyle -- --json
 
-grep '^outputStyle = "--json"$' $HOME/brain/brain.toml
+grep '^        "outputStyle": "--json"$' $HOME/brain/brain.json

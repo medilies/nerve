@@ -24,7 +24,16 @@ func TestMachineFileRoundTripsWithPathsUnderHome(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := e.read(path); got != "brain = \"~/brain\"\n\n[[checkout]]\npath = \"~/dev/app\"\nproject = \"app\"\n" {
+	if got := e.read(path); got != `{
+  "brain": "~/brain",
+  "checkouts": [
+    {
+      "path": "~/dev/app",
+      "project": "app"
+    }
+  ]
+}
+` {
 		t.Errorf("machine file is:\n%s", got)
 	}
 	if got, err := files.Load(); err != nil || got.Brain != m.Brain || got.Checkouts[0] != m.Checkouts[0] {
@@ -39,8 +48,7 @@ func TestMachineFileKeepsAPathAsItIsWritten(t *testing.T) {
 	e := newTestEnv(t)
 	e.write(e.path("real-work/app/README"), "x")
 	e.link(e.path("work"), e.path("real-work"))
-	config := "brain = \"~/brain\"\n\n[[checkout]]\npath = \"~/work/app\"\nproject = \"app\"\n"
-	e.write(e.config("config.toml"), config)
+	e.write(e.config("config.json"), `{"brain": "~/brain", "checkouts": [{"path": "~/work/app", "project": "app"}]}`)
 	files, _ := NewMachineFiles()
 
 	m, err := files.Load()
@@ -52,7 +60,7 @@ func TestMachineFileKeepsAPathAsItIsWritten(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := e.read(e.config("config.toml")); !strings.HasPrefix(got, config) {
+	if got := e.read(e.config("config.json")); !strings.Contains(got, `"brain": "~/brain"`) || !strings.Contains(got, `"path": "~/work/app"`) {
 		t.Errorf("machine file is:\n%s", got)
 	}
 }
@@ -105,7 +113,7 @@ func TestStatesAreReadUnderAConfigFolderNamedLikeAPattern(t *testing.T) {
 func TestMachineFileWritesANewPathUnderALinkedHomeWithTilde(t *testing.T) {
 	e := newTestEnv(t)
 	real := e.path("real-home")
-	e.write(filepath.Join(real, "brain/brain.toml"), "")
+	e.write(filepath.Join(real, "brain/brain.json"), "")
 	e.link(e.path("home"), real)
 	t.Setenv("HOME", e.path("home"))
 	files, _ := NewMachineFiles()
@@ -114,7 +122,7 @@ func TestMachineFileWritesANewPathUnderALinkedHomeWithTilde(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := e.read(e.config("config.toml")); got != "brain = \"~/brain\"\n" {
+	if got := e.read(e.config("config.json")); got != "{\n  \"brain\": \"~/brain\"\n}\n" {
 		t.Errorf("machine file is:\n%s", got)
 	}
 }
@@ -126,14 +134,15 @@ func TestMachineFileRefusesWhatItCannotHold(t *testing.T) {
 		t.Errorf("got %v without a machine file", err)
 	}
 	for _, c := range []struct{ content, want string }{
-		{"brain = \"~/b\"\n[[config]]\ndir = \"~/.claude\"\n", "unknown keys [config config.dir]"},
-		{"brain = \"b\"\n", `brain "b" must be absolute`},
-		{"brain = \"~/b\"\nx = 1\n", "unknown keys [x]"},
-		{"brain = \"~/b\"\n[[checkout]]\npath = \"~/a\"\nproject = \"a\"\n[[checkout]]\npath = \"~/a/\"\nproject = \"b\"\n", "is listed twice"},
-		{"brain = \"~/b\"\n[[checkout]]\npath = \"~/a\"\n", "has no project"},
-		{"brain = \"~/b\"\n[[checkout]]\npath = \"~/a\"\nproject = \"A b\"\n", `project "A b" must be lowercase`},
+		{`{"brain": "~/b", "config": [{"dir": "~/.claude"}]}`, `unknown key "config"`},
+		{`{"brain": "b"}`, `brain "b" must be absolute`},
+		{`{"brain": "~/b", "checkouts": [{"path": "~/a", "project": "a"}, {"path": "~/a/", "project": "b"}]}`, "is listed twice"},
+		{`{"brain": "~/b", "checkouts": [{"path": "~/a"}]}`, "has no project"},
+		{`{"brain": "~/b", "checkouts": [{"path": "~/a", "project": "A b"}]}`, `project "A b" must be lowercase`},
+		{`["~/b"]`, "must hold a JSON object"},
+		{`{"brain": "~/b"`, "unexpected end of JSON input"},
 	} {
-		e.write(e.config("config.toml"), c.content)
+		e.write(e.config("config.json"), c.content)
 		if _, err := files.Load(); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%q: got %v, want %q", c.content, err, c.want)
 		}

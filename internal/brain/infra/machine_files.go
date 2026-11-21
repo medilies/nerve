@@ -1,7 +1,6 @@
 package infra
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -10,8 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-
-	"github.com/BurntSushi/toml"
 
 	"github.com/medilies/nerve/internal/brain/app"
 	"github.com/medilies/nerve/internal/brain/domain"
@@ -34,31 +31,28 @@ func NewMachineFiles() (MachineFiles, error) {
 
 var _ app.Machine = MachineFiles{}
 
-func (f MachineFiles) path() string { return filepath.Join(f.dir, "config.toml") }
+func (f MachineFiles) path() string { return filepath.Join(f.dir, "config.json") }
 
 type machineFile struct {
-	Brain     string         `toml:"brain"`
-	Checkouts []checkoutLine `toml:"checkout,omitempty"`
+	Brain     string         `json:"brain"`
+	Checkouts []checkoutLine `json:"checkouts,omitempty"`
 }
 
 type checkoutLine struct {
-	Path    string `toml:"path"`
-	Project string `toml:"project"`
+	Path    string `json:"path"`
+	Project string `json:"project"`
 }
 
 // Load reads the machine file, with every path made absolute.
 func (f MachineFiles) Load() (domain.Machine, error) {
 	var mf machineFile
 	path := f.path()
-	meta, err := toml.DecodeFile(path, &mf)
+	err := readStrict(path, &mf)
 	if errors.Is(err, fs.ErrNotExist) {
 		return domain.Machine{}, fmt.Errorf("no machine file at %s: run nerve init", path)
 	}
 	if err != nil {
 		return domain.Machine{}, fmt.Errorf("%s: %w", path, err)
-	}
-	if keys := meta.Undecoded(); len(keys) > 0 {
-		return domain.Machine{}, fmt.Errorf("%s: unknown keys %v", path, keys)
 	}
 	if mf.Brain == "" {
 		return domain.Machine{}, fmt.Errorf("%s: no brain", path)
@@ -74,7 +68,7 @@ func (f MachineFiles) Load() (domain.Machine, error) {
 		}
 		switch {
 		case c.Project == "":
-			return m, fmt.Errorf("%s: checkout %s has no project: add project = \"<name>\" under it", path, c.Path)
+			return m, fmt.Errorf("%s: checkout %s has no project: add \"project\": \"<name>\" to it", path, c.Path)
 		case !domain.NamePattern.MatchString(c.Project):
 			return m, fmt.Errorf("%s: checkout %s: project %q must be lowercase words joined by hyphens", path, c.Path, c.Project)
 		}
@@ -106,7 +100,7 @@ func absolute(path string) (string, error) {
 func (f MachineFiles) Save(m domain.Machine) error {
 	written := map[string]string{} // absolute path -> as written
 	var old machineFile
-	if _, err := toml.DecodeFile(f.path(), &old); err == nil {
+	if err := readStrict(f.path(), &old); err == nil {
 		for _, p := range append([]string{old.Brain}, checkoutPaths(old.Checkouts)...) {
 			if abs, err := absolute(p); err == nil {
 				written[abs] = p
@@ -123,13 +117,7 @@ func (f MachineFiles) Save(m domain.Machine) error {
 	for _, c := range m.Checkouts {
 		mf.Checkouts = append(mf.Checkouts, checkoutLine{Path: spell(c.Path), Project: c.Project})
 	}
-	var buf bytes.Buffer
-	enc := toml.NewEncoder(&buf)
-	enc.Indent = ""
-	if err := enc.Encode(mf); err != nil {
-		return err
-	}
-	return writePrivate(f.path(), buf.Bytes())
+	return writeJSON(f.path(), mf, private)
 }
 
 func checkoutPaths(lines []checkoutLine) []string {

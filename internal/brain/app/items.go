@@ -34,7 +34,7 @@ func (a App) AddItem(ref ProjectRef, kind, name string, r Reporter) error {
 		r.Add(Event{Kind: EvItem, Project: project, Item: kind + " " + name, Detail: "already in project " + project})
 		return nil
 	}
-	// What brain.toml lists, the remote must hold, or other machines'
+	// What brain.json lists, the remote must hold, or other machines'
 	// syncs refuse the project.
 	rel := ""
 	if _, own, _ := a.Brain.OwnSkill(name); kind == "skill" && own {
@@ -149,7 +149,7 @@ func (a App) Update(dir, repo string, r Reporter) error {
 		return fmt.Errorf("%s is not a source in %s", repo, domain.ManifestFile)
 	}
 	if len(m.Sources) == 0 {
-		r.Add(Event{Kind: EvOK, Detail: domain.ManifestFile + " has no [[source]] to update"})
+		r.Add(Event{Kind: EvOK, Detail: domain.ManifestFile + " has no sources to update"})
 		return nil
 	}
 	failed := 0

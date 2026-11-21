@@ -593,18 +593,48 @@ func TestOverridesOfCommonLeaveAnEmptyObjectOut(t *testing.T) {
 	}
 }
 
-func TestMisTypedNamesNervesListsHeldAsAnythingButAListOfText(t *testing.T) {
-	for _, c := range []struct {
-		settings map[string]any
-		want     []string
-	}{
-		{map[string]any{"permissions": map[string]any{"deny": []any{"Cron"}, "allow": []any{}}, "model": "opus"}, nil},
-		{map[string]any{"permissions": map[string]any{"deny": "Cron"}}, []string{"permissions.deny"}},
-		{map[string]any{"permissions": map[string]any{"allow": map[string]any{"x": 1.0}}}, []string{"permissions.allow"}},
-		{map[string]any{"enabledMcpjsonServers": []any{"a", 1.0}}, []string{"enabledMcpjsonServers"}},
+func TestMisfitsNameEachSettingNerveAllowsHeldAsClaudeCodeRefusesIt(t *testing.T) {
+	for _, c := range []struct{ settings, want string }{
+		{`{"alwaysThinkingEnabled": "maybe"}`, "alwaysThinkingEnabled: must be true or false"},
+		{`{"spinnerTipsEnabled": 1}`, "spinnerTipsEnabled: must be true or false"},
+		{`{"model": {"a": 1}}`, "model: must be text"},
+		{`{"outputStyle": 2}`, "outputStyle: must be text"},
+		{`{"cleanupPeriodDays": 0}`, "cleanupPeriodDays: must be a whole number of days, at least 1"},
+		{`{"cleanupPeriodDays": 1.5}`, "cleanupPeriodDays: must be a whole number of days, at least 1"},
+		{`{"cleanupPeriodDays": "30"}`, "cleanupPeriodDays: must be a whole number of days, at least 1"},
+		{`{"permissions": {"deny": "Cron"}}`, `permissions.deny: must be a list of text, such as ["Read"]`},
+		{`{"permissions": {"allow": {"x": 1}}}`, `permissions.allow: must be a list of text, such as ["Read"]`},
+		{`{"enabledMcpjsonServers": ["a", 1]}`, `enabledMcpjsonServers: must be a list of text, such as ["Read"]`},
+		{`{"permissions": {"defaultMode": "bogus"}}`, `permissions.defaultMode: must be one of "default", "acceptEdits", "plan", "dontAsk" or "manual"`},
+		{`{"permissions": {"defaultMode": "bypassPermissions"}}`, `permissions.defaultMode: "bypassPermissions" does not take effect from a project's settings: set it in ~/.claude/settings.json`},
+		{`{"attribution": true}`, "attribution: must be false, or hold commit and pr as text and sessionUrl as true or false"},
+		{`{"attribution": {"commit": false}}`, "attribution: must be false, or hold commit and pr as text and sessionUrl as true or false"},
+		{`{"attribution": {"sessionUrl": "no"}}`, "attribution: must be false, or hold commit and pr as text and sessionUrl as true or false"},
+		{`{"attribution": {"other": ""}}`, "attribution: must be false, or hold commit and pr as text and sessionUrl as true or false"},
 	} {
-		if got := domain.MisTyped(c.settings); !slices.Equal(got, c.want) {
-			t.Errorf("%v: got %v, want %v", c.settings, got, c.want)
+		var got []string
+		for _, p := range domain.Misfits(obj(t, c.settings)) {
+			got = append(got, p.Key+": "+p.Detail)
 		}
+		if !slices.Equal(got, []string{c.want}) {
+			t.Errorf("%s: got %q, want %q", c.settings, got, c.want)
+		}
+	}
+}
+
+func TestMisfitsLeaveWhatClaudeCodeTakes(t *testing.T) {
+	fits := `{
+		"alwaysThinkingEnabled": false, "spinnerTipsEnabled": true, "syncClaudeAiSkills": false,
+		"enableAllProjectMcpServers": true, "model": "opus", "outputStyle": "Explanatory",
+		"cleanupPeriodDays": 3650, "enabledMcpjsonServers": [], "disabledMcpjsonServers": ["x"],
+		"permissions": {"allow": ["Read"], "ask": [], "deny": ["Cron"], "defaultMode": "manual"},
+		"attribution": {"commit": "", "pr": "", "sessionUrl": false},
+		"statusLine": {"anything": [1, true]}
+	}`
+	if got := domain.Misfits(obj(t, fits)); len(got) > 0 {
+		t.Errorf("got %v", got)
+	}
+	if got := domain.Misfits(obj(t, `{"attribution": false}`)); len(got) > 0 {
+		t.Errorf("attribution false: got %v", got)
 	}
 }

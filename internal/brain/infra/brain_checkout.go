@@ -1,26 +1,20 @@
 package infra
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
-	"math"
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
-
-	"github.com/BurntSushi/toml"
 
 	"github.com/medilies/nerve/internal/brain/app"
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
-// BrainCheckout is a Brain checked out on disk, its manifest in brain.toml.
+// BrainCheckout is a Brain checked out on disk, its manifest in brain.json.
 type BrainCheckout struct {
 	root string
 }
@@ -32,60 +26,48 @@ var _ app.Brain = BrainCheckout{}
 
 func (b BrainCheckout) Root() string { return b.root }
 
-// manifestFile is brain.toml as written.
+// manifestFile is brain.json as written.
 type manifestFile struct {
-	Allowed  []string                `toml:"allowed-settings,omitempty"`
-	Sources  []sourceTable           `toml:"source,omitempty"`
-	Hooks    map[string]hookTable    `toml:"hook,omitempty"`
-	Common   *commonTable            `toml:"common,omitempty"`
-	Projects map[string]projectTable `toml:"project,omitempty"`
+	Allowed  []string                `json:"allowedSettings,omitempty"`
+	Sources  []sourceEntry           `json:"sources,omitempty"`
+	Hooks    map[string]hookEntry    `json:"hooks,omitempty"`
+	Common   *commonEntry            `json:"common,omitempty"`
+	Projects map[string]projectEntry `json:"projects,omitempty"`
 }
 
-type sourceTable struct {
-	Repo   string   `toml:"repo"`
-	SHA    string   `toml:"sha"`
-	Path   string   `toml:"path,omitempty"`
-	Skills []string `toml:"skills"`
+type sourceEntry struct {
+	Repo   string   `json:"repo"`
+	SHA    string   `json:"sha"`
+	Path   string   `json:"path,omitempty"`
+	Skills []string `json:"skills"`
 }
 
-type hookTable struct {
-	Event   string `toml:"event"`
-	Matcher string `toml:"matcher,omitempty"`
-	Command string `toml:"command"`
+type hookEntry struct {
+	Event   string `json:"event"`
+	Matcher string `json:"matcher,omitempty"`
+	Command string `json:"command"`
 }
 
-type commonTable struct {
-	Settings map[string]any `toml:"settings,omitempty"`
+type commonEntry struct {
+	Settings map[string]any `json:"settings,omitempty"`
 }
 
-type projectTable struct {
-	Skills   []string       `toml:"skills,omitempty"`
-	Agents   []string       `toml:"agents,omitempty"`
-	Hooks    []string       `toml:"hooks,omitempty"`
-	Plugins  []string       `toml:"plugins,omitempty"`
-	Settings map[string]any `toml:"settings,omitempty"`
+type projectEntry struct {
+	Skills   []string       `json:"skills,omitempty"`
+	Agents   []string       `json:"agents,omitempty"`
+	Hooks    []string       `json:"hooks,omitempty"`
+	Plugins  []string       `json:"plugins,omitempty"`
+	Settings map[string]any `json:"settings,omitempty"`
 }
 
 func (b BrainCheckout) Load() (domain.Manifest, error) {
 	var f manifestFile
-	meta, err := toml.DecodeFile(filepath.Join(b.root, domain.ManifestFile), &f)
+	err := readStrict(filepath.Join(b.root, domain.ManifestFile), &f)
 	if errors.Is(err, fs.ErrNotExist) {
 		return domain.Manifest{}, fmt.Errorf("%s has no %s: a Brain is a git repo with %[2]s at its top; make one there, or run nerve init on the folder that holds yours", b.root, domain.ManifestFile)
 	}
 	if err != nil {
 		return domain.Manifest{}, fmt.Errorf("%s: %w", domain.ManifestFile, err)
-	}
-	var unknown []toml.Key
-	for _, k := range meta.Undecoded() {
-		// Settings are free-form, but tables inside them count as undecoded.
-		inSettings := len(k) > 2 && k[0] == "common" && k[1] == "settings" ||
-			len(k) > 3 && k[0] == "project" && k[2] == "settings"
-		if !inSettings {
-			unknown = append(unknown, k)
-		}
-	}
-	if len(unknown) > 0 {
-		return domain.Manifest{}, fmt.Errorf("%s: unknown keys %v", domain.ManifestFile, unknown)
 	}
 	m := domain.Manifest{AllowedSettings: f.Allowed}
 	for _, s := range f.Sources {
@@ -98,198 +80,60 @@ func (b BrainCheckout) Load() (domain.Manifest, error) {
 		}
 	}
 	if f.Common != nil {
-		if m.Common, err = normalize("common.settings", f.Common.Settings); err != nil {
-			return domain.Manifest{}, err
-		}
+		m.Common = settings(f.Common.Settings)
 	}
 	m.Projects = map[string]*domain.Project{}
 	for name, p := range f.Projects {
-		settings, err := normalize("project."+name+".settings", p.Settings)
-		if err != nil {
-			return domain.Manifest{}, err
-		}
 		m.Projects[name] = &domain.Project{
 			Skills: p.Skills, Agents: p.Agents, Hooks: p.Hooks, Plugins: p.Plugins,
-			Settings: settings,
+			Settings: settings(p.Settings),
 		}
 	}
 	return m, m.Validate()
 }
 
-// Save writes brain.toml in nerve's own layout, refusing what Load would.
-// Comments are not kept.
+// settings is decoded settings with numbers as domain.Numbers makes them,
+// nil when empty.
+func settings(s map[string]any) map[string]any {
+	if len(s) == 0 {
+		return nil
+	}
+	domain.Numbers(s)
+	return s
+}
+
+// Save writes brain.json in nerve's own layout, refusing what Load would.
 func (b BrainCheckout) Save(m domain.Manifest) error {
 	if err := m.Validate(); err != nil {
 		return err
 	}
 	f := manifestFile{Allowed: m.AllowedSettings}
 	for _, s := range m.Sources {
-		f.Sources = append(f.Sources, sourceTable(s))
+		f.Sources = append(f.Sources, sourceEntry(s))
 	}
 	if len(m.Hooks) > 0 {
-		f.Hooks = map[string]hookTable{}
+		f.Hooks = map[string]hookEntry{}
 		for name, h := range m.Hooks {
-			f.Hooks[name] = hookTable(h)
+			f.Hooks[name] = hookEntry(h)
 		}
-	}
-	at := unfitAt("common.settings", m.Common)
-	for _, name := range domain.SortedKeys(m.Projects) {
-		if at == "" {
-			at = unfitAt("project."+name+".settings", m.Projects[name].Settings)
-		}
-	}
-	if at != "" {
-		return fmt.Errorf("%s: %s: settings cannot hold null, or a whole number beyond 64 bits", domain.ManifestFile, at)
 	}
 	if len(m.Common) > 0 {
-		f.Common = &commonTable{Settings: forTOML(m.Common).(map[string]any)}
+		f.Common = &commonEntry{Settings: m.Common}
 	}
 	if len(m.Projects) > 0 {
-		f.Projects = map[string]projectTable{}
+		f.Projects = map[string]projectEntry{}
 		for name, p := range m.Projects {
-			settings, _ := forTOML(p.Settings).(map[string]any)
-			f.Projects[name] = projectTable{
+			f.Projects[name] = projectEntry{
 				Skills: p.Skills, Agents: p.Agents, Hooks: p.Hooks, Plugins: p.Plugins,
-				Settings: settings,
+				Settings: p.Settings,
 			}
 		}
 	}
-	var buf bytes.Buffer
-	enc := toml.NewEncoder(&buf)
-	enc.Indent = ""
-	if err := enc.Encode(f); err != nil {
+	path := filepath.Join(b.root, domain.ManifestFile)
+	if err := writeJSON(path, f, anyone); err != nil {
 		return fmt.Errorf("%s: %w", domain.ManifestFile, err)
 	}
-	return writeFile(filepath.Join(b.root, domain.ManifestFile), dropBareHeaders(buf.Bytes()))
-}
-
-// dropBareHeaders removes a table header that only opens subtables, such as
-// [project] before [project.x], which the encoder writes and nobody would.
-func dropBareHeaders(b []byte) []byte {
-	lines := strings.Split(string(b), "\n")
-	var out []string
-	for i, line := range lines {
-		if strings.HasPrefix(line, "[") && !strings.HasPrefix(line, "[[") && i+1 < len(lines) &&
-			strings.HasPrefix(lines[i+1], strings.TrimSuffix(line, "]")+".") {
-			continue
-		}
-		out = append(out, line)
-	}
-	return []byte(strings.Join(out, "\n"))
-}
-
-// normalize turns decoded TOML into what decoded JSON looks like, so values
-// from both compare equal. It refuses what JSON cannot hold: inf, nan and
-// dates.
-func normalize(where string, v map[string]any) (map[string]any, error) {
-	if len(v) == 0 {
-		return nil, nil
-	}
-	if key := unfit(where, v); key != "" {
-		return nil, fmt.Errorf("%s: %s: settings cannot hold inf, nan or dates", domain.ManifestFile, key)
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %s: %w", domain.ManifestFile, where, err)
-	}
-	var out map[string]any
-	if err := decodeJSON(b, &out); err != nil {
-		return nil, fmt.Errorf("%s: %s: %w", domain.ManifestFile, where, err)
-	}
-	domain.Numbers(out)
-	return out, nil
-}
-
-// unfit names the first value under key that JSON cannot hold, or "".
-func unfit(key string, v any) string {
-	switch t := v.(type) {
-	case float64:
-		if math.IsInf(t, 0) || math.IsNaN(t) {
-			return key
-		}
-	case time.Time:
-		return key
-	case []any:
-		for _, x := range t {
-			if k := unfit(key, x); k != "" {
-				return k
-			}
-		}
-	case []map[string]any:
-		for _, x := range t {
-			if k := unfit(key, x); k != "" {
-				return k
-			}
-		}
-	case map[string]any:
-		for _, k := range domain.SortedKeys(t) {
-			if k := unfit(key+"."+k, t[k]); k != "" {
-				return k
-			}
-		}
-	}
-	return ""
-}
-
-// unfitAt names the first setting under key that TOML cannot hold: null,
-// or a whole number beyond int64. "" when there is none.
-func unfitAt(key string, settings map[string]any) string {
-	for _, k := range domain.SortedKeys(settings) {
-		v := settings[k]
-		if sub, ok := v.(map[string]any); ok {
-			if at := unfitAt(key+"."+k, sub); at != "" {
-				return at
-			}
-		} else if domain.HasNull(v) || holdsNumber(v) {
-			return key + "." + k
-		}
-	}
-	return ""
-}
-
-// holdsNumber says whether a value is or holds a json.Number: a whole
-// number beyond int64, which TOML cannot hold.
-func holdsNumber(v any) bool {
-	switch t := v.(type) {
-	case json.Number:
-		return true
-	case []any:
-		return slices.ContainsFunc(t, holdsNumber)
-	case map[string]any:
-		for _, x := range t {
-			if holdsNumber(x) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// forTOML turns decoded JSON into values TOML writes as people would: whole
-// numbers as integers.
-func forTOML(v any) any {
-	switch t := v.(type) {
-	case float64:
-		if t == math.Trunc(t) && math.Abs(t) < 1<<53 {
-			return int64(t)
-		}
-	case []any:
-		out := make([]any, len(t))
-		for i, x := range t {
-			out[i] = forTOML(x)
-		}
-		return out
-	case map[string]any:
-		if t == nil {
-			return nil
-		}
-		out := map[string]any{}
-		for k, x := range t {
-			out[k] = forTOML(x)
-		}
-		return out
-	}
-	return v
+	return nil
 }
 
 // syncTimeout bounds the fetch of a sync.
@@ -443,8 +287,8 @@ func named(names []string, thing, what string) string {
 }
 
 // Refresh brings the upstream's new commits by a fast-forward, so a
-// command changes brain.toml as the remote holds it. It refuses a checkout
-// with changes to brain.toml or commits its upstream lacks, which it would
+// command changes brain.json as the remote holds it. It refuses a checkout
+// with changes to brain.json or commits its upstream lacks, which it would
 // otherwise push or drop, showing them, and one whose upstream it cannot
 // reach.
 func (b BrainCheckout) Refresh(r app.Reporter) error {
@@ -587,9 +431,9 @@ func (b BrainCheckout) commits(between string) (string, error) {
 	return named(subjects, "commit", ""), nil
 }
 
-// PushManifest commits brain.toml alone with message, then pushes the
+// PushManifest commits brain.json alone with message, then pushes the
 // branch to its upstream. Other changes stay as they are, uncommitted. When
-// it cannot, brain.toml and the branch go back to what the remote holds.
+// it cannot, brain.json and the branch go back to what the remote holds.
 func (b BrainCheckout) PushManifest(message string, r app.Reporter) (err error) {
 	remote, merge, err := b.upstream()
 	if err != nil {
@@ -597,11 +441,11 @@ func (b BrainCheckout) PushManifest(message string, r app.Reporter) (err error) 
 	}
 	out, err := git(b.root, "status", "--porcelain", "--", domain.ManifestFile)
 	if err != nil || trim(out) == "" {
-		return err // brain.toml as the remote has it: nothing to push
+		return err // brain.json as the remote has it: nothing to push
 	}
 	before := b.Head()
 	defer func() {
-		if err != nil && before != "" { // brain.toml alone goes back: what the user staged stays
+		if err != nil && before != "" { // brain.json alone goes back: what the user staged stays
 			_, _ = git(b.root, "reset", "-q", "--soft", before)
 			_, _ = git(b.root, "reset", "-q", before, "--", domain.ManifestFile)
 			_, _ = git(b.root, "checkout", "-q", before, "--", domain.ManifestFile)

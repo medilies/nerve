@@ -4,7 +4,7 @@ A Brain is a git repo you own, pushed to a remote its branch tracks.
 nerve knows nothing about what is in it beyond its layout:
 
 ```text
-brain.toml          # allowed settings, third-party pins, hooks, common settings, projects
+brain.json          # allowed settings, third-party pins, hooks, common settings, projects
 skills/<name>/      # own skills
 agents/<name>.md    # own agents
 hooks/<script>      # scripts hooks run, referenced as {{brain}}/hooks/<script>
@@ -15,38 +15,44 @@ reasoning is in [ADR 0005](adr/0005-projects-opt-in.md),
 [ADR 0007](adr/0007-drop-guessing-features.md) and
 [ADR 0009](adr/0009-explicit-verbs.md).
 
-## brain.toml
+## brain.json
 
-```toml
-allowed-settings = ["statusLine"] # settings keys this Brain may hold beyond nerve's own
-
-[[source]]                        # third-party skills, pinned to a full commit
-repo = "acme/skills"
-sha = "5863806dd4e15c63174bee4e7515a4256792ecfa"
-skills = ["grilling"]
-
-[hook.go-fmt]                     # a hook projects can take by name
-event = "PostToolUse"
-matcher = "Edit|Write"
-command = "{{brain}}/hooks/go-fmt.sh"
-
-[common.settings]                 # settings every listed project gets
-syncClaudeAiSkills = false
-
-[project.billing]                 # what one project gets, and nothing else does
-skills = ["go-stack", "grilling"]
-agents = ["reviewer"]
-hooks = ["go-fmt"]
-plugins = ["gopls-lsp@claude-plugins-official"]
-
-[project.billing.settings]
-model = "opus"
+```json
+{
+  "allowedSettings": ["statusLine"],
+  "sources": [
+    {
+      "repo": "acme/skills",
+      "sha": "5863806dd4e15c63174bee4e7515a4256792ecfa",
+      "skills": ["grilling"]
+    }
+  ],
+  "hooks": {
+    "go-fmt": {
+      "event": "PostToolUse",
+      "matcher": "Edit|Write",
+      "command": "{{brain}}/hooks/go-fmt.sh"
+    }
+  },
+  "common": {
+    "settings": {"syncClaudeAiSkills": false}
+  },
+  "projects": {
+    "billing": {
+      "skills": ["go-stack", "grilling"],
+      "agents": ["reviewer"],
+      "hooks": ["go-fmt"],
+      "plugins": ["gopls-lsp@claude-plugins-official"],
+      "settings": {"model": "opus"}
+    }
+  }
+}
 ```
 
-- **`allowed-settings`** lists settings keys the Brain may hold beyond
+- **`allowedSettings`** lists settings keys the Brain may hold beyond
   those nerve allows. See [Allowed settings](#allowed-settings).
-- **`[[source]]`** is a third-party repo on GitHub at a full commit,
-  and the skills used from it. Each repo has one table. A link in a
+- **`sources`** lists third-party repos on GitHub, each at a full commit,
+  and the skills used from it. Each repo has one entry. A link in a
   source arrives as a plain file holding its target. Skill, agent, hook
   and project names are lowercase words of letters and digits, joined
   by hyphens.
@@ -54,44 +60,50 @@ model = "opus"
     the folder `skills/<name>/` or `<name>/` holding a `SKILL.md`, in
     one of them only.
   - `path` names another folder to look in instead, such as
-    `path = "plugins/x/skills"`.
+    `"path": "plugins/x/skills"`.
   - `nerve update [<repo>]` shows how each source's skills changed at
     the tip of its default branch, pins and pushes that commit, then
     syncs the listed checkout around the working directory.
-- **`[hook.<name>]`** defines a Claude Code hook. `{{brain}}` in any
+- **`hooks`** defines Claude Code hooks by name. `{{brain}}` in any
   value becomes the Brain's checkout path.
-- **`[common.settings]`** holds the only settings that reach more than
+- **`common.settings`** holds the only settings that reach more than
   one project: every listed project gets them. Skills, agents, hooks
   and plugins are never common.
-- **`[project.<name>]`** lists what one project gets, each item once. A
+- **`projects`** lists what each project gets, each item once, under a
   name you choose, never a path or a remote.
 
-nerve rewrites `brain.toml` in this layout when a command changes it,
-`update` included, so comments in it are not kept. It pushes the change
-at once, as [Push](sync.md#push) says.
+Settings are written as in Claude Code's `settings.json`, and nerve
+keeps each value as it is. nerve rewrites `brain.json` in this layout
+when a command changes it, `update` included, and pushes the change at
+once, as [Push](sync.md#push) says.
 
-nerve refuses `inf`, `nan`, dates and whole numbers beyond 64 bits
-in settings (a float as large, such as `1e19`, stays a float), and anything but a list of text at `permissions.allow`,
-`permissions.ask`, `permissions.deny`, `enabledMcpjsonServers` and
-`disabledMcpjsonServers`.
+nerve refuses `null` in settings: `nerve setting rm` removes one.
 
 ## Allowed settings
 
 A Brain holds only allowed settings, and everything under them:
 
-- those nerve allows: `alwaysThinkingEnabled`, `attribution`,
-  `cleanupPeriodDays`, `disabledMcpjsonServers`,
-  `enableAllProjectMcpServers`, `enabledMcpjsonServers`, `model`,
-  `outputStyle`, `permissions.allow`, `permissions.ask`,
-  `permissions.defaultMode`, `permissions.deny`, `spinnerTipsEnabled`
-  and `syncClaudeAiSkills`;
-- those `allowed-settings` lists, such as `"statusLine"` or
-  `'extraKnownMarketplaces."acme.tools"'`.
+- those nerve allows, each holding only what Claude Code takes there:
+
+  | Setting | Holds |
+  |---|---|
+  | `alwaysThinkingEnabled`, `enableAllProjectMcpServers`, `spinnerTipsEnabled`, `syncClaudeAiSkills` | `true` or `false` |
+  | `model`, `outputStyle` | text |
+  | `cleanupPeriodDays` | a whole number, at least 1 |
+  | `permissions.allow`, `permissions.ask`, `permissions.deny`, `enabledMcpjsonServers`, `disabledMcpjsonServers` | a list of text |
+  | `permissions.defaultMode` | `"default"`, `"acceptEdits"`, `"plan"`, `"dontAsk"` or `"manual"`; Claude Code takes `"auto"` and `"bypassPermissions"` only from `~/.claude/settings.json` |
+  | `attribution` | `false`, or `commit` and `pr` as text and `sessionUrl` as `true` or `false` |
+
+- those `allowedSettings` lists, such as `"statusLine"` or
+  `'extraKnownMarketplaces."acme.tools"'`. nerve does not check what
+  they hold.
 
 `hooks` and `enabledPlugins` are never allowed: nerve writes them from
-`[hook.<name>]` and `plugins`, and `allowed-settings` cannot list them.
+`hooks` and `plugins`, and `allowedSettings` cannot list them.
 
-`check`, `sync` and `push` refuse any other setting.
+`check`, `sync` and `push` refuse any other setting, and a value of
+one nerve allows that does not fit, as `setting set` and `setting add`
+do.
 `setting set` and `setting add` put it in the project's local overlay
 instead; with `--common`, they refuse it.
 
@@ -110,23 +122,26 @@ Fetched skills go in its cache folder:
 `~/.cache/nerve` (or `$XDG_CACHE_HOME/nerve`) on Linux,
 `~/Library/Caches/nerve` on macOS.
 
-`config.toml`, written by `nerve init`, names the Brain's checkout, a
+`config.json`, written by `nerve init`, names the Brain's checkout, a
 git repo, and each listed checkout's project. `nerve project add` adds a
-checkout. nerve rewrites the file when it changes it, so comments in it
-are not kept.
+checkout. nerve rewrites the file when it changes it.
 
-```toml
-brain = "~/dev/brain"
-
-[[checkout]]
-path = "~/dev/billing"
-project = "billing"
+```json
+{
+  "brain": "~/dev/brain",
+  "checkouts": [
+    {
+      "path": "~/dev/billing",
+      "project": "billing"
+    }
+  ]
+}
 ```
 
 - **Local overlays**, `overlays/<project>.json`, hold a project's
   settings the Brain does not allow. nerve puts them there on its own
-  when you set one. You may also write in one what `brain.toml` cannot hold, such
-  as `null`. They never leave the machine, so set them again on each
+  when you set one. You may also write in one what the Brain refuses, such as
+  `null`. They never leave the machine, so set them again on each
   one.
   - Setting a key in the Brain drops the overlay's value for it, which
     would win: with `--common`, from every overlay on this machine.
@@ -140,11 +155,11 @@ These files are readable by you only.
 
 ## Checking a Brain
 
-`nerve check`, in the Brain (a git repo with `brain.toml` at its top)
+`nerve check`, in the Brain (a git repo with `brain.json` at its top)
 or anywhere when this machine names one, validates own skills and
 agents, each pin, what each project lists, and the allowed settings
 above. In a listed checkout, it checks this machine's Brain, even when
-the project has a `brain.toml` of its own.
+the project has a `brain.json` of its own.
 In the Brain's CI, run a release of nerve:
 
 ```sh

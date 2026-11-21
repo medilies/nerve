@@ -11,7 +11,7 @@ import (
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
-// brainCommands are the commands that change brain.toml, each with the
+// brainCommands are the commands that change brain.json, each with the
 // message it pushes the change with.
 func brainCommands(e *env) []struct {
 	name, message string
@@ -86,9 +86,9 @@ func TestACommandThatCannotBringTheRemoteChangesNothing(t *testing.T) {
 	for i := range brainCommands(brainEnv(t)) {
 		e := brainEnv(t)
 		c := brainCommands(e)[i]
-		e.brain.refreshErr = errors.New("brain.toml has changes not pushed")
+		e.brain.refreshErr = errors.New("brain.json has changes not pushed")
 		err := c.run(&recorder{})
-		if err == nil || !strings.Contains(err.Error(), "brain.toml has changes not pushed") {
+		if err == nil || !strings.Contains(err.Error(), "brain.json has changes not pushed") {
 			t.Errorf("%s: got %v", c.name, err)
 		}
 		if e.brain.saves != 0 || len(e.machine.machine.Checkouts) != 1 || e.trees.writes != 0 {
@@ -110,7 +110,7 @@ func TestACommandWhosePushFailsChangesNothing(t *testing.T) {
 		t.Errorf("a push that fails again offers to run it again: %v", err)
 	}
 	if slices.Contains(e.project("app").Skills, "go-stack") {
-		t.Errorf("brain.toml kept a change its remote refused")
+		t.Errorf("brain.json kept a change its remote refused")
 	}
 }
 
@@ -179,7 +179,7 @@ func TestUpdateWithNoSourcesSaysSo(t *testing.T) {
 	e := newEnv(t)
 	r := &recorder{}
 	e.must(r, e.app.Update("/w", "", r))
-	contains(t, r, "brain.toml has no [[source]] to update")
+	contains(t, r, "brain.json has no sources to update")
 }
 
 func TestSyncHereOutsideAListedCheckoutLeavesTheBrainAsItIs(t *testing.T) {

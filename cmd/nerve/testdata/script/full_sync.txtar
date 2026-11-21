@@ -20,7 +20,7 @@ grep '"model": "opus"' other/.claude/settings.local.json
 rm proj/.claude/skills/go-stack
 exec nerve sync
 stdout '^linked   .*/proj/.claude/skills/go-stack -> '
-grep go-stack brain/brain.toml
+grep go-stack brain/brain.json
 link proj/.claude/skills/go-stack $HOME/brain/skills/go-stack
 
 -- brain/skills/go-stack/SKILL.md --

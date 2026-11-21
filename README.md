@@ -18,7 +18,7 @@ nowhere else.
 - **Yours, not the team's.** Everything lands in
   `.claude/settings.local.json` and in links git never sees. Teammates
   see none of it, and the team's own `.claude/` stays theirs.
-- **One source of truth.** `brain.toml` says what each project gets.
+- **One source of truth.** `brain.json` says what each project gets.
   A command that changes it takes the remote's first, then pushes the
   change as one commit, so every machine reads the same file.
 - **Explicit.** nerve changes a project only when you sync, update or
@@ -41,16 +41,19 @@ nowhere else.
 
 ## A Brain
 
-A git repo you own: `brain.toml`, with your own skills, agents and hook
-scripts beside it. `brain.toml` says what each project gets:
+A git repo you own: `brain.json`, with your own skills, agents and hook
+scripts beside it. `brain.json` says what each project gets:
 
-```toml
-[project.billing]
-skills = ["go-stack"]
-plugins = ["gopls-lsp@claude-plugins-official"]
-
-[project.billing.settings]
-model = "opus"
+```json
+{
+  "projects": {
+    "billing": {
+      "skills": ["go-stack"],
+      "plugins": ["gopls-lsp@claude-plugins-official"],
+      "settings": {"model": "opus"}
+    }
+  }
+}
 ```
 
 [The Brain](docs/brain.md) has the whole layout and every key.
@@ -77,7 +80,7 @@ go install github.com/medilies/nerve/cmd/nerve@latest   # puts nerve in ~/go/bin
 ### Then, on each machine
 
 nerve needs git 2.31 or later. Your Brain is a git repo with a
-`brain.toml` at its root, empty to begin with, pushed to a remote that
+`brain.json` at its root, empty to begin with, pushed to a remote that
 its branch tracks (`git push -u`). Name its checkout once:
 
 ```sh
@@ -112,7 +115,7 @@ command.
 
 ## Documentation
 
-- [The Brain](docs/brain.md): `brain.toml`, projects, sources, hooks, common settings, this machine, overlays
+- [The Brain](docs/brain.md): `brain.json`, projects, sources, hooks, common settings, this machine, overlays
 - [Syncing](docs/sync.md): what sync writes, push, the session report, drift, revoking, the team's own
 - [Glossary](GLOSSARY.md): the words nerve uses
 - [Decisions](docs/adr/) and [what is left out](docs/backlog.md)
