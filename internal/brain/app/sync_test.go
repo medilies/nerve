@@ -761,3 +761,35 @@ func TestCleaningATreeWhoseSettingsFileIsALinkLeavesItAndSaysSo(t *testing.T) {
 		t.Errorf("project rm went on through a link")
 	}
 }
+
+func TestASourceSkillThatCannotBeFetchedCostsOnlyThatSkill(t *testing.T) {
+	e := newEnv(t)
+	e.ownSkill("go-stack")
+	e.brain.m.Sources = []domain.Source{{Repo: "acme/up", SHA: strings.Repeat("1", 40), Skills: []string{"grilling"}}}
+	p := e.listed("app", "/w/app")
+	p.Skills, p.Settings = []string{"grilling", "go-stack"}, map[string]any{"model": "opus"}
+
+	r, _ := e.sync("/w/app", app.SyncOptions{Here: true})
+
+	if _, ok := e.trees.links["/w/app/.claude/skills/go-stack"]; !ok || e.settings("/w/app")["model"] != "opus" {
+		t.Errorf("links %v, settings %v: want the rest of the project synced", e.trees.links, e.settings("/w/app"))
+	}
+	contains(t, r, `problem  /w/app/.claude/skills/grilling: not linked: acme/up@1111111: no skill "grilling"`)
+}
+
+func TestASourceSkillThatCannotBeFetchedKeepsItsLink(t *testing.T) {
+	e := newEnv(t)
+	src := domain.Source{Repo: "acme/up", SHA: strings.Repeat("1", 40), Skills: []string{"grilling"}}
+	e.brain.m.Sources = []domain.Source{src}
+	e.sources.skills["acme/up@"+src.SHA+"/grilling"] = domain.Skill{Name: "grilling", Dir: "/cache/acme/up/grilling"}
+	e.listed("app", "/w/app").Skills = []string{"grilling"}
+	e.must(e.sync("/w/app", app.SyncOptions{Here: true}))
+	delete(e.sources.skills, "acme/up@"+src.SHA+"/grilling") // say, offline with a cold cache
+
+	r, _ := e.sync("/w/app", app.SyncOptions{Here: true})
+
+	if got := e.trees.links["/w/app/.claude/skills/grilling"]; got != "/cache/acme/up/grilling" {
+		t.Errorf("link is %q, want it kept", got)
+	}
+	contains(t, r, `problem  /w/app/.claude/skills/grilling: left as last linked: acme/up@1111111: no skill "grilling"`)
+}

@@ -26,6 +26,8 @@ the one around the working directory, a worktree included.
   git with a marked block in the repo's `info/exclude`. Own skills link
   from the Brain checkout, so edits are live; third-party skills from a
   cache at their pin.
+  - A third-party skill that cannot be fetched, say offline, is
+    reported and keeps the link it had. The rest of the project syncs.
   - A repo's worktrees share its `info/exclude`, so the block lists the
     links of all of them.
   - If the block is damaged, say its end line is gone, sync refuses

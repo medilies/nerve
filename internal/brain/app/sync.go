@@ -249,11 +249,21 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 	}
 	links := []domain.Link{{Kind: "skill", Name: "nerve", Target: s.self.Dir}}
 	for _, n := range p.Skills {
+		l := domain.Link{Kind: "skill", Name: n}
 		sk, err := s.skill(s.m, n)
 		if err != nil {
-			return false, err
+			// One skill that cannot be had, say from a source offline,
+			// costs only that skill, which keeps the link it had.
+			why := "not linked: "
+			if old, ok := st.Links[l.Rel()]; ok {
+				links = append(links, old)
+				why = "left as last linked: "
+			}
+			s.r.Add(Event{Kind: EvProblem, Path: filepath.Join(dir, l.Rel()), Detail: why + err.Error()})
+			continue
 		}
-		links = append(links, domain.Link{Kind: "skill", Name: n, Target: sk.Dir})
+		l.Target = sk.Dir
+		links = append(links, l)
 	}
 	for _, n := range p.Agents {
 		file, _ := s.Brain.AgentFile(n)
