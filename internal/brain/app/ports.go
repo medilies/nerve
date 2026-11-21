@@ -11,7 +11,7 @@ type Brain interface {
 	Save(domain.Manifest) error
 	// MovePin replaces one pin in the manifest as written, touching nothing
 	// else.
-	MovePin(old, new string) error
+	MovePin(repo, old, new string) error
 	// Pull fast-forwards the checkout from its upstream, or says why not.
 	Pull(Reporter) error
 	// Head is the checked-out commit, "" outside git.

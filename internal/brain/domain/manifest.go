@@ -100,7 +100,10 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("%s: allowed-settings: %q may hold secrets, so it is never allowed", ManifestFile, a)
 		}
 	}
-	for _, s := range m.Sources {
+	for i, s := range m.Sources {
+		if slices.ContainsFunc(m.Sources[:i], func(o Source) bool { return o.Repo == s.Repo }) {
+			return fmt.Errorf("%s: %s is in two [[source]] tables: list all its skills in one", ManifestFile, s.Repo)
+		}
 		if !RepoPattern.MatchString(s.Repo) || slices.ContainsFunc(strings.Split(s.Repo, "/"), func(p string) bool { return p == "." || p == ".." }) {
 			return fmt.Errorf("%s: repo %q is not owner/name", ManifestFile, s.Repo)
 		}

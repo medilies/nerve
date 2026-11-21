@@ -27,6 +27,7 @@ func TestValidateRefusesWhatAManifestCannotHold(t *testing.T) {
 		`hook "Fmt" must be lowercase w`:   {Projects: map[string]*domain.Project{"app": {Hooks: []string{"Fmt"}}}},
 		`up: skill ".." must be`:           {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{".."}}}},
 		`allowed-settings: "a..b" is not`:  {AllowedSettings: []string{"a..b"}},
+		`acme/up is in two [[source]]`:     {Sources: []domain.Source{{Repo: "acme/up", SHA: sha, Skills: []string{"x"}}, {Repo: "acme/up", SHA: sha, Skills: []string{"y"}}}},
 		`"mcpServers.db.env" may hold s`:   {AllowedSettings: []string{"mcpServers.db.env"}},
 		`"hooks.Stop" is written by nerve`: {AllowedSettings: []string{"hooks.Stop"}},
 		`"enabledPlugins" is written by`:   {AllowedSettings: []string{"enabledPlugins"}},

@@ -82,14 +82,15 @@ func (b *fakeBrain) AgentFile(name string) (string, bool) {
 	return "/brain/agents/" + name + ".md", b.agents[name]
 }
 
-func (b *fakeBrain) MovePin(old, new string) error {
+func (b *fakeBrain) MovePin(repo, old, new string) error {
 	b.moved = append(b.moved, [2]string{old, new})
 	for i := range b.m.Sources {
-		if b.m.Sources[i].SHA == old {
+		if b.m.Sources[i].Repo == repo && b.m.Sources[i].SHA == old {
 			b.m.Sources[i].SHA = new
+			return nil
 		}
 	}
-	return nil
+	return fmt.Errorf("no [[source]] %s is pinned at %s", repo, old)
 }
 
 func (b *fakeBrain) OwnSkill(name string) (domain.Skill, bool, error) {

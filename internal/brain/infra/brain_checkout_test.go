@@ -91,10 +91,24 @@ func TestMovePinTouchesOnlyThePin(t *testing.T) {
 	old, next := strings.Repeat("a", 40), strings.Repeat("b", 40)
 	e.write(e.path("brain/brain.toml"), "# pins\n[[source]]\nrepo = \"acme/up\"\nsha = \""+old+"\"\nskills = [\"x\"]\n")
 
-	if err := NewBrainCheckout(e.path("brain")).MovePin(old, next); err != nil {
+	if err := NewBrainCheckout(e.path("brain")).MovePin("acme/up", old, next); err != nil {
 		t.Fatal(err)
 	}
 	if got := e.read(e.path("brain/brain.toml")); got != "# pins\n[[source]]\nrepo = \"acme/up\"\nsha = \""+next+"\"\nskills = [\"x\"]\n" {
+		t.Errorf("brain.toml is:\n%s", got)
+	}
+}
+
+func TestMovePinMovesOnlyTheRepoAmongSourcesAtOneSha(t *testing.T) {
+	e := newTestEnv(t)
+	old, next := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	e.write(e.path("brain/brain.toml"), "[[source]]\nsha = \""+old+"\"\nrepo = \"me/fork\"\nskills = [\"x\"]\n\n[[source]]\nrepo = \"acme/up\"\nsha = \""+old+"\"\nskills = [\"y\"]\n")
+
+	if err := NewBrainCheckout(e.path("brain")).MovePin("acme/up", old, next); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := e.read(e.path("brain/brain.toml")); got != "[[source]]\nsha = \""+old+"\"\nrepo = \"me/fork\"\nskills = [\"x\"]\n\n[[source]]\nrepo = \"acme/up\"\nsha = \""+next+"\"\nskills = [\"y\"]\n" {
 		t.Errorf("brain.toml is:\n%s", got)
 	}
 }
@@ -104,7 +118,7 @@ func TestMovePinLeavesTheShaWhereItIsNotThePin(t *testing.T) {
 	old, next := strings.Repeat("a", 40), strings.Repeat("b", 40)
 	e.write(e.path("brain/brain.toml"), "[[source]]\n# was "+old+"\nrepo = \"acme/up\"\nsha = \""+old+"\"\nskills = [\"x\"]\n")
 
-	if err := NewBrainCheckout(e.path("brain")).MovePin(old, next); err != nil {
+	if err := NewBrainCheckout(e.path("brain")).MovePin("acme/up", old, next); err != nil {
 		t.Fatal(err)
 	}
 

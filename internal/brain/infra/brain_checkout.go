@@ -295,35 +295,41 @@ var (
 	anyHeader    = regexp.MustCompile(`^\s*\[`)
 )
 
-// MovePin replaces old on the sha line of the one [[source]] table pinned
-// at old, and leaves every other line, such as a comment naming it, as it
-// is.
-func (b BrainCheckout) MovePin(old, new string) error {
+// MovePin replaces old on the sha line of repo's [[source]] table, and
+// leaves every other line, such as a comment naming it, as it is.
+func (b BrainCheckout) MovePin(repo, old, new string) error {
 	path := filepath.Join(b.root, domain.ManifestFile)
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	q := regexp.QuoteMeta(old)
-	shaLine := regexp.MustCompile(`^\s*sha\s*=\s*("` + q + `"|'` + q + `')\s*(#.*)?$`)
+	value := func(v string) string { q := regexp.QuoteMeta(v); return `("` + q + `"|'` + q + `')` }
+	shaLine := regexp.MustCompile(`^\s*sha\s*=\s*` + value(old) + `\s*(#.*)?$`)
+	repoLine := regexp.MustCompile(`^\s*repo\s*=\s*` + value(repo) + `\s*(#.*)?$`)
 	lines := strings.SplitAfter(string(content), "\n")
 	pin, inSource := -1, false
+	sha, isRepo := -1, false // in the current [[source]] table
+	end := func() {
+		if inSource && isRepo && sha >= 0 {
+			pin = sha
+		}
+		sha, isRepo = -1, false
+	}
 	for i, line := range lines {
 		line = strings.TrimRight(line, "\r\n")
 		switch {
-		case sourceHeader.MatchString(line):
-			inSource = true
 		case anyHeader.MatchString(line):
-			inSource = false
+			end()
+			inSource = sourceHeader.MatchString(line)
 		case inSource && shaLine.MatchString(line):
-			if pin >= 0 {
-				return fmt.Errorf("%s: two [[source]] tables are pinned at %s", domain.ManifestFile, old)
-			}
-			pin = i
+			sha = i
+		case inSource && repoLine.MatchString(line):
+			isRepo = true
 		}
 	}
+	end()
 	if pin < 0 {
-		return fmt.Errorf("%s: no [[source]] is pinned at %s", domain.ManifestFile, old)
+		return fmt.Errorf("%s: no [[source]] %s is pinned at %s", domain.ManifestFile, repo, old)
 	}
 	lines[pin] = strings.Replace(lines[pin], old, new, 1)
 	return writeFile(path, []byte(strings.Join(lines, "")))

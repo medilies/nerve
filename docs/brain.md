@@ -54,7 +54,7 @@ skills = ["research"]
 - **`allowed-settings`** lists settings keys the Brain may hold beyond
   those nerve allows. See [Nothing sensitive](#nothing-sensitive).
 - **`[[source]]`** is a third-party repo on GitHub at a full commit,
-  and the skills used from it. Skill, agent, hook and project names are
+  and the skills used from it. Each repo has one table. Skill, agent, hook and project names are
   lowercase words joined by hyphens. A skill is the folder of that name
   holding a `SKILL.md`, or the whole repo when its root `SKILL.md`
   names it. `nerve skill update <repo> [sha]` shows how the source's

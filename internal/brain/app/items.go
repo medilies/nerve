@@ -215,7 +215,7 @@ func (a App) UpdatePin(repo, sha string, r Reporter) error {
 		}
 		r.Add(Event{Kind: EvDiff, Item: "skill " + name, Detail: d})
 	}
-	if err := a.Brain.MovePin(src.SHA, sha); err != nil {
+	if err := a.Brain.MovePin(repo, src.SHA, sha); err != nil {
 		return err
 	}
 	r.Add(Event{Kind: EvPinned, Detail: repo, Target: sha})
