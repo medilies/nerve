@@ -22,7 +22,9 @@ import (
 
 const usage = `usage: nerve <command>
 
-  init <brain>                 write this machine's file, naming the Brain's checkout
+  init <brain>                 tell nerve where your Brain is: a clone of your Brain repo, with
+                               brain.json at its root. No Brain yet? Create a repo, clone it, add
+                               an empty brain.json, commit and push it, then init its path
   sync [--here] [-f]           make the Brain its remote's, then carry it to each checkout this
                                machine lists (--here: only the one around the working directory);
                                -f, --force drops the Brain's commits and changes not pushed, and
@@ -35,7 +37,8 @@ const usage = `usage: nerve <command>
                                stands; outside a listed checkout, every project
   check                        validate the Brain (run by its CI)
 
-  project add <name>           list this checkout as project <name>
+  project add [<name>]         list this checkout as a project, named after its repo or <name>,
+                               then sync it
   project ls                   the projects, and their checkouts on this machine
   project rm <name>            clean its checkouts here, and drop it from the Brain
 
@@ -409,8 +412,8 @@ func run(args []string, r *infra.Report) error {
 		do = func(a app.App) error {
 			return a.Sync(app.SyncOptions{Dir: wd, Here: f.here, Force: f.force}, r)
 		}
-	case cmd == "project" && len(rest) == 2 && rest[0] == "add":
-		do = func(a app.App) error { return a.AddProject(wd, rest[1], r) }
+	case cmd == "project" && len(rest) <= 2 && len(rest) > 0 && rest[0] == "add":
+		do = func(a app.App) error { return a.AddProject(wd, strings.Join(rest[1:], ""), r) }
 	case cmd == "project" && len(rest) == 1 && rest[0] == "ls":
 		do = func(a app.App) error { return a.ListProjects(r) }
 	case cmd == "project" && len(rest) == 2 && rest[0] == "rm":

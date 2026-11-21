@@ -11,7 +11,7 @@ nerve acts only when told. `nerve sync` brings the remote here: it makes the Bra
 
 ## /nerve on its own
 
-Run `nerve status --json` and summarize it in a few lines: the project, what waits for a sync, what is linked, the team's own skills, drift, and Brain changes not yet pushed. Change nothing. Outside a listed project, say in a few lines what nerve can do here, starting with `nerve project add <name>`.
+Run `nerve status --json` and summarize it in a few lines: the project, what waits for a sync, what is linked, the team's own skills, drift, and Brain changes not yet pushed. Change nothing. Outside a listed project, say in a few lines what nerve can do here, starting with `nerve project add`.
 
 ## The Brain
 
@@ -37,7 +37,7 @@ Always add `--json`, then tell the user what happened in plain words. A command 
 | `nerve status` | Where things stand: what waits for a sync, links, the team's own, drift. |
 | `nerve sync --here` | Make the Brain its remote's, then carry it to this project. It refuses to drop Brain changes not pushed, naming them: offer `nerve push`, or `nerve sync --here -f` to drop them after the user agrees. `-f` also overwrites drift. `nerve sync` does every checkout on the machine. |
 | `nerve push [<message>]` | Commit everything in the Brain, such as a new own skill, then push it. A change needs a message. It takes the remote's commits first when the Brain has none of its own; when it has some too, it refuses, and `-f` overwrites the remote's: ask first. |
-| `nerve project add <name>` | List this checkout, a worktree included. Settings it already has stay: as personal settings, or as drift where the Brain sets them otherwise. |
+| `nerve project add [<name>]` | List this checkout, a worktree included, as a project named after its repo or `<name>`, then sync it. Settings it already has stay: as personal settings, or as drift where the Brain sets them otherwise. |
 | `nerve project ls` | The Brain's projects, and their checkouts on this machine. |
 | `nerve project rm <name>` | Clean its checkouts here, and drop it from the Brain. Its overlay stays. Ask first. |
 | `nerve skill add\|rm <name>`, `agent …`, `hook …`, `plugin add\|rm <plugin>@<marketplace>` | Change what the project lists. `rm --all` takes it out of every project. |

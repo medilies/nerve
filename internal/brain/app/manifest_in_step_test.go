@@ -131,14 +131,19 @@ func TestAProjectAddJoiningAProjectPushesNothing(t *testing.T) {
 	if len(e.brain.manifestPushes) != 0 {
 		t.Errorf("manifestPushes %q", e.brain.manifestPushes)
 	}
-	contains(t, r, "checkout /w/app2 (app): listed: nerve sync --here carries the Brain to it")
+	contains(t, r, "checkout /w/app2 (app): listed")
 }
 
-func TestAProjectAddHintsAtASyncOnceTheProjectIsPushed(t *testing.T) {
+func TestAProjectAddSyncsTheCheckoutButNotTheBrainItJustPushed(t *testing.T) {
 	e := brainEnv(t)
 	r := &recorder{}
 	e.must(r, e.app.AddProject("/w/fresh", "fresh", r))
-	contains(t, r, "checkout /w/fresh (fresh): listed: nerve sync --here carries the Brain to it")
+	// The Brain is its remote's once the project is pushed: a sync of the
+	// Brain would only drop the user's work in it.
+	if e.brain.syncs != 0 {
+		t.Errorf("project add synced the Brain %d times", e.brain.syncs)
+	}
+	contains(t, r, "synced   fresh at aaaaaaa in /w/fresh")
 }
 
 func TestUpdateSyncsTheListedCheckoutAroundTheWorkingDirectory(t *testing.T) {

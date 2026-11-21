@@ -1,0 +1,11 @@
+# project add with no name names the project after the repo's folder, then
+# syncs the checkout; git sees nothing it made.
+
+exec nerve init brain
+cd proj
+exec nerve project add
+stdout '^project  proj: added to brain.json$'
+stdout '^linked   .*/proj/.claude/skills/nerve -> '
+stdout '^synced   proj at [0-9a-f]{7} in .*/proj$'
+exec git status --porcelain --untracked-files=all
+! stdout .

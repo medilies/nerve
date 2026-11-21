@@ -5,14 +5,16 @@
 exec nerve init brain
 cd proj
 exec nerve project add app
+grep '"command": "[^"]* status --hook"' .claude/settings.local.json
 exec nerve skill add go-stack
+cp .claude/settings.local.json $WORK/before.json
 
 exec nerve status --hook
-stdout '^\{"systemMessage":"nerve: checkout [^"]*/proj \(app\): never synced; 3 changes wait for nerve sync"\}$'
-! exists .claude
+stdout '^\{"systemMessage":"nerve: checkout [^"]*/proj \(app\): synced at [0-9a-f]{7}, behind the Brain at [0-9a-f]{7}; 1 change waits for nerve sync"\}$'
+! exists .claude/skills/go-stack
+cmp .claude/settings.local.json $WORK/before.json
 
 exec nerve sync --here
-grep '"command": "[^"]* status --hook"' .claude/settings.local.json
 
 mkdir src
 cd src

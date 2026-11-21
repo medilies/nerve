@@ -13,6 +13,10 @@ stderr '^  setting set '
 stderr '^  setting rm '
 ! stderr '^  init '
 
+! exec nerve project add app extra
+stderr '^nerve does not know this command line: project add app extra$'
+stderr '^  project add '
+
 ! exec nerve skill --bogus
 stderr '^--bogus is not a flag nerve knows'
 stderr '^  skill add\|rm '

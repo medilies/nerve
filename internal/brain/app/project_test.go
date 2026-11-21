@@ -26,12 +26,12 @@ func TestAddProjectListsTheCheckoutAndRecordsNoneOfItsSettings(t *testing.T) {
 	if got := e.machine.machine.Checkouts; len(got) != 1 || got[0] != (domain.Checkout{Path: "/w/app", Project: "app"}) {
 		t.Errorf("checkouts are %v", got)
 	}
-	if len(e.trees.links) > 0 || jsonText(e.settings("/w/app")) != `{"env":{"TOKEN":"x"},"model":"opus"}` {
-		t.Errorf("project add wrote in the project")
+	if got := e.settings("/w/app"); got["model"] != "opus" || got["env"] == nil {
+		t.Errorf("settings are %s, want the checkout's own kept", jsonText(got))
 	}
 	contains(t, r,
 		"project  app: added to brain.json",
-		"checkout /w/app (app): listed: nerve sync --here carries the Brain to it")
+		"checkout /w/app (app): listed")
 }
 
 func TestRemovingAProjectKeepsTheSettingsItsCheckoutHadBefore(t *testing.T) {
@@ -426,4 +426,71 @@ func TestRemoveProjectRefusesADamagedExcludeBlockBeforePushing(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "damaged") || len(e.brain.manifestPushes) > 0 {
 		t.Errorf("got %v, pushed %q", err, e.brain.manifestPushes)
 	}
+}
+
+func TestAddProjectWithNoNameNamesItAfterTheRepo(t *testing.T) {
+	e := newEnv(t)
+	e.checkout("/w/billing")
+	e.worktree("/w/billing-feature", "/w/billing")
+	r := &recorder{}
+
+	e.must(r, e.app.AddProject("/w/billing", "", r))
+	e.must(r, e.app.AddProject("/w/billing-feature", "", r))
+
+	if e.project("billing") == nil {
+		t.Errorf("projects are %v, want billing", e.brain.m.Projects)
+	}
+	contains(t, r, "project  billing: already in the Brain: this checkout joins it")
+}
+
+func TestAddProjectWithNoNameRefusesARepoFolderThatIsNoName(t *testing.T) {
+	e := newEnv(t)
+	e.checkout("/w/My_App")
+
+	err := e.app.AddProject("/w/My_App", "", &recorder{})
+
+	if err == nil || !strings.Contains(err.Error(), "nerve project add <name>") {
+		t.Errorf("err is %v, want it to ask for a name", err)
+	}
+	if len(e.brain.m.Projects) > 0 {
+		t.Errorf("projects are %v, want none", e.brain.m.Projects)
+	}
+}
+
+func TestAddProjectSyncsTheCheckout(t *testing.T) {
+	e := newEnv(t)
+	e.checkout("/w/app")
+	r := &recorder{}
+
+	e.must(r, e.app.AddProject("/w/app", "app", r))
+
+	if _, ok := e.trees.links["/w/app/.claude/skills/nerve"]; !ok {
+		t.Errorf("links are %v, want the nerve skill", e.trees.links)
+	}
+	contains(t, r, "checkout /w/app (app): listed")
+}
+
+func TestAddProjectRefusesACheckoutSyncWouldRefuseAndChangesNothing(t *testing.T) {
+	e := newEnv(t)
+	e.checkout("/w/app")
+	e.trees.unignored["/w/app"] = true
+
+	err := e.app.AddProject("/w/app", "app", &recorder{})
+
+	if err == nil {
+		t.Fatal("project add listed a checkout sync refuses")
+	}
+	if len(e.brain.m.Projects) > 0 || len(e.machine.machine.Checkouts) > 0 {
+		t.Errorf("projects %v, checkouts %v: want none", e.brain.m.Projects, e.machine.machine.Checkouts)
+	}
+}
+
+func TestAddProjectOnAListedCheckoutSyncsItAgain(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	r := &recorder{}
+
+	e.must(r, e.app.AddProject("/w/app", "app", r))
+
+	contains(t, r, "checkout /w/app (app): already listed", "synced   app at aaaaaaa in /w/app")
 }

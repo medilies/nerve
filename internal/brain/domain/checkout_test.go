@@ -29,3 +29,18 @@ func TestCheckoutAtMatchesACleanedPath(t *testing.T) {
 		t.Errorf("found a checkout that is not listed")
 	}
 }
+
+func TestRepoNameIsTheFolderOfTheRepoItsWorktreesShare(t *testing.T) {
+	for _, c := range []struct {
+		tree domain.Tree
+		want string
+	}{
+		{domain.Tree{Top: "/w/app", Repo: "/w/app/.git"}, "app"},
+		{domain.Tree{Top: "/w/app-feature", Repo: "/w/app/.git"}, "app"},
+		{domain.Tree{Top: "/w/trees/main", Repo: "/w/app.git"}, "app"},
+	} {
+		if got := c.tree.RepoName(); got != c.want {
+			t.Errorf("RepoName of %+v is %q, want %q", c.tree, got, c.want)
+		}
+	}
+}

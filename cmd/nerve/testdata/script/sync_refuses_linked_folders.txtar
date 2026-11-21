@@ -4,8 +4,10 @@
 exec nerve init brain
 cd proj
 exec nerve project add app
-mkdir $HOME/outside .claude
+rm .claude/skills
+mkdir $HOME/outside
 symlink .claude/skills -> $HOME/outside
+cp .claude/settings.local.json $WORK/before.json
 
 ! exec nerve sync --here
 stderr '^error: .*/proj: .claude/skills is a link, so nerve would write outside the tree: make it a plain folder$'
@@ -14,4 +16,4 @@ stderr '^error: .*/proj: .claude/skills is a link, so nerve would write outside 
 stdout '^problem  .*/proj: .claude/skills is a link, so nerve would write outside the tree: make it a plain folder$'
 exec ls $HOME/outside
 ! stdout .
-! exists .claude/settings.local.json
+cmp .claude/settings.local.json $WORK/before.json

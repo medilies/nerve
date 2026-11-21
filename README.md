@@ -79,18 +79,36 @@ go install github.com/medilies/nerve/cmd/nerve@latest   # puts nerve in ~/go/bin
 
 ### Then, on each machine
 
-nerve needs git 2.31 or later. Your Brain is a git repo with a
-`brain.json` at its root, empty to begin with, pushed to a remote that
-its branch tracks (`git push -u`). Name its checkout once:
+nerve needs git 2.31 or later.
 
-```sh
-nerve init ~/dev/brain
-```
+1. Clone your Brain: a git repo with a `brain.json` at its root. No
+   Brain yet? Create an empty repo for it on your git host, then:
+
+   ```sh
+   git clone <your-brain-repo> ~/dev/brain
+   cd ~/dev/brain
+   echo '{}' > brain.json
+   git add brain.json && git commit -m "start the Brain"
+   git push -u origin HEAD
+   ```
+
+2. Tell nerve where it is:
+
+   ```sh
+   nerve init ~/dev/brain
+   ```
+
+3. Have git ignore the file nerve writes in each project, in every repo:
+
+   ```sh
+   mkdir -p ~/.config/git
+   echo '**/.claude/settings.local.json' >> ~/.config/git/ignore
+   ```
 
 ## Usage
 
 ```sh
-nerve project add billing            # list this checkout as project billing
+nerve project add                    # list this checkout as a project named after its repo, and sync it
 nerve push "add go-stack"            # commit the Brain's own files, such as a new skill, and push them
 nerve skill add go-stack             # give it a skill; agent, hook and plugin work the same
 nerve setting set model opus         # a setting for it; --common for every project

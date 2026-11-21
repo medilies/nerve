@@ -7,6 +7,8 @@ one command:
   checkout this machine lists. `nerve sync --here` does the one around
   the working directory.
 - `nerve push` brings this machine to the remote.
+- `nerve project add` lists the checkout around the working directory,
+  then syncs it.
 - A command that changes `brain.json`, such as `nerve skill add`, keeps
   it in step: see [Push](#push).
 - At each session start, the [session report](#the-session-report) says

@@ -9,19 +9,29 @@ import (
 	"github.com/medilies/nerve/internal/brain/domain"
 )
 
-// AddProject lists the checkout around dir as project name, adding an empty
-// entry for a new project. Nothing is written in the project: settings it
-// already has are drift at its first sync.
+// AddProject lists the checkout around dir as project name, or one named
+// after its repo, adding an empty entry for a new project, then syncs the
+// checkout. A checkout sync would refuse, it refuses and changes nothing.
 func (a App) AddProject(dir, name string, r Reporter) error {
-	if !domain.NamePattern.MatchString(name) {
-		return fmt.Errorf("project %q must be lowercase words joined by hyphens", name)
-	}
 	t, err := a.Trees.Locate(dir)
 	if err != nil {
 		return err
 	}
 	if filepath.Clean(t.Top) == filepath.Clean(a.Brain.Root()) {
 		return fmt.Errorf("%s is the Brain's checkout, not a project's: run nerve project add in a project", t.Top)
+	}
+	if name == "" && !domain.NamePattern.MatchString(t.RepoName()) {
+		return fmt.Errorf("the repo's folder %s is not a project name, which is lowercase words joined by hyphens: name one, as in nerve project add <name>", t.RepoName())
+	}
+	if name == "" {
+		name = t.RepoName()
+	}
+	if !domain.NamePattern.MatchString(name) {
+		return fmt.Errorf("project %q must be lowercase words joined by hyphens", name)
+	}
+	// A checkout sync would refuse, it refuses before anything changes.
+	if err := a.precheck(t); err != nil {
+		return fmt.Errorf("%s: %w", t.Top, err)
 	}
 	l, err := a.fresh(r)
 	if err != nil {
@@ -30,7 +40,7 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 	if c, ok := l.machine.CheckoutAt(t.Top); ok {
 		if c.Project == name {
 			r.Add(Event{Kind: EvCheckout, Path: c.Path, Project: name, Detail: "already listed"})
-			return nil
+			return a.Sync(SyncOptions{Dir: dir, Here: true, brainAsIs: true}, r)
 		}
 		return fmt.Errorf("%s is listed as project %s", c.Path, c.Project)
 	}
@@ -49,8 +59,10 @@ func (a App) AddProject(dir, name string, r Reporter) error {
 	if err := a.Machine.Save(l.machine); err != nil {
 		return err
 	}
-	r.Add(Event{Kind: EvCheckout, Path: t.Top, Project: name, Detail: "listed: nerve sync --here carries the Brain to it"})
-	return nil
+	r.Add(Event{Kind: EvCheckout, Path: t.Top, Project: name, Detail: "listed"})
+	// The Brain is its remote's already: a sync of it would only drop the
+	// user's work in it.
+	return a.Sync(SyncOptions{Dir: dir, Here: true, brainAsIs: true}, r)
 }
 
 // ListProjects lists the Brain's projects and their checkouts on this

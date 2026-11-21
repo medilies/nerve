@@ -2,6 +2,12 @@
 
 Ideas left out of [ADR 0005](adr/0005-projects-opt-in.md) to keep it minimal. Take one up only when it is needed.
 
+## High priority
+
+- **Making the Brain.** `nerve init` with no Brain yet creates one: a repo with an empty `brain.json`, its remote, and the clone, pushed with an upstream. Given a Brain's remote, it clones it. Until then, the README walks the user through it by hand.
+
+## Later
+
 - **Bundles.** Named sets of skills, agents, hooks, plugins and settings that a project includes, such as `go`, so Go projects do not repeat the same list.
 - **Pinned plugin marketplaces.** Pin a plugin's marketplace to a commit the way skills are pinned, so plugin updates are reviewed too.
 - **Third-party agents.** Agents from other repos at a pinned commit, like third-party skills.

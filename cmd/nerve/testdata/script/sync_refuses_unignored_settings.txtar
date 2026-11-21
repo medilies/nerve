@@ -1,9 +1,19 @@
-# Sync refuses a checkout whose settings.local.json git does not ignore,
-# and writes nothing there.
+# project add and sync refuse a checkout whose settings.local.json git does
+# not ignore, and write nothing there.
 
 exec nerve init brain
 cd proj
+mv $HOME/.config/git/ignore $WORK/ignore
+
+! exec nerve project add app
+stderr 'git does not ignore .claude/settings.local.json: add \*\*/.claude/settings.local.json to ~/.config/git/ignore'
+! stdout .
+! exists .claude
+
+mv $WORK/ignore $HOME/.config/git/ignore
 exec nerve project add app
+exec nerve skill add go-stack
+cp .claude/settings.local.json $WORK/before.json
 rm $HOME/.config/git/ignore
 
 ! exec nerve sync --here
@@ -11,4 +21,11 @@ stderr 'git does not ignore .claude/settings.local.json: add \*\*/.claude/settin
 ! exec nerve sync
 stderr '^error: 1 of 1 checkouts did not sync$'
 stdout 'git does not ignore .claude/settings.local.json: add \*\*/.claude/settings.local.json to ~/.config/git/ignore'
-! exists .claude
+! exists .claude/skills/go-stack
+cmp .claude/settings.local.json $WORK/before.json
+
+-- brain/skills/go-stack/SKILL.md --
+---
+name: go-stack
+description: Does go-stack.
+---

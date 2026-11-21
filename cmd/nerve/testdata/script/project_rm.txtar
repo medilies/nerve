@@ -5,15 +5,16 @@
 
 exec nerve init brain
 cd proj
-exec nerve project add app
-exec nerve skill add go-stack
-exec nerve setting set model opus
-exec nerve setting set env.API_KEY x
-stdout '^overlay  env.API_KEY set in '
+exec nerve setting set model opus --common
 # What the checkout had before is personal: kept, and reported once.
-exec nerve sync --here
+exec nerve project add app
 stdout '^personal .*/proj/.claude/settings.local.json: outputStyle = "terse": kept, the Brain does not set it$'
 stdout '^personal .*/proj/.claude/settings.local.json: env.TOKEN = "x": kept, the Brain does not set it$'
+exec nerve skill add go-stack
+exec nerve setting set env.API_KEY x
+stdout '^overlay  env.API_KEY set in '
+exec nerve sync --here
+! stdout '^personal '
 # The user's own, since the sync.
 replace .claude/settings.local.json '"model": "opus"' '"spinnerTipsEnabled": false, "model": "opus"'
 

@@ -3,6 +3,7 @@ package domain
 import (
 	"path"
 	"path/filepath"
+	"strings"
 )
 
 // Machine is what one machine knows and the Brain never does: where the
@@ -33,6 +34,15 @@ func (m Machine) CheckoutAt(dir string) (Checkout, bool) {
 type Tree struct {
 	Top  string
 	Repo string
+}
+
+// RepoName is the name of the folder that holds the repo: the same for
+// each of its worktrees.
+func (t Tree) RepoName() string {
+	if filepath.Base(t.Repo) == ".git" {
+		return filepath.Base(filepath.Dir(t.Repo))
+	}
+	return strings.TrimSuffix(filepath.Base(t.Repo), ".git")
 }
 
 // TreeState is what a sync last did to one working tree, so nerve removes
