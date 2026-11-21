@@ -3,6 +3,10 @@
 exec nerve init brain
 cd proj
 
+! exec nerve status --json
+stderr '^--json is not a flag nerve knows'
+! stdout .
+
 ! exec nerve setting set model sonnet --common --project app
 stderr 'each say where to act: pass one'
 ! exec nerve skill rm a --all --project=app

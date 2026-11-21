@@ -26,7 +26,7 @@ exec nerve skill add grill-me
 
 exec nerve update
 stdout '^same     skill grilling$'
-stdout '^changed  skill grill-me: SKILL.md \+1 -0$'
+stdout '^changed  skill grill-me: SKILL.md \+1 -0 \(at .*/grill-me\)$'
 stdout '^pushed   the Brain at [0-9a-f]{7}: nerve: pin acme/up at [0-9a-f]{7}$'
 exec sh -c 'test "$(grep -c "\"sha\": \"$(git -C $HOME/github/acme/up.git rev-parse HEAD)\"" $HOME/brain/brain.json)" = 2'
 exists .claude/skills/grilling/SKILL.md

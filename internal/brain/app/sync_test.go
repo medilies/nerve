@@ -232,7 +232,7 @@ func TestSyncCleansACheckoutWhoseProjectLeftTheBrain(t *testing.T) {
 	if len(e.machine.machine.Checkouts) != 0 || len(e.machine.states) != 0 {
 		t.Errorf("the checkout %v or its state is still recorded", e.machine.machine.Checkouts)
 	}
-	contains(t, r, "cleaned  /w/app: project app left the Brain", "unlisted /w/app, a checkout of app: project app left the Brain")
+	contains(t, r, "cleaned  /w/app: project app left the Brain", "unlisted /w/app, a checkout of app: project app left the Brain: nerve project add app, in it, lists it again")
 }
 
 func TestSyncHereUnlistsACheckoutWhoseProjectLeftTheBrain(t *testing.T) {
@@ -1053,7 +1053,7 @@ func TestStatusCountsALinkThatIsGoneAsWaiting(t *testing.T) {
 
 	e.must(r, e.app.Status(target("/w/app"), r))
 
-	contains(t, r, "1 change waits for nerve sync", "skill go gone from .claude/skills/go: nerve sync makes it again")
+	contains(t, r, "1 change waits: nerve sync --here", "skill go gone from .claude/skills/go: nerve sync makes it again")
 	if strings.Contains(r.String(), "skill go linked as") {
 		t.Errorf("status shows a link that is gone:\n%s", r)
 	}

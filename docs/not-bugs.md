@@ -39,11 +39,10 @@ Behaviour a review may take for a bug, kept on purpose. A review lists what it f
 - **After a sync that kept a third-party skill at its old pin**, offline say, `status` shows the checkout synced. The sync reported the problem, and the next one relinks it.
 - **A setting that goes to the local overlay still needs the Brain's remote.** Where a setting goes depends on the Brain's `allowedSettings`, read as the remote holds it.
 - **`push` with no git identity leaves the Brain's files staged**, behind git's own message. Staging loses nothing, and the next `push` commits them.
-- **`--hook` with `--json` prints a session report of the usage error**, and exits 0, as every session report does.
 
 ## Settings
 
-- **Sync prints personal and drifted values as they are**, in text and JSON. They are the user's own, in their own checkout, and the session report shows them only to the user.
+- **Sync prints personal and drifted values as they are**, in its lines and the commands that keep them. They are the user's own, in their own checkout, and the session report shows them only to the user.
 - **A hook's event is not checked.** Claude Code adds events; a list in nerve would refuse a new one. See the [backlog](backlog.md).
 - **An overlay can add items to a Brain list, but not take one out.** Arrays join without repeats, as sync.md says.
 - **A suggested `nerve allow add` names the setting's own key**, such as `mcpServers.db.headers.X-Api-Key`, not a wider one. Only where needed: allowing more is the user's choice.
@@ -74,7 +73,6 @@ Behaviour a review may take for a bug, kept on purpose. A review lists what it f
 - **Git's own words stay in git's sense**: upstream, the global git ignore file, the repo. So does the machine file's `path` key.
 - **`nerve help` repeats what the README says of `--project`.** The usage is the CLI's own text, not a doc.
 - **brain.md lists the allowed settings in full.** Users need the list where they write `brain.json`; a review checks it against `nerveAllows`.
-- **An event's kind and its text label may differ**, such as `disallowed` printed as `dropped`, or `brain-not-synced` as `no sync`. The label fits the text's first column; the kind names the event in JSON.
 - **The nerve skill names each event an agent acts on.** It says what to do with each one, which no other doc does; a review checks it against the event kinds.
 - **The report shows private-use characters as they are.** It makes control characters and invisible format characters visible, which can hide or rewrite text; private-use ones cannot.
 

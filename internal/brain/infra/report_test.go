@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -17,26 +16,8 @@ func TestTextReportPrintsEachEventAsItComes(t *testing.T) {
 
 	r.Add(app.Event{Kind: app.EvWrote, Path: "/x"})
 
-	if out.String() != "wrote    /x\n" || r.Finish(errors.New("boom")) || r.gathered() != nil {
+	if out.String() != "wrote    /x\n" || r.Finish(errors.New("boom")) {
 		t.Errorf("printed %q", out.String())
-	}
-}
-
-func TestJSONReportIsOneDocumentOfEventsAndTheError(t *testing.T) {
-	var out bytes.Buffer
-	r := NewReport(&out, AsJSON)
-	r.Add(app.Event{Kind: app.EvWrote, Path: "/x"})
-
-	if !r.Finish(errors.New("boom")) {
-		t.Fatal("a JSON report printed nothing")
-	}
-
-	var doc struct {
-		Events []app.Event
-		Error  string
-	}
-	if err := json.Unmarshal(out.Bytes(), &doc); err != nil || len(doc.Events) != 1 || !reflect.DeepEqual(doc.Events[0], app.Event{Kind: app.EvWrote, Path: "/x"}) || doc.Error != "boom" {
-		t.Errorf("document %s (%v)", out.String(), err)
 	}
 }
 
@@ -70,12 +51,12 @@ func TestHookReportSaysHowTheCheckoutStandsItsDriftAndProblems(t *testing.T) {
 	doc := hookDoc(t, []app.Event{
 		{Kind: app.EvBrain, Path: "/brain"},
 		{Kind: app.EvProject, Project: "app", Detail: "1 skill"},
-		{Kind: app.EvCheckout, Path: "/w/app", Project: "app", Detail: "synced at abcdef0; 1 change waits for nerve sync"},
+		{Kind: app.EvCheckout, Path: "/w/app", Project: "app", Detail: "synced at abcdef0; 1 change waits", Fix: "nerve sync --here"},
 		{Kind: app.EvItem, Item: "skill nerve", Detail: "linked as .claude/skills/nerve"},
 		{Kind: app.EvDrift, Key: "model", Local: `"sonnet"`, Brain: `"opus"`},
 	}, errors.New("boom"))
 
-	want := "nerve: checkout /w/app (app): synced at abcdef0; 1 change waits for nerve sync\n" +
+	want := "nerve: checkout /w/app (app): synced at abcdef0; 1 change waits: nerve sync --here\n" +
 		"drift    model is \"sonnet\" here, \"opus\" in the Brain: left as is\nerror: boom"
 	if len(doc) != 1 || doc["systemMessage"] != want {
 		t.Errorf("doc is %v", doc)
@@ -99,7 +80,7 @@ type brokenPipe struct{}
 func (brokenPipe) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
 
 func TestAReportThatCannotBePrintedSaysSo(t *testing.T) {
-	for name, mode := range map[string]int{"text": AsText, "JSON": AsJSON, "hook": AsHook} {
+	for name, mode := range map[string]int{"text": AsText, "hook": AsHook} {
 		t.Run(name, func(t *testing.T) {
 			r := NewReport(brokenPipe{}, mode)
 			r.Add(app.Event{Kind: app.EvWrote, Path: "/x"})

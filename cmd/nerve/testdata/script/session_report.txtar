@@ -13,7 +13,7 @@ cd proj
 cp .claude/settings.local.json $WORK/before.json
 
 exec nerve status --hook
-stdout '^\{"systemMessage":"nerve: checkout [^"]*/proj \(app\): synced at [0-9a-f]{7}, behind the Brain at [0-9a-f]{7}; 1 change waits for nerve sync"\}$'
+stdout '^\{"systemMessage":"nerve: checkout [^"]*/proj \(app\): synced at [0-9a-f]{7}, behind the Brain at [0-9a-f]{7}; 1 change waits: nerve sync --here"\}$'
 ! exists .claude/skills/go-stack
 cmp .claude/settings.local.json $WORK/before.json
 

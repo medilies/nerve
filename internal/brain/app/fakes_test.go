@@ -60,6 +60,7 @@ type fakeBrain struct {
 	ownErr          map[string]error // own skills that cannot be read, by name
 	agents          map[string]bool
 	head            string
+	state           string // what State says the Brain holds not pushed
 	syncs           int
 	pushErr         error
 	pushed          []string // messages of each push
@@ -130,7 +131,7 @@ func (b *fakeBrain) Save(m domain.Manifest) error {
 	return nil
 }
 func (b *fakeBrain) Head() string  { return b.head }
-func (b *fakeBrain) State() string { return "" }
+func (b *fakeBrain) State() string { return b.state }
 func (b *fakeBrain) AgentFile(name string) (string, bool) {
 	return "/brain/agents/" + name + ".md", b.agents[name]
 }

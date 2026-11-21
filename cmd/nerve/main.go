@@ -69,7 +69,6 @@ A key that holds a dot is written in double quotes: enabledPlugins."x@y.z".
 Commands that change brain.json first bring the remote's, then commit and push the change.
 The skill, agent, hook, plugin and setting commands then sync the checkout around the working
 directory, when the change reaches it.
---json, with any command, prints one JSON document of its events and error instead of text.
 `
 
 // selfSkill is the nerve skill, carried by the binary so the two always
@@ -128,7 +127,6 @@ type flags struct {
 	diff                     bool     // update: the whole diff of each changed skill
 	dryRun                   bool     // update: show, and change nothing
 	hook                     bool     // the session report: print status as a hook's output
-	json                     bool     // print one JSON document
 	help                     bool     // print the usage
 	version                  bool     // print nerve's version
 	given                    []string // each flag given, as written
@@ -151,8 +149,6 @@ words:
 			f.help = true
 		case a == "--version" || a == "-v":
 			f.version = true
-		case a == "--json":
-			f.json = true
 		case a == "--all":
 			f.all = true
 		case a == "--common":
@@ -188,9 +184,6 @@ words:
 	if noProject && !f.help {
 		return nil, f, usageError("--project needs a project name")
 	}
-	if f.hook && f.json {
-		return nil, f, usageError("--hook and --json each say how to print: pass one")
-	}
 	return pos, f, nil
 }
 
@@ -201,7 +194,7 @@ func isNumber(s string) bool {
 	return err == nil && !math.IsInf(f, 0) && !math.IsNaN(f)
 }
 
-// only refuses a flag the command does not take; any command takes --json.
+// only refuses a flag the command does not take.
 func (f flags) only(allowed ...string) error {
 	for _, g := range f.given {
 		long := g
@@ -211,7 +204,7 @@ func (f flags) only(allowed ...string) error {
 		case "-v":
 			long = "--version"
 		}
-		if g != "--json" && !slices.Contains(allowed, long) {
+		if !slices.Contains(allowed, long) {
 			return usageError(g + " does not go with this command")
 		}
 	}
@@ -249,25 +242,15 @@ func cli(args []string, stdout, stderr io.Writer) int {
 			words = flagArgs[i:]
 		}
 	}
-	switch {
-	case len(words) > 0 && words[0] == "status" && slices.Contains(flagArgs, "--hook"): // the session report
+	if len(words) > 0 && words[0] == "status" && slices.Contains(flagArgs, "--hook") { // the session report
 		mode = infra.AsHook
-	case slices.Contains(flagArgs, "--json"): // even on a command line nerve refuses
-		mode = infra.AsJSON
 	}
 	r := infra.NewReport(stdout, mode).WithColor(colors(stdout))
 	err = run(args, r)
 	if err == errUsage { // the command line is the reason
-		shown := args
-		if mode == infra.AsJSON {
-			shown = slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == "--json" })
-		}
-		err = usageError(errUsage.Error() + ": " + strings.Join(shown, " "))
+		err = usageError(errUsage.Error() + ": " + strings.Join(args, " "))
 	}
-	switch {
-	case mode == infra.AsJSON && errors.Is(err, errUsage): // the reason, not the usage
-		err = errors.New(err.Error() + ": nerve help lists the commands")
-	case mode == infra.AsHook && errors.Is(err, errUsage): // one line, not the usage
+	if mode == infra.AsHook && errors.Is(err, errUsage) { // one line, not the usage
 		err = errors.New(err.Error() + "; run nerve help")
 	}
 	finished := r.Finish(err)

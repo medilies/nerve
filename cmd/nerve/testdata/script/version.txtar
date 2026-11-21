@@ -11,8 +11,6 @@ stdout '^nerve version \S+$'
 exec nerve -v
 stdout '^nerve version \S+$'
 
-exec nerve version --json
-stdout '"kind": *"version"'
 
 ! exec nerve version extra
 stderr '^  version, --version, -v '

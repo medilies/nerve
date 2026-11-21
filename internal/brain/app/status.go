@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/medilies/nerve/internal/brain/domain"
 )
@@ -25,7 +26,11 @@ func (a App) Status(ref ProjectRef, r Reporter) error {
 	if m.Projects == nil {
 		m.Projects = map[string]*domain.Project{}
 	}
-	r.Add(Event{Kind: EvBrain, Path: a.Brain.Root(), Detail: a.Brain.State()})
+	brain := Event{Kind: EvBrain, Path: a.Brain.Root(), Detail: a.Brain.State()}
+	if brain.Detail != "" && !strings.HasPrefix(brain.Detail, "cannot read") {
+		brain.Fix = "nerve push"
+	}
+	r.Add(brain)
 	l := loaded{machine: machine, m: m}
 	tree, name, err := a.here(machine, ref.Dir)
 	dirs := []string{tree.Top}
@@ -51,7 +56,11 @@ func (a App) Status(ref ProjectRef, r Reporter) error {
 	}
 	r.Add(Event{Kind: EvProject, Project: name, Detail: m.Describe(p)})
 	for _, dir := range dirs {
-		if err := a.treeStatus(m, name, p, dir, r); err != nil {
+		sync := "nerve sync"
+		if dir == tree.Top {
+			sync += " --here"
+		}
+		if err := a.treeStatus(m, name, p, dir, sync, r); err != nil {
 			return err
 		}
 	}
@@ -59,8 +68,9 @@ func (a App) Status(ref ProjectRef, r Reporter) error {
 }
 
 // treeStatus says how one checkout of project name stands: its sync state
-// and what waits for a sync, links, the team's skills and agents, and drift.
-func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir string, r Reporter) error {
+// and what waits for sync, the command that syncs it, links that are not
+// as they should be, the team's skills and agents, and drift.
+func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir, sync string, r Reporter) error {
 	st, err := a.Machine.State(dir)
 	if errors.Is(err, ErrUnreadable) {
 		// Whose links and settings are there is unknown until a sync
@@ -93,11 +103,8 @@ func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir s
 		case a.ours(dir, rel, l) && !a.Trees.Exists(path):
 			pending++
 			events = append(events, Event{Kind: EvProblem, Path: path, Detail: fmt.Sprintf("it points at %s, which is gone: nerve sync makes it again, or says why not", l.Target)})
-		default:
-			if !wanted[l.Item()] {
-				pending++
-			}
-			events = append(events, Event{Kind: EvItem, Project: name, Item: l.Item(), Detail: "linked as " + rel})
+		case !wanted[l.Item()]:
+			pending++
 		}
 	}
 	// A listed item with nothing in its place waits for a sync, which links
@@ -140,14 +147,17 @@ func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir s
 	}
 	rc := domain.Reconcile(current, st.Settings, domain.Want(m, p, cmd, overlay, a.Brain.Root()), false)
 	pending += len(rc.Changes)
-	detail := syncState(st, a.Brain.Head())
+	e := Event{Kind: EvCheckout, Path: dir, Project: name, Detail: syncState(st, a.Brain.Head())}
 	switch {
 	case pending == 1:
-		detail += "; 1 change waits for nerve sync"
+		e.Detail += "; 1 change waits"
 	case pending > 1:
-		detail += fmt.Sprintf("; %d changes wait for nerve sync", pending)
+		e.Detail += fmt.Sprintf("; %d changes wait", pending)
 	}
-	r.Add(Event{Kind: EvCheckout, Path: dir, Project: name, Detail: detail})
+	if pending > 0 {
+		e.Fix = sync
+	}
+	r.Add(e)
 	for _, e := range events {
 		r.Add(e)
 	}

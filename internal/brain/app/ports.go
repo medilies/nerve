@@ -81,10 +81,10 @@ type SkillDiff struct {
 // FileChange is one file of a skill that changed, its path in the skill
 // folder, with the lines added and removed; a binary file has no lines.
 type FileChange struct {
-	Path    string `json:"path"`
-	Added   int    `json:"added"`
-	Removed int    `json:"removed"`
-	Binary  bool   `json:"binary,omitempty"`
+	Path    string
+	Added   int
+	Removed int
+	Binary  bool
 }
 
 // Machine is what this machine keeps and the Brain never holds: the machine

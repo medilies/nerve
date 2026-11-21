@@ -107,7 +107,8 @@ Every listed project's `settings.local.json` holds a `SessionStart`
 hook that runs `nerve status --hook`. Each session in the project starts
 with a short report: what the Brain has not pushed, how the checkout
 stands against the Brain, how many changes wait for `nerve sync`, drift,
-and problems.
+and problems. Each line that needs action ends with the command that
+resolves it.
 
 - It changes nothing, and reads only this machine: commits on the
   remote count once a sync brings them.
@@ -147,10 +148,11 @@ An empty object, such as `"permissions": {}`, holds no setting, so it
 never drifts. A key the project holds as a value, and the Brain as an
 object, or the other way round, drifts as a whole.
 
-To resolve drift:
+Each drift line ends with the commands that resolve it:
 
-- Move a value into the Brain with `nerve setting set <key> <value>`,
-  or one item of a list with `nerve setting add <key> <item>`.
+- Keep the change with `nerve setting set <key> <value>`, or
+  `nerve setting rm <key>`, or `nerve setting rm <key>=<item>` for an item
+  removed from a list.
 - Overwrite all the checkout's drift with `nerve sync --here -f`, or
   every checkout's with `nerve sync -f`. Personal settings stay.
 
@@ -177,8 +179,9 @@ To resolve drift:
 nerve never touches what it did not make. Where the team already has a
 skill or agent of the same name, nerve does not link yours there, and
 reports a problem: rename yours in the Brain to use it in that project.
-`nerve status` shows nerve's links, the team's skills, and links you
-made or pointed elsewhere, as yours.
+`nerve status` shows nerve's links that are gone or broken, the team's
+skills, and links you made or pointed elsewhere, as yours. Links in
+order it does not list.
 
 ## Notes
 

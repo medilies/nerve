@@ -24,7 +24,6 @@ func TestStatusShowsTheProjectItsLinksAndDriftWithoutChangingIt(t *testing.T) {
 		"brain    /brain",
 		"project  app: 1 setting",
 		"checkout /w/app (app): synced at aaaaaaa",
-		"skill nerve linked as .claude/skills/nerve",
 		"agent team the team's",
 		`drift    /w/app/.claude/settings.local.json: model is "sonnet" here, "opus" in the Brain`)
 	if e.settings("/w/app")["model"] != "sonnet" {
@@ -225,7 +224,7 @@ func TestStatusCountsAListedSkillThatIsNotLinkedAsWaiting(t *testing.T) {
 
 	e.must(r, e.app.Status(target("/w/app"), r))
 
-	contains(t, r, "checkout /w/app (app): synced at aaaaaaa; 1 change waits for nerve sync")
+	contains(t, r, "checkout /w/app (app): synced at aaaaaaa; 1 change waits: nerve sync --here")
 }
 
 func TestStatusSaysDriftFromTheOverlayIsTheOverlays(t *testing.T) {
@@ -251,7 +250,7 @@ func TestStatusCountsWhatWaitsForASync(t *testing.T) {
 
 	e.must(r, e.app.Status(target("/w/app"), r))
 
-	contains(t, r, "checkout /w/app (app): synced at aaaaaaa; 2 changes wait for nerve sync")
+	contains(t, r, "checkout /w/app (app): synced at aaaaaaa; 2 changes wait: nerve sync --here")
 }
 
 func TestStatusWithAnUnreadableStateCallsNoLinkYours(t *testing.T) {

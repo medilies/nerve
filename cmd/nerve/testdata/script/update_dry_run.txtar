@@ -28,7 +28,7 @@ exec git -C $HOME/brain add unpushed.json
 exec git -C $HOME/brain commit -qm 'not pushed'
 exec nerve update --dry-run
 
-stdout '^changed  skill grilling: SKILL.md \+1 -0$'
+stdout '^changed  skill grilling: SKILL.md \+1 -0 \(at .*/grilling\)$'
 stdout 'dry run: no pin moved'
 ! stdout '^pushed'
 ! stdout '^pinned'

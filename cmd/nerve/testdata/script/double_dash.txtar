@@ -4,6 +4,6 @@ exec nerve init brain
 cd proj
 exec nerve project add app
 
-exec nerve --json setting set outputStyle -- --json
+exec nerve setting set outputStyle -- --force
 
-grep '^        "outputStyle": "--json"$' $HOME/brain/brain.json
+grep '^        "outputStyle": "--force"$' $HOME/brain/brain.json

@@ -30,8 +30,6 @@ stderr '^Run one of these, then this command again:$'
 stderr '^  nerve push                    commit every change in the Brain, and push it$'
 stderr '^  nerve sync -f                 drop the Brain.s changes and commits not pushed$'
 ! grep model ../brain/brain.json
-! exec nerve --json setting set model opus
-stdout '"error": "brain.json in the Brain at .* has changes not pushed'
 
 # Meanwhile the remote moves on, and the Brain has a commit of its own: push
 # refuses, -f overwrites.

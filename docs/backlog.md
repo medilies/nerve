@@ -20,6 +20,7 @@ Ideas left out of [ADR 0005](adr/0005-projects-opt-in.md) to keep it minimal. Ta
   - Nothing may reach the Brain unseen: each key needs the same checks, and the same review by the user, as `setting set`.
   - nerve's own hook, written by an earlier sync, must not be imported.
   - What moves to the overlay must come back to the file when the project is removed, or a secret is lost.
+- **A full list of links in `status`.** `status` lists only links that are gone or broken; one in order shows in `.claude/` and the project's entry. A flag could list them all, under a name other than `--all`, which means every project.
 - **A drift resolver.** Open drift in a diff tool to move each key into the project, `common` or the overlay, rather than going through it with the nerve skill.
 - **claude.ai accounts.** A project that stands for a claude.ai account and takes skills only: sync zips each one, and says which to upload and which to delete. Worth it once claude.ai has an API for skills. The challenges, which made the first version go ([ADR 0008](adr/0008-drop-claude-ai-accounts.md)):
   - With no API, uploading and deleting stay manual, and nerve cannot see what an account holds. A missed "upload" leaves the account and nerve apart, with no sign of it.

@@ -12,11 +12,11 @@ import (
 // Ways a report is printed.
 const (
 	AsText = iota // each event as a line, as it comes
-	AsJSON        // one JSON document of all events and the error
 	AsHook        // one Claude Code hook output: the session report, as a message to the user
 )
 
-// Report prints events as text as they come, or gathers them for Finish.
+// Report prints events as text as they come, or gathers them for a hook's
+// Finish.
 type Report struct {
 	w      io.Writer
 	mode   int
@@ -59,38 +59,14 @@ func (r *Report) failed(err error) {
 // printed is cut short.
 func (r *Report) Err() error { return r.err }
 
-// gathered is the events gathered so far, nil when printed as they come.
-func (r *Report) gathered() []app.Event {
-	if r.mode == AsText {
-		return nil
-	}
-	if r.events == nil {
-		return []app.Event{}
-	}
-	return r.events
-}
-
-// Finish ends the report; when it gathered events, it prints them and the
-// error, if any, and returns true.
+// Finish ends the report; a hook report prints its events and the error,
+// if any, and returns true.
 func (r *Report) Finish(err error) bool {
-	switch r.mode {
-	case AsJSON:
-		doc := struct {
-			Events []app.Event `json:"events"`
-			Error  string      `json:"error,omitempty"`
-		}{Events: r.gathered()}
-		if err != nil {
-			doc.Error = err.Error()
-		}
-		enc := json.NewEncoder(r.w)
-		enc.SetIndent("", "  ")
-		r.failed(enc.Encode(doc))
-		return true
-	case AsHook:
-		r.failed(json.NewEncoder(r.w).Encode(hookOutput(r.events, err)))
-		return true
+	if r.mode != AsHook {
+		return false
 	}
-	return false
+	r.failed(json.NewEncoder(r.w).Encode(hookOutput(r.events, err)))
+	return true
 }
 
 // hookOutput is the session report Claude Code shows the user, kept out of

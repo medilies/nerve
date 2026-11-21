@@ -11,20 +11,21 @@ import (
 // Event is one thing a use case did or found. Kind says which; the other
 // fields are set as that kind needs.
 type Event struct {
-	Kind    string `json:"kind"`
-	Project string `json:"project,omitempty"` // "" for common, where an event can be about either
-	Path    string `json:"path,omitempty"`
-	Target  string `json:"target,omitempty"`
-	Item    string `json:"item,omitempty"` // kind and name, such as "skill grilling"; for drift in a list, the item as JSON
-	Key     string `json:"key,omitempty"`
-	Local   string `json:"local,omitempty"` // a settings value as JSON, "unset" when absent
-	Brain   string `json:"brain,omitempty"` // likewise, as the Brain would write it
-	Detail  string `json:"detail,omitempty"`
+	Kind    string
+	Project string // "" for common, where an event can be about either
+	Path    string
+	Target  string
+	Item    string // kind and name, such as "skill grilling"; for drift in a list, the item as JSON
+	Key     string
+	Local   string // a settings value as JSON, "unset" when absent
+	Brain   string // likewise, as the Brain would write it
+	Detail  string
+	Fix     string // the commands that resolve it, for an event that needs action
 	// For a source's tip: the pin's commit, and when each commit was made.
-	From       string       `json:"from,omitempty"`
-	FromDate   string       `json:"fromDate,omitempty"`
-	TargetDate string       `json:"targetDate,omitempty"`
-	Files      []FileChange `json:"files,omitempty"` // for a changed skill
+	From       string
+	FromDate   string
+	TargetDate string
+	Files      []FileChange // for a changed skill
 }
 
 // Kinds of Event.
@@ -66,6 +67,14 @@ const (
 )
 
 func (e Event) String() string {
+	if e.Fix != "" {
+		return e.line() + ": " + e.Fix
+	}
+	return e.line()
+}
+
+// line is the event as a line, without its fix.
+func (e Event) line() string {
 	switch e.Kind {
 	case EvLinked:
 		return fmt.Sprintf("linked   %s -> %s", e.Path, e.Target)
@@ -116,6 +125,9 @@ func (e Event) String() string {
 			}
 		}
 		line := fmt.Sprintf("changed  %s: %s", e.Item, strings.Join(files, ", "))
+		if e.Path != "" {
+			line += " (at " + e.Path + ")"
+		}
 		if e.Detail != "" {
 			return line + "\n" + e.Detail
 		}

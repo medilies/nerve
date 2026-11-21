@@ -25,7 +25,7 @@ exec nerve skill add grilling
 exec nerve update
 
 stdout '^tip      acme/up: pinned at [0-9a-f]{7} \(\d{4}-\d\d-\d\d\), tip [0-9a-f]{7} \(\d{4}-\d\d-\d\d\)$'
-stdout '^changed  skill grilling: SKILL.md \+1 -0$'
+stdout '^changed  skill grilling: SKILL.md \+1 -0 \(at .*/grilling\)$'
 ! stdout 'Grill harder'
 stdout '^pushed   the Brain at [0-9a-f]{7}: nerve: pin acme/up at [0-9a-f]{7}$'
 stdout '^pinned   acme/up at [0-9a-f]{7}$'
@@ -41,7 +41,7 @@ stdout '^acme/up is already pinned at '
 cp $WORK/v3.md $WORK/github/acme/up.git/skills/grilling/SKILL.md
 exec git -C $WORK/github/acme/up.git commit -qam v3
 exec nerve update --diff
-stdout '^changed  skill grilling: SKILL.md \+1 -1$'
+stdout '^changed  skill grilling: SKILL.md \+1 -1 \(at .*/grilling\)$'
 stdout '^\+Grill hardest\.$'
 
 -- v1.md --

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -100,7 +101,7 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 				continue
 			}
 			l.machine.Checkouts = slices.DeleteFunc(l.machine.Checkouts, func(x domain.Checkout) bool { return x.Path == c.Path })
-			gone = append(gone, Event{Kind: EvUnlisted, Project: c.Project, Path: c.Path, Detail: why})
+			gone = append(gone, Event{Kind: EvUnlisted, Project: c.Project, Path: c.Path, Detail: why, Fix: "nerve project add " + c.Project + ", in it, lists it again"})
 			continue
 		}
 		held, err := s.syncTree(c.Project, p, c.Path)
@@ -431,14 +432,33 @@ func (s *syncer) reconcile(path string, want, overlay map[string]any, st *domain
 
 func driftEvent(path string, c domain.Change) Event {
 	e := Event{Kind: EvDrift, Path: path, Key: c.Key, Local: c.After, Brain: c.Before}
-	if c.Item {
-		e.Item = c.After
-		if c.After == "unset" {
-			e.Item = c.Before
-		}
+	key := domain.ShellWord(c.Key)
+	var keep string
+	switch {
+	case c.Item: // an item the Brain has, gone from here: one only here is personal
+		e.Item = c.Before
+		keep = "nerve setting rm " + domain.ShellWord(c.Key+"="+valueText(c.Before))
+	case c.After == "unset":
+		keep = "nerve setting rm " + key
+	default:
+		keep = "nerve setting set " + key + " " + valueWord(c.After)
 	}
+	e.Fix = "keep it with " + keep + ", or drop all drift here with nerve sync --here -f"
 	return e
 }
+
+// valueText is a value shown as JSON, as a user writes it on the command
+// line: text that reads back as itself bare, else its JSON.
+func valueText(shown string) string {
+	var s string
+	if json.Unmarshal([]byte(shown), &s) == nil && domain.ParseValue(s) == any(s) {
+		return s
+	}
+	return shown
+}
+
+// valueWord is valueText as one shell word.
+func valueWord(shown string) string { return domain.ShellWord(valueText(shown)) }
 
 // ours says whether the link at rel in dir is still the one nerve made: a
 // link that points where nerve pointed it.
