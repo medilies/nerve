@@ -122,6 +122,12 @@ To change what Claude Code does, find the setting made for it first: know Claude
 4. After a change to the Brain's own files, such as a new skill, run `nerve check --json`, show the diff of the Brain, and ask to push. On yes, `nerve push --json "<message>"`, with a message that follows the Brain's own commit rules (its README, CLAUDE.md or AGENTS.md win over this skill).
 5. Then `nerve sync --here --json`.
 
+## Suggesting, unasked
+
+After `nerve skill add` and the sync that links it, read `.claude/skills/<name>/SKILL.md`. When it loads or names other skills the project lacks, such as "call the Skill tool for grilling", suggest each one, and where it comes from: the Brain, or another folder of its source's repo, which the Brain does not list yet. Do this without being asked, and run nothing until the user says yes.
+
+Put suggestions after a line holding only `---`, apart from what happened.
+
 ## Left to the user
 
 - Installing `nerve` on a machine, and `nerve init <brain>`.
