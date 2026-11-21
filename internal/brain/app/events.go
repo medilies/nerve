@@ -51,7 +51,7 @@ const (
 	EvUpload       = "upload"         // the zip at Path holds Item, new or changed: upload it to claude.ai account Project
 	EvUnload       = "unload"         // Item left claude.ai account Project: delete it there
 	EvCleaned      = "cleaned"        // nerve took its links and settings out of Path; Detail says why
-	EvUnlisted     = "unlisted"       // Path, a checkout of Project, is gone: this machine no longer lists it
+	EvUnlisted     = "unlisted"       // this machine no longer lists Path, a checkout of Project: it is gone, or Detail says why
 	EvSynced       = "synced"         // Project at Path is at Brain commit Target
 	EvUpToDate     = "up-to-date"     // Project at Path is at Brain commit Target, and nothing changed
 	EvUsage        = "usage"          // Detail is how to run nerve
@@ -144,6 +144,9 @@ func (e Event) String() string {
 	case EvCleaned:
 		return fmt.Sprintf("cleaned  %s: %s", e.Path, e.Detail)
 	case EvUnlisted:
+		if e.Detail != "" {
+			return fmt.Sprintf("unlisted %s, a checkout of %s: %s", e.Path, e.Project, e.Detail)
+		}
 		return fmt.Sprintf("unlisted %s, a checkout of %s that is gone", e.Path, e.Project)
 	case EvSynced:
 		return fmt.Sprintf("synced   %s at %s", e.Project, Short(e.Target))

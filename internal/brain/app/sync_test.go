@@ -218,7 +218,20 @@ func TestSyncCleansACheckoutWhoseProjectLeftTheBrain(t *testing.T) {
 	if len(e.machine.machine.Checkouts) != 0 || len(e.machine.states) != 0 {
 		t.Errorf("the checkout %v or its state is still recorded", e.machine.machine.Checkouts)
 	}
-	contains(t, r, "cleaned  /w/app: project app left the Brain")
+	contains(t, r, "cleaned  /w/app: project app left the Brain", "unlisted /w/app, a checkout of app: project app left the Brain")
+}
+
+func TestSyncCleansACheckoutWhoseProjectBecameAClaudeAIAccount(t *testing.T) {
+	e := newEnv(t)
+	e.listed("app", "/w/app")
+	e.must(e.sync("/w/app", app.SyncOptions{}))
+	e.brain.m.Projects["app"].Surface = domain.ClaudeAI
+
+	r := e.must(e.sync("/w/app", app.SyncOptions{}))
+
+	contains(t, r,
+		"cleaned  /w/app: project app is now a claude.ai account",
+		"unlisted /w/app, a checkout of app: project app is now a claude.ai account")
 }
 
 func TestSyncHereUnlistsACheckoutWhoseProjectLeftTheBrain(t *testing.T) {

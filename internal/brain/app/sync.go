@@ -99,8 +99,11 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 		}
 		if p == nil || p.Surface == domain.ClaudeAI {
 			why := fmt.Sprintf("project %s left the Brain", t.project)
-			if t.project == "" {
+			switch {
+			case t.project == "":
 				why = "no checkout this machine lists holds it"
+			case p != nil:
+				why = fmt.Sprintf("project %s is now a claude.ai account", t.project)
 			}
 			if err := a.clean(t.dir, why, r); err != nil {
 				r.Add(Event{Kind: EvProblem, Path: t.dir, Detail: err.Error()})
@@ -110,6 +113,7 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 			if t.listed {
 				l.machine.Checkouts = slices.DeleteFunc(l.machine.Checkouts, func(c domain.Checkout) bool { return c.Path == t.dir })
 				unlisted = true
+				gone = append(gone, Event{Kind: EvUnlisted, Project: t.project, Path: t.dir, Detail: why})
 			}
 			continue
 		}
