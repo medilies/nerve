@@ -35,7 +35,8 @@ the one around the working directory, a worktree included.
   hook, then the local overlay. Objects merge key by key, arrays are
   joined without repeats, and anything else in a later layer wins.
 - **Unlists a checkout that is gone**, on a full sync, and forgets a
-  worktree that is.
+  worktree that is. A worktree git cannot locate is left as it is, and
+  reported, while its project is in the Brain.
 - **Reports what it did**, with secrets and emails shown as `(hidden)`.
 - **Builds the claude.ai zips**, on a full sync only. See
   [below](#claudeai).

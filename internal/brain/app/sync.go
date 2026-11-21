@@ -35,6 +35,7 @@ type workingTree struct {
 	dir     string
 	project string // "" when no checkout this machine lists holds it
 	listed  bool   // a checkout in the machine file, not a worktree of one
+	lost    error  // why git cannot locate a worktree a sync reached before
 }
 
 // Sync pulls the Brain and carries it to every checkout this machine lists
@@ -91,6 +92,11 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 	failed, drifted := 0, 0
 	for _, t := range trees {
 		p := l.m.Projects[t.project]
+		if t.lost != nil && p != nil && p.Surface != domain.ClaudeAI {
+			r.Add(Event{Kind: EvProblem, Path: t.dir, Detail: "git cannot locate it, so nerve leaves it as it is: " + t.lost.Error()})
+			failed++
+			continue
+		}
 		if p == nil || p.Surface == domain.ClaudeAI {
 			why := fmt.Sprintf("project %s left the Brain", t.project)
 			if t.project == "" {
@@ -177,7 +183,12 @@ func (a App) workingTrees(machine *domain.Machine) ([]workingTree, []Event, erro
 			}
 			continue
 		}
-		_, project, _ := a.here(*machine, st.Path) // "" when no listed checkout holds it
+		t, project, err := a.here(*machine, st.Path) // "" when no listed checkout holds it
+		if err != nil && t.Top == "" {
+			// git cannot place it, so it keeps the project it was synced for.
+			trees = append(trees, workingTree{dir: st.Path, project: st.Project, lost: err})
+			continue
+		}
 		trees = append(trees, workingTree{dir: st.Path, project: project})
 	}
 	return trees, gone, nil

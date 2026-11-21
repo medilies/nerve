@@ -210,6 +210,17 @@ func TestPullSaysWhenHeadIsDetached(t *testing.T) {
 	}
 }
 
+func TestPullSaysWhenGitCannotRun(t *testing.T) {
+	e := newTestEnv(t)
+	e.published()
+	t.Setenv("PATH", t.TempDir())
+	var r events
+
+	if err := NewBrainCheckout(e.path("brain")).Pull(&r); err != nil || !strings.Contains(r.String(), ": cannot read its git state: ") {
+		t.Errorf("got %v, events: %s", err, r)
+	}
+}
+
 func TestStateSaysWhenGitFails(t *testing.T) {
 	e := newTestEnv(t)
 	e.published()

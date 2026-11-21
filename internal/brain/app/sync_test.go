@@ -655,6 +655,18 @@ func TestAWorktreeGitCannotLocateIsCleanedWhenItsProjectLeaves(t *testing.T) {
 	}
 }
 
+func TestAWorktreeGitCannotLocateIsKeptWhileItsProjectIsInTheBrain(t *testing.T) {
+	e := lostWorktree(t)
+	e.brain.m.Projects["app"] = &domain.Project{Skills: []string{"go-stack"}}
+
+	r, err := e.sync("/w", app.SyncOptions{})
+
+	if _, kept := e.machine.states["/w/app-feature"]; err == nil || !kept || e.settings("/w/app-feature") == nil {
+		t.Errorf("got %v, state kept %v, settings %v:\n%s", err, kept, e.settings("/w/app-feature"), r)
+	}
+	contains(t, r, "problem  /w/app-feature: git cannot locate it, so nerve leaves it as it is: not in a git repo: fatal: not a git repository: /nowhere")
+}
+
 func TestCleaningAWorktreeGitCannotLocateReportsWhatItLeftInInfoExclude(t *testing.T) {
 	e := lostWorktree(t)
 

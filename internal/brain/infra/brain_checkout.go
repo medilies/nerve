@@ -327,8 +327,12 @@ func (b BrainCheckout) Pull(r app.Reporter) error {
 		r.Add(app.Event{Kind: app.EvPullSkipped, Path: b.root, Detail: why})
 		return nil
 	}
-	if _, err := git(b.root, "symbolic-ref", "-q", "HEAD"); err != nil {
+	switch _, err := git(b.root, "symbolic-ref", "-q", "HEAD"); {
+	case err == nil:
+	case exitCode(err) == 1: // 1: HEAD is not a branch
 		return skip("detached HEAD")
+	default:
+		return skip("cannot read its git state: " + firstLine(err))
 	}
 	if _, err := git(b.root, "rev-parse", "--abbrev-ref", "@{upstream}"); err != nil {
 		return skip("no upstream branch")
