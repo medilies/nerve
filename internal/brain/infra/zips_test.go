@@ -100,7 +100,7 @@ func TestZipKeepsWhatAFileMayRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range zr.File {
-		if f.Name == "x/scripts/run.sh" && f.Mode()&0o111 == 0 {
+		if f.Name == "x/scripts/run.sh" && f.Mode()&0o111 == 0 || f.Name == "x/SKILL.md" && f.Mode().Perm() != 0o644 {
 			t.Errorf("%s is zipped as %s", f.Name, f.Mode())
 		}
 	}

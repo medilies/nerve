@@ -23,6 +23,7 @@ func TestTextReportPrintsEachEventAsItComes(t *testing.T) {
 func TestJSONReportIsOneDocumentOfEventsAndTheError(t *testing.T) {
 	var out bytes.Buffer
 	r := NewReport(&out, AsJSON)
+	r.Add(app.Event{Kind: app.EvWrote, Path: "/x"})
 
 	if !r.Finish(errors.New("boom")) {
 		t.Fatal("a JSON report printed nothing")
@@ -32,7 +33,7 @@ func TestJSONReportIsOneDocumentOfEventsAndTheError(t *testing.T) {
 		Events []app.Event
 		Error  string
 	}
-	if err := json.Unmarshal(out.Bytes(), &doc); err != nil || doc.Events == nil || doc.Error != "boom" {
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil || len(doc.Events) != 1 || doc.Events[0] != (app.Event{Kind: app.EvWrote, Path: "/x"}) || doc.Error != "boom" {
 		t.Errorf("document %s (%v)", out.String(), err)
 	}
 }
