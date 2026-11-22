@@ -53,7 +53,7 @@ If your output contradicts an ADR in `docs/adr/`, say so explicitly rather than 
 ## Workflow
 
 - At the end of each iteration of work, run the tests and the lint (commands in `docs/development.md`), and fix what fails before going on.
-- At the end of each change, ask: review then commit / commit then review / commit without review.
+- At the end of each change, ask whether to review or commit.
 - Reviews always run in a fresh subagent that has not seen the work, never in the main context.
 - A review reports what `docs/not-bugs.md` lists as ignored, not as findings. Each finding is then fixed, dropped with the feature that causes it, or added there.
 - Commits follow Conventional Commits v1.0.0.
