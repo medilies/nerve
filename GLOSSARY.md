@@ -125,7 +125,7 @@ A project's settings kept on one machine and never in the Brain: those the Brain
 _Avoid_: secrets file, private settings
 
 **Drift**:
-A setting, or one item of a list, that nerve wrote or the Brain sets, changed in a project since nerve last wrote it, and that the Brain disagrees with; nerve leaves it as is, fails a sync on it, and overwrites it only with `-f`.
+A setting, or one item of a list, that nerve wrote or the Brain sets, changed in a project since nerve last wrote it, and that the Brain disagrees with; nerve leaves it as is, reports it, and overwrites it only with `-f`, or when a command names it.
 _Avoid_: out of sync, divergence
 
 **Personal setting**:

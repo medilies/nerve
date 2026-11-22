@@ -423,10 +423,27 @@ type Change struct {
 	Value  any    // for an item, the item
 }
 
-// FromOverlay says whether a change is to a setting the local overlay
-// gives: at, under or above a key it sets, or an item of a list it holds.
-func FromOverlay(c Change, overlay map[string]any) bool {
-	for k, v := range Leaves(overlay) {
+// Named is a setting a command names: a key as a leaf path, or with Item
+// the item Value of the list there.
+type Named struct {
+	Leaf  string
+	Item  bool
+	Value any
+}
+
+// Covers says whether a change is to the setting n names: at, under or
+// above its key, or for an item, that item.
+func (n Named) Covers(c Change) bool {
+	if n.Item {
+		return c.Item && c.Leaf == n.Leaf && reflect.DeepEqual(c.Value, n.Value)
+	}
+	return c.Leaf == n.Leaf || strings.HasPrefix(c.Leaf, n.Leaf+Sep) || strings.HasPrefix(n.Leaf, c.Leaf+Sep)
+}
+
+// Gives says whether settings give the setting a change is to: at, under
+// or above a key they set, or an item of a list they hold.
+func Gives(settings map[string]any, c Change) bool {
+	for k, v := range Leaves(settings) {
 		if c.Item {
 			if list, _ := v.([]any); k == c.Leaf && hasItem(list, c.Value) {
 				return true
@@ -460,8 +477,12 @@ type Reconciliation struct {
 // Brain's other items still arrive. A file that is gone (current nil) holds
 // nothing to keep: it is written anew. On nerve's first write to a file
 // (last nil), Before records what it already held as want does, so that
-// cleaning it leaves the file's own.
-func Reconcile(current, last, want map[string]any, force bool) Reconciliation {
+// cleaning it leaves the file's own. The drift of a setting a command
+// names is overwritten, as force does for every setting.
+func Reconcile(current, last, want map[string]any, force bool, named ...Named) Reconciliation {
+	over := func(c Change) bool {
+		return force || slices.ContainsFunc(named, func(n Named) bool { return n.Covers(c) })
+	}
 	if current == nil {
 		last = nil
 	}
@@ -475,7 +496,7 @@ func Reconcile(current, last, want map[string]any, force bool) Reconciliation {
 	var rc Reconciliation
 	for _, k := range unionKeys(have, prev, goal) {
 		if lists(k, have, prev, goal) {
-			rc.Drift = append(rc.Drift, reconcileList(k, have, prev, goal, force, result, next, personal, before)...)
+			rc.Drift = append(rc.Drift, reconcileList(k, have, prev, goal, over, result, next, personal, before)...)
 			continue
 		}
 		_, inP := prev[k]
@@ -487,7 +508,7 @@ func Reconcile(current, last, want map[string]any, force bool) Reconciliation {
 		if before != nil && Same(have, goal, k) {
 			before[k] = have[k]
 		}
-		if force || Same(have, prev, k) || Same(have, goal, k) {
+		if over(Change{Leaf: k}) || Same(have, prev, k) || Same(have, goal, k) {
 			setOrDelete(result, k, goal)
 			setOrDelete(next, k, goal)
 			continue
@@ -518,8 +539,9 @@ func Reconcile(current, last, want map[string]any, force bool) Reconciliation {
 // reconcileList reconciles the list at k item by item, as Reconcile does
 // keys, into result, next, personal and, unless nil, before. The result
 // keeps the file's order, and adds the Brain's new items after; next takes
-// the Brain's order, so it does not change with the file's.
-func reconcileList(k string, have, prev, goal map[string]any, force bool, result, next, personal, before map[string]any) []Change {
+// the Brain's order, so it does not change with the file's. over says
+// which drift to overwrite.
+func reconcileList(k string, have, prev, goal map[string]any, over func(Change) bool, result, next, personal, before map[string]any) []Change {
 	h, _ := have[k].([]any)
 	p, _ := prev[k].([]any)
 	g, _ := goal[k].([]any)
@@ -543,7 +565,7 @@ func reconcileList(k string, have, prev, goal map[string]any, force bool, result
 		if before != nil && inH && inG {
 			had = append(had, x)
 		}
-		if force || inH == inP || inH == inG {
+		if inH == inP || inH == inG || over(Change{Leaf: k, Item: true, Value: x}) {
 			if inG {
 				kept, means = append(kept, x), append(means, x)
 			}
@@ -575,7 +597,7 @@ func reconcileList(k string, have, prev, goal map[string]any, force bool, result
 	case onlyFile:
 		keep = true
 		personal[k] = h
-	case !force && hasH != hasP && hasH != hasG:
+	case hasH != hasP && hasH != hasG && !over(Change{Leaf: k}):
 		keep, mean = hasH, hasP
 	}
 	if len(mine) > 0 && !onlyFile {

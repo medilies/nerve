@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/medilies/nerve/internal/brain/app"
@@ -169,5 +170,122 @@ func TestSetSettingRefusesACheckoutHereSyncWouldRefuseAndChangesNothing(t *testi
 
 	if err == nil || e.brain.saves != 0 {
 		t.Errorf("err %v, saves %d: want a refusal that changes nothing", err, e.brain.saves)
+	}
+}
+
+func TestAddItemWithTheProjectHereNamedSyncsHere(t *testing.T) {
+	e := brainEnv(t)
+	r := &recorder{}
+
+	e.must(r, e.app.AddItem(app.ProjectRef{Dir: "/w/app", Project: "app"}, "skill", []string{"go-stack"}, r))
+
+	if _, ok := e.trees.links["/w/app/.claude/skills/go-stack"]; !ok {
+		t.Errorf("links are %v, want go-stack", e.trees.links)
+	}
+}
+
+func TestRemoveItemSkipsARepeatedName(t *testing.T) {
+	e := brainEnv(t)
+	r := &recorder{}
+
+	e.must(r, e.app.RemoveItem(target("/w/app"), "skill", []string{"tdd", "tdd"}, false, r))
+
+	if want := []string{"nerve: remove skill tdd from project app"}; !reflect.DeepEqual(e.brain.manifestPushes, want) {
+		t.Errorf("pushes are %q, want %q", e.brain.manifestPushes, want)
+	}
+}
+
+func TestRemoveItemFromEveryProjectUnlinksItHere(t *testing.T) {
+	e := brainEnv(t)
+	e.must(e.sync("/w/app", app.SyncOptions{Here: true}))
+	r := &recorder{}
+
+	e.must(r, e.app.RemoveItem(target("/w/app"), "skill", []string{"tdd"}, true, r))
+
+	if _, ok := e.trees.links["/w/app/.claude/skills/tdd"]; ok {
+		t.Errorf("tdd still linked here")
+	}
+}
+
+func TestRemoveSettingFromCommonOrEveryProjectTakesItOutHere(t *testing.T) {
+	for _, all := range []bool{false, true} {
+		e := brainEnv(t)
+		e.must(&recorder{}, e.app.SetSetting(target("/w/app"), "model", "opus", true, &recorder{}))
+		r := &recorder{}
+
+		e.must(r, e.app.RemoveSetting(target("/w/app"), "model", !all, all, r))
+
+		if got, ok := e.settings("/w/app")["model"]; ok {
+			t.Errorf("all %v: model here is %v", all, got)
+		}
+	}
+}
+
+func TestRemoveSettingOnlyCommonHoldsNamesTheCommandForEveryProject(t *testing.T) {
+	e := brainEnv(t)
+	e.brain.m.Common = map[string]any{"model": "opus"}
+
+	err := e.app.RemoveSetting(target("/w/app"), "model", false, false, &recorder{})
+
+	if err == nil || !strings.Contains(err.Error(), "nerve setting rm --common model") {
+		t.Errorf("got %v, want the command that takes it out of every project", err)
+	}
+}
+
+// What a command names wins over drift here: the user said so.
+
+func TestSetSettingOverwritesItsDriftHereAndLeavesOtherDrift(t *testing.T) {
+	e := brainEnv(t)
+	e.project("app").Settings = map[string]any{"model": "opus", "effortLevel": "high"}
+	e.must(e.sync("/w/app", app.SyncOptions{Here: true}))
+	e.settings("/w/app")["model"] = "sonnet"
+	e.settings("/w/app")["effortLevel"] = "low"
+	r := &recorder{}
+
+	e.must(r, e.app.SetSetting(target("/w/app"), "model", "haiku", false, r))
+
+	if got := e.settings("/w/app"); got["model"] != "haiku" || got["effortLevel"] != "low" {
+		t.Errorf("settings here are %v, want model haiku and effortLevel left low", got)
+	}
+}
+
+func TestSetSettingToTheBrainsValueDropsItsDriftHere(t *testing.T) {
+	e := brainEnv(t)
+	e.project("app").Settings = map[string]any{"model": "opus"}
+	e.must(e.sync("/w/app", app.SyncOptions{Here: true}))
+	e.settings("/w/app")["model"] = "sonnet"
+	r := &recorder{}
+
+	e.must(r, e.app.SetSetting(target("/w/app"), "model", "opus", false, r))
+
+	if got := e.settings("/w/app")["model"]; got != "opus" {
+		t.Errorf("model here is %v", got)
+	}
+}
+
+func TestAddSettingOverwritesTheDriftOfItsItemHere(t *testing.T) {
+	e := brainEnv(t)
+	e.project("app").Settings = map[string]any{"permissions": map[string]any{"allow": []any{"Read"}}}
+	e.must(e.sync("/w/app", app.SyncOptions{Here: true}))
+	e.settings("/w/app")["permissions"] = map[string]any{"allow": []any{}}
+	r := &recorder{}
+
+	e.must(r, e.app.AddSetting(target("/w/app"), "permissions.allow", "Read", false, r))
+
+	if got := jsonText(e.settings("/w/app")["permissions"]); got != `{"allow":["Read"]}` {
+		t.Errorf("permissions here are %s", got)
+	}
+}
+
+func TestAddPluginOverwritesItsDriftHere(t *testing.T) {
+	e := brainEnv(t)
+	e.must(e.sync("/w/app", app.SyncOptions{Here: true}))
+	e.settings("/w/app")["enabledPlugins"] = map[string]any{"x@y": false}
+	r := &recorder{}
+
+	e.must(r, e.app.AddItem(target("/w/app"), "plugin", []string{"x@y"}, r))
+
+	if got := jsonText(e.settings("/w/app")["enabledPlugins"]); got != `{"x@y":true}` {
+		t.Errorf("enabledPlugins here are %s", got)
 	}
 }

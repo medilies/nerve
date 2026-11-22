@@ -70,9 +70,10 @@ When a command that changes `brain.json` refuses, it changes nothing, and its er
 
 ## Reading what nerve prints
 
-- **`drift`**: a setting the Brain sets, changed here, and left as is. Ask: keep it for this project (the command the line names), for every project (the same with `--common`), or drop it. `nerve sync --here -f` drops all of this checkout's drift at once: say so.
+- **`drift`**: a setting the Brain sets, changed here, and left as is. It never fails a command. Ask: keep it (the command the line names), for every project where that is not already what the command does (with `--common`), or drop it. `nerve sync --here -f` drops all of this checkout's drift; setting the key again, even to the Brain's value, drops its drift alone.
 - **`personal`**: a setting the Brain does not set, such as an approval. nerve keeps it. Offer to share it only when it looks useful elsewhere.
 - **`problem`**: propose a fix for each.
+- **`note`**: worth knowing, but not wrong. Offer the command it names.
 - **`synced   the Brain to …, dropping …`**: `sync -f` dropped Brain work not pushed. Say so plainly.
 - **`no sync`**: the Brain was not made its remote's. Say why, and offer to set its upstream or check the remote.
 - **`overlay`**: a setting went to the local overlay, which never leaves the machine, for the reason the line gives.

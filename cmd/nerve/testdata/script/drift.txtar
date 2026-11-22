@@ -1,27 +1,35 @@
-# A setting the Brain sets, changed outside it, is drift: a sync fails on it
-# until it is moved into the Brain or overwritten with -f. One the Brain does
-# not set, such as an approval, is personal: kept, and reported once, even
-# by -f.
+# A setting the Brain sets, changed outside it, is drift: a sync leaves it
+# and reports it, without failing, until it is moved into the Brain or
+# overwritten with -f. One the Brain does not set, such as an approval, is
+# personal: kept, and reported once, even by -f.
 
 exec nerve init brain
 cd proj
 exec nerve project add app
 exec nerve setting set model opus
+exec nerve setting set effortLevel high
 exec nerve setting add permissions.allow Read
-exec nerve sync --here
 # As /model and an approval in Claude Code do.
 replace .claude/settings.local.json '"model": "opus"' '"model": "sonnet"'
 replace .claude/settings.local.json '"Read"' '"Read", "Bash(make)"'
 
-! exec nerve sync --here
-stderr 'nerve sync --here -f'
+exec nerve sync --here
+! stderr .
 stdout '^drift    .*/proj/.claude/settings.local.json: model is "sonnet" here, "opus" in the Brain: left as is: keep it with nerve setting set model sonnet, or drop all drift here with nerve sync --here -f$'
 stdout '^personal .*/proj/.claude/settings.local.json: permissions.allow has "Bash\(make\)": kept, the Brain does not set it$'
 
 # The change syncs this checkout, which still drifts on model.
-! exec nerve setting add permissions.allow 'Bash(make)'
+exec nerve setting add permissions.allow 'Bash(make)'
 stdout '^drift    .*/proj/.claude/settings.local.json: model is "sonnet" here, "opus" in the Brain: left as is: keep it with nerve setting set model sonnet, or drop all drift here with nerve sync --here -f$'
 ! stdout '^personal'
+
+# A setting a command names is written here, its drift dropped.
+replace .claude/settings.local.json '"effortLevel": "high"' '"effortLevel": "low"'
+exec nerve setting set model haiku
+grep '"model": "haiku"' .claude/settings.local.json
+grep '"effortLevel": "low"' .claude/settings.local.json
+stdout '^drift    .*: effortLevel is "low" here, "high" in the Brain'
+exec nerve setting set model opus
 
 exec nerve sync --here -f
 grep '"model": "opus"' .claude/settings.local.json
@@ -31,8 +39,8 @@ grep '"Bash\(make\)"' .claude/settings.local.json
 # personal.
 replace .claude/settings.local.json '"model": "opus"' '"model": "haiku"'
 replace .claude/settings.local.json '"Read"' '"Read", "Bash(mine)"'
-! exec nerve sync
-stderr 'nerve sync -f$'
+exec nerve sync
+stdout '^drift    .*: model is "haiku" here, "opus" in the Brain: left as is: keep it with nerve setting set model haiku, or drop all drift here with nerve sync --here -f$'
 exec nerve sync -f
 grep '"model": "opus"' .claude/settings.local.json
 grep '"Bash\(mine\)"' .claude/settings.local.json

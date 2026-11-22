@@ -21,16 +21,16 @@ nowhere else.
 - **One source of truth.** `brain.json` says what each project gets.
   A command that changes it takes the remote's first, then pushes the
   change as one commit, so every machine reads the same file.
-- **Explicit.** nerve changes a project only when you sync, update or
-  remove it. Each session starts with a report of what waits for a
-  sync, and of drift.
+- **Explicit.** nerve changes a project only when a command says so:
+  sync, update, and the commands that change what it gets. Each session
+  starts with a report of what waits for a sync, and of drift.
 - **Revoke everywhere.** Take a skill or a denied tool out of every
   project with one command; this checkout drops it at once, and each
   other one at its next sync.
 - **Nothing lost.** A setting the Brain does not set, one the checkout
   had before nerve or an approval, is kept. One the Brain sets that
-  Claude Code changed is drift: a sync fails on it, and `-f` overwrites
-  it. A link that goes missing is made again.
+  Claude Code changed is drift: nerve leaves it and reports it, and `-f`
+  overwrites it. A link that goes missing is made again.
 - **Pinned.** Third-party skills sit at a commit. `nerve update` shows
   which of their files changed as it moves the pin, then syncs the
   project here. `--dry-run` shows the same, and moves no pin. See

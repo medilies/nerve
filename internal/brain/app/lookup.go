@@ -74,7 +74,7 @@ func (a App) reachedHere(ref ProjectRef, every bool) (string, error) {
 	}
 	t, project, err := a.here(machine, ref.Dir)
 	if err != nil || !every && ref.Project != "" && ref.Project != project {
-		return "", nil // no listed checkout here, or not its project: the change reaches none
+		return "", nil // the change reaches no listed checkout here
 	}
 	if err := a.precheck(t); err != nil {
 		return "", fmt.Errorf("%s: %w", t.Top, err)
@@ -83,13 +83,14 @@ func (a App) reachedHere(ref ProjectRef, every bool) (string, error) {
 }
 
 // syncHere carries the Brain just pushed to the listed checkout around dir,
-// if any. The Brain is its remote's already: a sync of it would only drop
-// the user's work in it.
-func (a App) syncHere(dir string, r Reporter) error {
+// if any, where the settings the command named overwrite their drift. The
+// Brain is its remote's already: a sync of it would only drop the user's
+// work in it.
+func (a App) syncHere(dir string, r Reporter, named ...domain.Named) error {
 	if dir == "" {
 		return nil
 	}
-	return a.Sync(SyncOptions{Dir: dir, Here: true, brainAsIs: true}, r)
+	return a.Sync(SyncOptions{Dir: dir, Here: true, brainAsIs: true, named: named}, r)
 }
 
 // here returns the working tree around dir and the project its checkout is

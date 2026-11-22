@@ -44,7 +44,7 @@ func (a App) AddItem(ref ProjectRef, kind string, names []string, r Reporter) er
 		added = append(added, name)
 	}
 	if len(added) == 0 {
-		return a.syncHere(here, r)
+		return a.syncHere(here, r, pluginSettings(kind, names)...)
 	}
 	*list = append(*list, added...)
 	if err := a.pushManifest(l.m, fmt.Sprintf("add %s %s to project %s", kind, strings.Join(added, ", "), project), r); err != nil {
@@ -53,7 +53,7 @@ func (a App) AddItem(ref ProjectRef, kind string, names []string, r Reporter) er
 	for _, name := range added {
 		r.Add(Event{Kind: EvAdded, Project: project, Item: kind + " " + name})
 	}
-	return a.syncHere(here, r)
+	return a.syncHere(here, r, pluginSettings(kind, names)...)
 }
 
 // addable says why the Brain cannot give a project the item, or nil.
@@ -96,6 +96,7 @@ func (a App) RemoveItem(ref ProjectRef, kind string, names []string, all bool, r
 	if err != nil {
 		return err
 	}
+	names = unique(names)
 	l, err := a.fresh(r)
 	if err != nil {
 		return err
@@ -140,7 +141,31 @@ func (a App) RemoveItem(ref ProjectRef, kind string, names []string, all bool, r
 	for _, e := range dropped {
 		r.Add(e)
 	}
-	return a.syncHere(here, r)
+	return a.syncHere(here, r, pluginSettings(kind, names)...)
+}
+
+// unique is names without repeats, in order.
+func unique(names []string) []string {
+	var u []string
+	for _, n := range names {
+		if !slices.Contains(u, n) {
+			u = append(u, n)
+		}
+	}
+	return u
+}
+
+// pluginSettings names the settings nerve writes for plugins of names, or
+// none for another kind.
+func pluginSettings(kind string, names []string) []domain.Named {
+	if kind != "plugin" {
+		return nil
+	}
+	var named []domain.Named
+	for _, n := range names {
+		named = append(named, domain.Named{Leaf: domain.LeafKey([]string{"enabledPlugins", n})})
+	}
+	return named
 }
 
 // othersItems lists the skills or agents in a working tree that nerve did

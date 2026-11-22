@@ -13,6 +13,14 @@ one command:
   it in step: see [Push](#push). The skill, agent, hook, plugin and
   setting commands then sync the checkout around the working directory,
   when the change reaches it: its own project, or every project.
+  - They refuse that checkout up front, changing nothing, when a sync
+    would refuse it.
+  - They sync it even when they change nothing, such as an item listed
+    already, so a checkout behind the Brain catches up.
+  - The setting they name, or a plugin's, is written there even where
+    it drifts. Other drift stays.
+- `add` and `rm` take several names of one kind, in one push. If one
+  name is refused, they change nothing.
 - At each session start, the [session report](#the-session-report) says
   what waits for a sync. It changes nothing.
 
@@ -137,8 +145,8 @@ the state again.
 A setting nerve wrote or the Brain sets, changed in the checkout
 since nerve last wrote it, by `/model` or `/config` say, that the Brain
 disagrees with, is drift. nerve leaves it as it is, writes the rest,
-and reports it at every sync and session start. A sync fails on drift,
-naming each value here and in the Brain.
+and reports it at every sync and session start, naming each value here
+and in the Brain. Drift never fails a command.
 
 A list is taken item by item: an item of the Brain's removed in the
 checkout is drift of that one item, and the Brain's other changes to
@@ -153,8 +161,17 @@ Each drift line ends with the commands that resolve it:
 - Keep the change with `nerve setting set <key> <value>`, or
   `nerve setting rm <key>`, or `nerve setting rm <key>=<item>` for an item
   removed from a list.
-- Overwrite all the checkout's drift with `nerve sync --here -f`, or
-  every checkout's with `nerve sync -f`. Personal settings stay.
+  - For a checkout of another project, the command names it with
+    `--project`.
+  - For a key or item removed here that `common` gives, the command is
+    `--common`, or `--all` when the project gives it too: it takes it out
+    of every project.
+  - For a setting nerve writes for a plugin or hook, there is none: keep
+    the change with `nerve plugin rm` or `nerve hook rm`, or drop it.
+- Overwrite all the checkout's drift with `nerve sync --here -f`, run in
+  it, or every checkout's with `nerve sync -f`. Personal settings stay.
+- Setting a key again overwrites its drift in the checkout here, even
+  to the value the Brain holds already.
 
 ## What leaves the Brain leaves the project
 

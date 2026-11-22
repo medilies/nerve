@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
-	"strings"
 
 	"github.com/medilies/nerve/internal/brain/domain"
 )
@@ -27,7 +27,7 @@ func (a App) Status(ref ProjectRef, r Reporter) error {
 		m.Projects = map[string]*domain.Project{}
 	}
 	brain := Event{Kind: EvBrain, Path: a.Brain.Root(), Detail: a.Brain.State()}
-	if brain.Detail != "" && !strings.HasPrefix(brain.Detail, "cannot read") {
+	if unpushed.MatchString(brain.Detail) {
 		brain.Fix = "nerve push"
 	}
 	r.Add(brain)
@@ -56,21 +56,21 @@ func (a App) Status(ref ProjectRef, r Reporter) error {
 	}
 	r.Add(Event{Kind: EvProject, Project: name, Detail: m.Describe(p)})
 	for _, dir := range dirs {
-		sync := "nerve sync"
-		if dir == tree.Top {
-			sync += " --here"
-		}
-		if err := a.treeStatus(m, name, p, dir, sync, r); err != nil {
+		if err := a.treeStatus(m, name, p, dir, dir == tree.Top, r); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// unpushed matches a Brain state that holds work push sends.
+var unpushed = regexp.MustCompile(`(^|, )(uncommitted changes|\d+ commits? not pushed)`)
+
 // treeStatus says how one checkout of project name stands: its sync state
 // and what waits for sync, the command that syncs it, links that are not
-// as they should be, the team's skills and agents, and drift.
-func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir, sync string, r Reporter) error {
+// as they should be, the team's skills and agents, and drift. here says
+// whether it is the checkout around the working directory.
+func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir string, here bool, r Reporter) error {
 	st, err := a.Machine.State(dir)
 	if errors.Is(err, ErrUnreadable) {
 		// Whose links and settings are there is unknown until a sync
@@ -149,24 +149,26 @@ func (a App) treeStatus(m domain.Manifest, name string, p *domain.Project, dir, 
 	pending += len(rc.Changes)
 	e := Event{Kind: EvCheckout, Path: dir, Project: name, Detail: syncState(st, a.Brain.Head())}
 	switch {
+	case pending == 0 && st.Commit != "": // behind only by pushes that change nothing here
+		e.Detail = "synced at " + Short(st.Commit) + ", in step with the Brain"
 	case pending == 1:
 		e.Detail += "; 1 change waits"
 	case pending > 1:
 		e.Detail += fmt.Sprintf("; %d changes wait", pending)
 	}
 	if pending > 0 {
-		e.Fix = sync
+		e.Fix = "nerve sync"
+		if here {
+			e.Fix += " --here"
+		}
 	}
 	r.Add(e)
 	for _, e := range events {
 		r.Add(e)
 	}
+	site := driftSite{path: path, project: name, here: here, common: m.Common, settings: p.Settings, overlay: overlay}
 	for _, c := range rc.Drift {
-		e := driftEvent(path, c)
-		if domain.FromOverlay(c, overlay) {
-			e.Detail = "local overlay"
-		}
-		r.Add(e)
+		r.Add(site.event(c))
 	}
 	return nil
 }

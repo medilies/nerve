@@ -22,7 +22,7 @@ exec nerve sync --here
 mkdir src
 cd src
 exec sh -c 'eval "$(sed -n "s/.*\"command\": \"\(.*\)\",*$/\1/p" ../.claude/settings.local.json)"'
-stdout '^\{"systemMessage":"nerve: checkout [^"]*/proj \(app\): synced at [0-9a-f]{7}"\}$'
+stdout '^\{"systemMessage":"nerve: checkout [^"]*/proj \(app\): synced at [0-9a-f]{7}, in step with the Brain"\}$'
 ! stderr .
 
 -- brain/skills/go-stack/SKILL.md --

@@ -18,7 +18,8 @@ type SyncOptions struct {
 	Here  bool   // only the checkout around Dir
 	Force bool   // overwrite drift
 
-	brainAsIs bool // carry the Brain as it is, without making it its remote's
+	brainAsIs bool           // carry the Brain as it is, without making it its remote's
+	named     []domain.Named // the settings a command named, whose drift it overwrites
 }
 
 // syncer carries one Brain to checkouts.
@@ -29,6 +30,8 @@ type syncer struct {
 	self  domain.Skill
 	cmd   string
 	force bool
+	named []domain.Named
+	here  string // the checkout around the working directory, if any
 }
 
 // Sync makes the Brain equal to its remote, then carries it to every
@@ -74,14 +77,16 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 	if err != nil {
 		return err
 	}
-	s := &syncer{App: a, m: l.m, r: r, self: self, cmd: cmd, force: o.Force}
+	s := &syncer{App: a, m: l.m, r: r, self: self, cmd: cmd, force: o.Force, named: o.named, here: here.Path}
 	checkouts := []domain.Checkout{here}
 	var gone []Event // checkouts unlisted, reported once the machine file is saved
 	if !o.Here {
 		checkouts, gone = a.present(&l.machine)
+		if t, err := a.Trees.Locate(o.Dir); err == nil {
+			s.here = t.Top
+		}
 	}
 	failed := 0
-	var drifted []string
 	for _, c := range checkouts {
 		p := l.m.Projects[c.Project]
 		if p == nil {
@@ -104,14 +109,9 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 			gone = append(gone, Event{Kind: EvUnlisted, Project: c.Project, Path: c.Path, Detail: why, Fix: "nerve project add " + c.Project + ", in it, lists it again"})
 			continue
 		}
-		held, err := s.syncTree(c.Project, p, c.Path)
-		if err != nil {
+		if err := s.syncTree(c.Project, p, c.Path); err != nil {
 			r.Add(Event{Kind: EvProblem, Path: c.Path, Detail: err.Error()})
 			failed++
-			continue
-		}
-		if held {
-			drifted = append(drifted, c.Path)
 		}
 	}
 	var errs []error
@@ -131,13 +131,6 @@ func (a App) Sync(o SyncOptions, r Reporter) error {
 	}
 	if failed > 0 {
 		errs = append(errs, fmt.Errorf("%d of %d checkouts did not sync", failed, len(checkouts)))
-	}
-	if len(drifted) > 0 {
-		force := "nerve sync -f"
-		if o.Here {
-			force = "nerve sync --here -f"
-		}
-		errs = append(errs, fmt.Errorf("settings drifted in %s: keep each change with nerve setting set or add, or drop it with %s", strings.Join(drifted, ", "), force))
 	}
 	return errors.Join(errs...)
 }
@@ -202,21 +195,21 @@ func problemEvent(p domain.Problem) Event {
 }
 
 // syncTree carries one project to one working tree and records what it did,
-// even when a step fails part way. It returns whether settings drifted.
-func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool, err error) {
+// even when a step fails part way.
+func (s *syncer) syncTree(name string, p *domain.Project, dir string) (err error) {
 	if err := s.refusals(s.m, p); err != nil {
-		return false, err
+		return err
 	}
 	tree, err := s.Trees.Locate(dir)
 	if err != nil {
-		return false, fmt.Errorf("git cannot locate it, so nerve leaves it as it is: %w; make it a git repo again, or move the folder away for nerve to unlist it", err)
+		return fmt.Errorf("git cannot locate it, so nerve leaves it as it is: %w; make it a git repo again, or move the folder away for nerve to unlist it", err)
 	}
 	if filepath.Clean(tree.Top) != filepath.Clean(dir) { // its links would sit below the exclude block's
-		return false, fmt.Errorf("it is inside the git repo at %s, not its top: list %s in the machine file instead", tree.Top, tree.Top)
+		return fmt.Errorf("it is inside the git repo at %s, not its top: list %s in the machine file instead", tree.Top, tree.Top)
 	}
 	st, err := s.state(dir, s.r)
 	if err != nil {
-		return false, err
+		return err
 	}
 	saved := false
 	save := func() error {
@@ -236,14 +229,14 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 	s.r = c
 	defer func() { s.r = r }()
 	if err := s.throughLink(dir); err != nil {
-		return false, err
+		return err
 	}
 	if err := s.Trees.CheckIgnored(dir); err != nil {
-		return false, err
+		return err
 	}
 	// A damaged block refuses the tree before any link is made.
 	if err := s.exclude(tree, st.Links); err != nil {
-		return false, err
+		return err
 	}
 	links := []domain.Link{{Kind: "skill", Name: "nerve", Target: s.self.Dir}}
 	for _, n := range p.Skills {
@@ -286,7 +279,7 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 		// other items: nerve's, so the links no longer listed go.
 		left, err := s.leftLinks(dir)
 		if err != nil {
-			return false, err
+			return err
 		}
 		for rel, l := range left {
 			st.Links[rel] = l
@@ -295,24 +288,26 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 	}
 	adopted, err := s.link(dir, links, &st)
 	if err != nil {
-		return false, err
+		return err
 	}
 	adopted = adopted || moved
 	excluded = true
 	if err := s.exclude(tree, st.Links); err != nil {
-		return false, err
+		return err
 	}
 	overlay, _, err := s.Machine.Overlay(name)
 	if err != nil {
-		return false, err
+		return err
 	}
 	want := domain.Want(s.m, p, s.cmd, overlay, s.Brain.Root())
-	if held, err = s.reconcile(settingsPath(dir), want, overlay, &st, fresh && adopted); err != nil {
-		return held, err
+	site := driftSite{path: settingsPath(dir), project: name, here: dir == s.here, common: s.m.Common, settings: p.Settings, overlay: overlay}
+	held, err := s.reconcile(site, want, &st, fresh && adopted)
+	if err != nil {
+		return err
 	}
 	st.Commit = s.Brain.Head()
 	if err := save(); err != nil {
-		return held, err
+		return err
 	}
 	switch {
 	case c.n > 0:
@@ -320,7 +315,7 @@ func (s *syncer) syncTree(name string, p *domain.Project, dir string) (held bool
 	case !held: // drift, held back, is what it says instead
 		s.r.Add(Event{Kind: EvUpToDate, Project: name, Path: dir, Target: st.Commit})
 	}
-	return held, nil
+	return nil
 }
 
 // changes passes events on, counting those that say something changed.
@@ -388,12 +383,13 @@ func (a App) exclude(tree domain.Tree, links map[string]domain.Link) error {
 // and personal settings, and reports each key it changes or holds back, and
 // each personal setting the first time it sees it. In a checkout that
 // moved, nothing the file holds counts as there before nerve.
-func (s *syncer) reconcile(path string, want, overlay map[string]any, st *domain.TreeState, moved bool) (bool, error) {
+func (s *syncer) reconcile(site driftSite, want map[string]any, st *domain.TreeState, moved bool) (bool, error) {
+	path := site.path
 	current, err := s.Trees.ReadSettings(path)
 	if err != nil {
 		return false, err
 	}
-	rc := domain.Reconcile(current, st.Settings, want, s.force)
+	rc := domain.Reconcile(current, st.Settings, want, s.force, s.named...)
 	if st.Settings == nil || current == nil { // nerve's first write to this file
 		st.Before = rc.Before
 		if moved {
@@ -401,11 +397,7 @@ func (s *syncer) reconcile(path string, want, overlay map[string]any, st *domain
 		}
 	}
 	for _, c := range rc.Drift {
-		e := driftEvent(path, c)
-		if domain.FromOverlay(c, overlay) {
-			e.Detail = "local overlay"
-		}
-		s.r.Add(e)
+		s.r.Add(site.event(c))
 	}
 	if rc.Write {
 		if err := s.Trees.WriteSettings(path, rc.Result); err != nil {
@@ -430,21 +422,68 @@ func (s *syncer) reconcile(path string, want, overlay map[string]any, st *domain
 	return len(rc.Drift) > 0, nil
 }
 
-func driftEvent(path string, c domain.Change) Event {
-	e := Event{Kind: EvDrift, Path: path, Key: c.Key, Local: c.After, Brain: c.Before}
-	key := domain.ShellWord(c.Key)
-	var keep string
-	switch {
-	case c.Item: // an item the Brain has, gone from here: one only here is personal
+// driftSite is where settings drift: the settings file of a checkout of
+// project, the one around the working directory or not, and the layers
+// that give the Brain's values.
+type driftSite struct {
+	path, project             string
+	here                      bool
+	common, settings, overlay map[string]any
+}
+
+// event reports drift c, with the command that keeps the change in the
+// Brain, where one does, and the one that drops it.
+func (d driftSite) event(c domain.Change) Event {
+	e := Event{Kind: EvDrift, Path: d.path, Key: c.Key, Local: c.After, Brain: c.Before}
+	if c.Item { // an item the Brain has, gone from here: one only here is personal
 		e.Item = c.Before
-		keep = "nerve setting rm " + domain.ShellWord(c.Key+"="+valueText(c.Before))
-	case c.After == "unset":
-		keep = "nerve setting rm " + key
-	default:
-		keep = "nerve setting set " + key + " " + valueWord(c.After)
 	}
-	e.Fix = "keep it with " + keep + ", or drop all drift here with nerve sync --here -f"
+	overlay := domain.Gives(d.overlay, c)
+	if overlay {
+		e.Detail = "local overlay"
+	}
+	e.Fix = "drop all drift here with nerve sync --here -f"
+	if !d.here {
+		e.Fix = "drop all its drift by running nerve sync --here -f in it"
+	}
+	if domain.WrittenByNerve(c.Leaf) { // from a plugin or hook the project lists: no setting keeps it
+		return e
+	}
+	verb, words := "set", []string{c.Key, valueText(c.After)}
+	switch {
+	case c.Item:
+		verb, words = "rm", []string{c.Key + "=" + valueText(c.Before)}
+	case c.After == "unset":
+		verb, words = "rm", []string{c.Key}
+	}
+	keep, flag := "keep it with ", ""
+	switch {
+	case verb == "rm" && domain.Gives(d.common, c): // no project takes out what common gives
+		keep, flag = "keep it in every project with ", "--common"
+		if overlay || domain.Gives(d.settings, c) {
+			flag = "--all"
+		}
+	case !d.here:
+		flag = "--project " + d.project
+	}
+	e.Fix = keep + settingCommand(verb, flag, words) + ", or " + e.Fix
 	return e
+}
+
+// settingCommand is nerve setting verb with flag, then words, each as one
+// shell word, after -- when one starts with -.
+func settingCommand(verb, flag string, words []string) string {
+	cmd := "nerve setting " + verb
+	if flag != "" {
+		cmd += " " + flag
+	}
+	if slices.ContainsFunc(words, func(w string) bool { return strings.HasPrefix(w, "-") }) {
+		cmd += " --"
+	}
+	for _, w := range words {
+		cmd += " " + domain.ShellWord(w)
+	}
+	return cmd
 }
 
 // valueText is a value shown as JSON, as a user writes it on the command
@@ -456,9 +495,6 @@ func valueText(shown string) string {
 	}
 	return shown
 }
-
-// valueWord is valueText as one shell word.
-func valueWord(shown string) string { return domain.ShellWord(valueText(shown)) }
 
 // ours says whether the link at rel in dir is still the one nerve made: a
 // link that points where nerve pointed it.

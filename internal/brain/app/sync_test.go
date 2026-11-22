@@ -95,18 +95,15 @@ func TestSyncRefusesATreeWhoseSettingsGitSeesOrShares(t *testing.T) {
 	}
 }
 
-func TestSyncKeepsDriftAndFails(t *testing.T) {
+func TestSyncKeepsDriftAndReportsItWithoutFailing(t *testing.T) {
 	e := newEnv(t)
 	p := e.listed("app", "/w/app")
 	p.Settings = map[string]any{"model": "opus"}
 	e.must(e.sync("/w/app", app.SyncOptions{}))
 	e.trees.settings["/w/app/.claude/settings.local.json"]["model"] = "sonnet"
 
-	r, err := e.sync("/w/app", app.SyncOptions{})
+	r := e.must(e.sync("/w/app", app.SyncOptions{}))
 
-	if err == nil || !strings.Contains(err.Error(), "settings drifted in /w/app:") {
-		t.Errorf("got %v, want drift to fail a sync by hand", err)
-	}
 	contains(t, r, `drift    /w/app/.claude/settings.local.json: model is "sonnet" here, "opus" in the Brain: left as is`)
 	if e.settings("/w/app")["model"] != "sonnet" {
 		t.Errorf("drift was overwritten")
@@ -125,11 +122,8 @@ func TestSyncSaysDriftFromTheOverlayIsTheOverlays(t *testing.T) {
 	e.trees.settings["/w/app/.claude/settings.local.json"]["env"] = map[string]any{"FOO": "baz"}
 	e.trees.settings["/w/app/.claude/settings.local.json"]["permissions"] = map[string]any{"allow": []any{}}
 
-	r, err := e.sync("/w/app", app.SyncOptions{})
+	r := e.must(e.sync("/w/app", app.SyncOptions{}))
 
-	if err == nil || !strings.Contains(err.Error(), "keep each change with nerve setting set or add") {
-		t.Errorf("got %v", err)
-	}
 	contains(t, r, `drift    /w/app/.claude/settings.local.json: env.FOO is "baz" here, "bar" in the local overlay: left as is`,
 		`drift    /w/app/.claude/settings.local.json: permissions.allow lacks "Bash(deploy)" here, which the local overlay has: left as is`)
 }
@@ -958,18 +952,15 @@ func TestSyncDropsTheStateOfAGoneCheckoutOnlyOnceItIsUnlisted(t *testing.T) {
 	}
 }
 
-func TestADriftErrorNamesTheCheckoutsThatDrifted(t *testing.T) {
+func TestSyncOfEveryCheckoutReportsTheDriftOfEach(t *testing.T) {
 	e := newEnv(t)
 	e.listed("app", "/w/app").Settings = map[string]any{"model": "opus"}
 	e.listedWorktree("/w/app2", "/w/app")
 	e.must(e.sync("/w", app.SyncOptions{}))
 	e.trees.settings["/w/app2/.claude/settings.local.json"]["model"] = "haiku"
 
-	r, err := e.sync("/w", app.SyncOptions{})
+	r := e.must(e.sync("/w", app.SyncOptions{}))
 
-	if err == nil || !strings.Contains(err.Error(), "settings drifted in /w/app2: keep each change with nerve setting set or add, or drop it with nerve sync -f") {
-		t.Errorf("got %v", err)
-	}
 	contains(t, r, `drift    /w/app2/.claude/settings.local.json: model is "haiku" here, "opus" in the Brain: left as is`, "app is up to date at aaaaaaa in /w/app")
 }
 

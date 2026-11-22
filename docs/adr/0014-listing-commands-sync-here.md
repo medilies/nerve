@@ -1,6 +1,6 @@
 # Listing commands sync the checkout here
 
-Status: accepted, 2026-11-22. Amends [ADR 0009](0009-explicit-verbs.md), "A project is in step only after `nerve sync`", as [ADR 0012](0012-project-add-syncs.md) did for `project add`.
+Status: accepted, 2026-11-22. Amends [ADR 0009](0009-explicit-verbs.md), "A project is in step only after `nerve sync`", as [ADR 0012](0012-project-add-syncs.md) did for `project add`. Its exit on drift is amended by [ADR 0016](0016-drift-never-fails.md).
 
 ## Context
 

@@ -79,7 +79,8 @@ func (a App) changeSetting(ref ProjectRef, key string, v any, common, item bool,
 	if err := a.changeOneSetting(ref, key, v, common, item, r, change); err != nil {
 		return err
 	}
-	return a.syncHere(here, r)
+	path, _ := settingKey(key) // read already
+	return a.syncHere(here, r, domain.Named{Leaf: domain.LeafKey(path), Item: item, Value: v})
 }
 
 func (a App) changeOneSetting(ref ProjectRef, key string, v any, common, item bool, r Reporter, change func(map[string]any, []string) (map[string]any, error)) error {
@@ -287,7 +288,13 @@ func (a App) RemoveSetting(ref ProjectRef, arg string, common, all bool, r Repor
 	if err := a.removeSetting(ref, arg, common, all, r); err != nil {
 		return err
 	}
-	return a.syncHere(here, r)
+	key, raw, hasValue := domain.CutItem(arg)
+	path, _ := settingKey(key) // read already
+	named := domain.Named{Leaf: domain.LeafKey(path), Item: hasValue}
+	if hasValue {
+		named.Value = domain.ParseValue(raw)
+	}
+	return a.syncHere(here, r, named)
 }
 
 func (a App) removeSetting(ref ProjectRef, arg string, common, all bool, r Reporter) error {
@@ -367,6 +374,9 @@ func (a App) removeSetting(ref ProjectRef, arg string, common, all bool, r Repor
 			where = "project nor common"
 		case !common:
 			where = "project " + layers[0].project
+			if c := copySettings(l.m.Common); c != nil && domain.RemovePath(c, path, item, hasValue) {
+				return fmt.Errorf("project %s does not hold %s, common does: take it out of every project with nerve setting rm --common %s", layers[0].project, shown, domain.ShellWord(arg))
+			}
 		}
 		return fmt.Errorf("no %s holds %s", where, shown)
 	}

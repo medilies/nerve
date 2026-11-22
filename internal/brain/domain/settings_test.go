@@ -87,6 +87,35 @@ func TestReconcileForceOverwritesDrift(t *testing.T) {
 	}
 }
 
+func TestReconcileOverwritesTheDriftOfANamedKeyOnly(t *testing.T) {
+	file := obj(t, `{"model": "sonnet", "effortLevel": "low"}`)
+	last := obj(t, `{"model": "haiku", "effortLevel": "high"}`)
+
+	rc := domain.Reconcile(file, last, obj(t, `{"model": "opus", "effortLevel": "high"}`), false, domain.Named{Leaf: "model"})
+
+	if got := text(rc.Result); got != `{"effortLevel":"low","model":"opus"}` {
+		t.Errorf("result is %s, want model overwritten and effortLevel left", got)
+	}
+	if got := keys(rc.Drift); !reflect.DeepEqual(got, []string{"effortLevel"}) {
+		t.Errorf("drift is %v", got)
+	}
+}
+
+func TestReconcileOverwritesTheDriftOfANamedItemOnly(t *testing.T) {
+	file := obj(t, `{"permissions": {"allow": []}}`)
+	last := obj(t, `{"permissions": {"allow": ["Read", "Edit"]}}`)
+	item := domain.Named{Leaf: "permissions" + domain.Sep + "allow", Item: true, Value: "Read"}
+
+	rc := domain.Reconcile(file, last, last, false, item)
+
+	if got := text(rc.Result); got != `{"permissions":{"allow":["Read"]}}` {
+		t.Errorf("result is %s, want Read back and Edit left out", got)
+	}
+	if len(rc.Drift) != 1 || rc.Drift[0].Before != `"Edit"` {
+		t.Errorf("drift is %v, want Edit's alone", rc.Drift)
+	}
+}
+
 func TestReconcileRevokesWhatLeftTheBrain(t *testing.T) {
 	written := obj(t, `{"model": "opus", "permissions": {"deny": ["Cron"]}}`)
 
